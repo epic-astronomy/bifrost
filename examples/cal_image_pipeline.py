@@ -37,7 +37,7 @@ N_BASELINE = 512*512
 UV_SPAN_SIZE = N_BASELINE*6*4      # all the baselines then 6 floats - stand numbers, U and V, and Re/Im visibility
 GRID_SPAN_SIZE = FFT_SIZE**2
 
-# For dubbuging to show the UV data
+# For debbuging to show the UV data
 class PrintBlock(TransformBlock):
   def __init__(self):
     super(PrintBlock, self).__init__(gulp_size=UV_SPAN_SIZE)
@@ -103,15 +103,19 @@ class GridBlock(TransformBlock):
     def gauss_val(self, x_dist, y_dist):
       return np.exp(-(((x_dist)**2)/0.5+((y_dist)**2))/0.5)
 
-    def gauss_here(self, x, y, visibility, data, norm):
+    def gauss_here(self, u, v, visibility, data, norm):
+      x = int(round(u))
+      y = int(round(v))
+
       for i in range(x-1, x+2):
         for j in range(y-1, y+2):
-          if self.in_range(i, j): data[i+data.shape[0]/2, j+data.shape[1]/2] += visibility*self.gauss_val(i-x, j-y)/norm
+          if self.in_range(i, j): data[i+data.shape[0]/2, j+data.shape[1]/2] += visibility*self.gauss_val(float(i)-u, float(j)-v)/norm
 
     def grid(self, input_rings, output_rings):
       data = np.zeros((FFT_SIZE, FFT_SIZE), dtype=np.complex64)
 
       # Get sum of points that hit the grid from the gaussian for normalization purposes
+      # Only approximate.
       g_sum = 0.0
       for i in range(-1, 2):	# 3x3 grid 
         for j in range(-1, 2):
@@ -146,8 +150,8 @@ class GridBlock(TransformBlock):
                 y = -y
                 if self.in_range(x, y): data[x+FFT_SIZE/2, y+FFT_SIZE/2] = visibility
             else:		# Gaussian blur onto the grid
-              self.gauss_here(x, y, visibility, data, g_sum)
-              if conjugates: self.gauss_here(-x, -y, visibility, data, g_sum)     
+              self.gauss_here(u, v, visibility, data, g_sum)
+              if conjugates: self.gauss_here(-u, -v, visibility, data, g_sum)     
 
 
 	# After gridding, invert the Fourier components and get an image
