@@ -38,11 +38,11 @@ UV_SPAN_SIZE = N_BASELINE*6*4      # all the baselines then 6 floats - stand num
 GRID_SPAN_SIZE = FFT_SIZE**2
 
 # For debbuging to show the UV data
-class PrintBlock(TransformBlock):
+class PrintBlock(SinkBlock):
   def __init__(self):
     super(PrintBlock, self).__init__(gulp_size=UV_SPAN_SIZE)
 
-  def main(self, input_rings, output_rings):
+  def main(self, input_ring):
     i = 0
     # How do i get these
     nbit = 32
@@ -55,12 +55,12 @@ class PrintBlock(TransformBlock):
 # Read visibilities which happen to belong to an image 
 # i.e. they are Fourier components from an FFT of an image.
 # Some can be missing.
-class FakeVisBlock(TransformBlock):
+class FakeVisBlock(SourceBlock):
 
   def __init__(self):
     super(FakeVisBlock, self).__init__(gulp_size=UV_SPAN_SIZE)
 
-  def main(self, input_rings, output_rings):
+  def main(self, output_ring):
 
     ohdr = {}
     ohdr["frame_shape"] = ( N_BASELINE, 1 )
@@ -80,7 +80,7 @@ class FakeVisBlock(TransformBlock):
     print "Loaded", i, "values"
 
     self.output_header = json.dumps(ohdr)
-    out_span_generator = self.iterate_ring_write(output_rings[0])
+    out_span_generator = self.iterate_ring_write(output_ring)
     for span in out_span_generator:
       span.data[0, :] = data.view(dtype=np.uint8).ravel()
 
