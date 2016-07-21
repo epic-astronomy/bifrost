@@ -601,3 +601,24 @@ class WaterfallBlock(object):
                     pass
         return waterfall_matrix
 
+# Read visibilities which happen to belong to an image 
+# i.e. they are Fourier components from an FFT of an image.
+# Some can be missing.
+class FakeVisBlock(SourceBlock):
+    """Read a formatted file for fake visibility data"""
+    def __init__(self, filename):
+        super(FakeVisBlock, self).__init__()
+        self.filename = filename
+    def main(self, output_ring):
+        """Start the visibility generation
+        @param[out] output_ring Will contain the visibilities
+        """
+        self.gulp_size = 512*512*4*4
+        self.output_header = json.dumps(
+            {'dtype':str(np.float32), 
+            'nbit':32})
+        uvw_data = np.loadtxt(
+            self.filename, dtype=np.float32, usecols={3, 4, 5, 6})
+        for span in self.iterate_ring_write(output_ring):
+            span.data_view(np.float32)[0][:] = uvw_data.ravel()
+            break
