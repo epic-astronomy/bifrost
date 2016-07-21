@@ -613,12 +613,12 @@ class FakeVisBlock(SourceBlock):
         """Start the visibility generation
         @param[out] output_ring Will contain the visibilities
         """
-        self.gulp_size = 512*512*4*4
         self.output_header = json.dumps(
             {'dtype':str(np.float32), 
             'nbit':32})
         uvw_data = np.loadtxt(
             self.filename, dtype=np.float32, usecols={3, 4, 5, 6})
+        self.gulp_size = uvw_data.nbytes
         for span in self.iterate_ring_write(output_ring):
             span.data_view(np.float32)[0][:] = uvw_data.ravel()
             break

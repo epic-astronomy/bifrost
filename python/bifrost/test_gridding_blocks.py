@@ -55,3 +55,12 @@ class TestFakeVisBlock(unittest.TestCase):
             float(ring_buffer_10th_u_coord), 
             float(data_file_10th_u_coord),
             3)
+    def test_different_size_data(self):
+        """Assert that different data sizes are processed properly"""
+        blocks = []
+        blocks.append((FakeVisBlock("/data1/mcranmer/data/fake/mona_uvw_half.dat"), [], [0]))
+        blocks.append((WriteAsciiBlock('.log.txt'), [0], []))
+        Pipeline(blocks).main()
+        length_ring_buffer = len(open('.log.txt', 'r').read().split(' '))
+        length_data_file = sum(1 for line in open('/data1/mcranmer/data/fake/mona_uvw_half.dat', 'r'))
+        self.assertAlmostEqual(length_ring_buffer, 4*length_data_file, -2)
