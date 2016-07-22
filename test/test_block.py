@@ -337,7 +337,6 @@ class TestNearestNeighborGriddingBlock(unittest.TestCase):
         grid = np.loadtxt('.log.txt').astype(np.float32).view(np.complex64)
         self.assertEqual(grid.size, 10000)
     def test_same_magnitude(self):
-        """Make sure that many points are nonzero"""
         Pipeline(self.blocks).main()
         grid = np.loadtxt('.log.txt').astype(np.float32).view(np.complex64)
         magnitudes = np.abs(grid)
