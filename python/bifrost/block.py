@@ -598,24 +598,20 @@ class WaterfallBlock(object):
                         (waterfall_matrix, curr_data), 0)
                 except:
                     print "Bad shape for waterfall"
-                    pass
         return waterfall_matrix
 
-# Read visibilities which happen to belong to an image 
-# i.e. they are Fourier components from an FFT of an image.
-# Some can be missing.
 class FakeVisBlock(SourceBlock):
     """Read a formatted file for fake visibility data"""
     def __init__(self, filename):
         super(FakeVisBlock, self).__init__()
         self.filename = filename
+        self.output_header = json.dumps(
+            {'dtype':str(np.complex64),
+             'nbit':64})
     def main(self, output_ring):
-        """Start the visibility generation. 
+        """Start the visibility generation.
         @param[out] output_ring Will contain the visibilities in [[u,v,re,im],[u,..],..]
         """
-        self.output_header = json.dumps(
-            {'dtype':str(np.complex64), 
-            'nbit':64})
         uvw_data = np.loadtxt(
             self.filename, dtype=np.float32, usecols={3, 4, 5, 6})
         self.gulp_size = uvw_data.nbytes
@@ -624,15 +620,22 @@ class FakeVisBlock(SourceBlock):
             break
 
 class NearestNeighborGriddingBlock(TransformBlock):
-    """Perform a nearest neighbor gridding of visibilities"""
+    """Perform a nearest neighbor gridding of visibility data"""
     def __init__(self, shape):
         super(NearestNeighborGriddingBlock, self).__init__()
         self.shape = shape
+    def _normalize_coordinates(self, coordinates):
+        """Turn float coordinates from another grid into one of self.shape
+        @param[in] coordinates The coordinates to normalize (numpy.ndarray)"""
+        shifted = coordinates-np.min(coordinates)
+        amplitude_unity = shifted/np.max(shifted)
+        normalized = amplitude_unity*self.shape[0]-0.5
+        return normalized.astype(int)
     def main(self, input_rings, output_rings):
         """Compute a nearest neighbor gridding on the input data
-        @param[in] input_rings The first ring will be accumulated into 
+        @param[in] input_rings The first ring will be accumulated into
             a grid
-        @param[out] output_rings Once accumulated in a local variable, 
+        @param[out] output_rings Once accumulated in a local variable,
             will be output on first output ring"""
         grid = np.zeros(self.shape, dtype=np.complex64)
         u_coords = np.array([])
@@ -644,24 +647,21 @@ class NearestNeighborGriddingBlock(TransformBlock):
             u_coords = np.append(u_coords, in_span.data_view(np.float32)[0][0::4])
             v_coords = np.append(v_coords, in_span.data_view(np.float32)[0][1::4])
             real_visibilities = np.append(real_visibilities, in_span.data_view(np.float32)[0][2::4])
-            complex_visibilities = np.append(complex_visibilities, in_span.data_view(np.float32)[0][3::4])
-        min_ucoord = np.min(u_coords) 
-        max_ucoord = np.max(u_coords) 
-        #TODO: Rounding
-        grid_u_coords = ((u_coords-min_ucoord)/(max_ucoord-min_ucoord)*self.shape[0]-0.5).astype(int)
-        min_vcoord = np.min(v_coords) 
-        max_vcoord = np.max(v_coords) 
-        grid_v_coords = ((v_coords-min_vcoord)/(max_vcoord-min_vcoord)*self.shape[1]-0.5).astype(int)
-        for index_visibility in range(real_visibilities.size):
+            complex_visibilities = np.append(
+                complex_visibilities,
+                in_span.data_view(np.float32)[0][3::4])
+        grid_u_coords = self._normalize_coordinates(u_coords)
+        grid_v_coords = self._normalize_coordinates(v_coords)
+        for index_visibility in range(real_visibilities.size): #pylint: disable=maybe-no-member
             grid[
-                grid_u_coords[index_visibility], 
+                grid_u_coords[index_visibility],
                 grid_v_coords[index_visibility]] += \
                     real_visibilities[index_visibility] + \
                     1j*complex_visibilities[index_visibility]
         self.out_gulp_size = grid.nbytes
         self.output_header = json.dumps(
-            {'dtype':str(np.complex64), 
-            'nbit':64})
+            {'dtype':str(np.complex64),
+             'nbit':64})
         out_span_generator = self.iterate_ring_write(output_rings[0])
         out_span = out_span_generator.next()
         out_span.data_view(np.complex64)[0][:] = grid.ravel()

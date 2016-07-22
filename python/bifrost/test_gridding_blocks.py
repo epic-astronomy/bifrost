@@ -29,9 +29,8 @@
 This file tests the fake visibility block.
 """
 import unittest
-import bifrost
-from block import *
-from os import path
+import numpy as np
+from bifrost.block import FakeVisBlock, WriteAsciiBlock, NearestNeighborGriddingBlock, Pipeline
 class TestFakeVisBlock(unittest.TestCase):
     """Performs tests of the fake visibility Block."""
     def setUp(self):
@@ -59,41 +58,43 @@ class TestFakeVisBlock(unittest.TestCase):
                 break
         data_file_10th_u_coord = data_file_10th_line.split(' ')[3]
         self.assertAlmostEqual(
-            float(ring_buffer_10th_u_coord), 
+            float(ring_buffer_10th_u_coord),
             float(data_file_10th_u_coord),
             3)
     def test_different_size_data(self):
         """Assert that different data sizes are processed properly"""
-        self.blocks[0] = (FakeVisBlock("/data1/mcranmer/data/fake/mona_uvw_half.dat"), [], [0])
+        datafile_name = "/data1/mcranmer/data/fake/mona_uvw_half.dat"
+        self.blocks[0] = (FakeVisBlock(datafile_name), [], [0])
         Pipeline(self.blocks).main()
         length_ring_buffer = len(open('.log.txt', 'r').read().split(' '))
-        length_data_file = sum(1 for line in open('/data1/mcranmer/data/fake/mona_uvw_half.dat', 'r'))
+        length_data_file = sum(1 for line in open(datafile_name, 'r'))
         self.assertAlmostEqual(length_ring_buffer, 4*length_data_file, -2)
 class TestNearestNeighborGriddingBlock(unittest.TestCase):
+    """Test the functionality of the nearest neighbor gridding block"""
     def setUp(self):
         """Run a pipeline on a fake visibility set and grid it"""
         self.datafile_name = "/data1/mcranmer/data/fake/mona_uvw.dat"
         self.blocks = []
         self.blocks.append((FakeVisBlock(self.datafile_name), [], [0]))
-        self.blocks.append((NearestNeighborGriddingBlock(shape=(100,100)), [0], [1]))
+        self.blocks.append((NearestNeighborGriddingBlock(shape=(100, 100)), [0], [1]))
         self.blocks.append((WriteAsciiBlock('.log.txt'), [1], []))
     def test_output_size(self):
         """Make sure that 10,000 grid points are created"""
         Pipeline(self.blocks).main()
-        self.grid = np.loadtxt('.log.txt').astype(np.float32).view(np.complex64)
-        self.assertEqual(self.grid.size, 10000)
+        grid = np.loadtxt('.log.txt').astype(np.float32).view(np.complex64)
+        self.assertEqual(grid.size, 10000)
     def test_same_magnitude(self):
         """Make sure that many blocks are nonzero"""
         Pipeline(self.blocks).main()
-        self.grid = np.loadtxt('.log.txt').astype(np.float32).view(np.complex64)
-        magnitudes = np.abs(self.grid)
-        self.assertGreater(magnitudes[magnitudes>0.1].size, 100)
+        grid = np.loadtxt('.log.txt').astype(np.float32).view(np.complex64)
+        magnitudes = np.abs(grid)
+        self.assertGreater(magnitudes[magnitudes > 0.1].size, 100)
     def test_makes_image(self):
         """Make sure that the grid can be IFFT'd into a non-gaussian image"""
-        self.blocks[1] = (NearestNeighborGriddingBlock(shape=(512,512)), [0], [1])
+        self.blocks[1] = (NearestNeighborGriddingBlock(shape=(512, 512)), [0], [1])
         Pipeline(self.blocks).main()
         grid = np.loadtxt('.log.txt').astype(np.float32).view(np.complex64)
-        grid = grid.reshape((512,512))
+        grid = grid.reshape((512, 512))
         image = np.real(np.fft.fftshift(np.fft.ifft2(np.fft.ifftshift(grid))))
         #calculate histogram of image
         histogram = np.histogram(image.ravel(), bins=100)[0]
