@@ -191,7 +191,7 @@ class SinkBlock(object):
         """Initiate the block's transform."""
         affinity.set_core(self.core)
 class FFTBlock(TransformBlock):
-    """Performs complex to complex IFFT on input ring data"""
+    """Performs complex to complex 1D FFT on input ring data"""
     def __init__(self, gulp_size):
         super(FFTBlock, self).__init__()
     def load_settings(self, input_header):
@@ -216,7 +216,7 @@ class FFTBlock(TransformBlock):
             result = np.fft.fft(unpacked_data.astype(np.float32))
             ospan.data_view(np.complex64)[0][:] = result[0][:]
 class IFFTBlock(TransformBlock):
-    """Performs complex to complex IFFT on input ring data"""
+    """Performs complex to complex 1D IFFT on input ring data"""
     def __init__(self, gulp_size):
         super(IFFTBlock, self).__init__()
         self.gulp_size = gulp_size
@@ -231,7 +231,7 @@ class IFFTBlock(TransformBlock):
     def main(self, input_rings, output_rings):
         """
         @param[in] input_rings First ring in this list will be used for
-            data
+            data input.
         @param[out] output_rings First ring in this list will be used for 
             data output."""
         for ispan, ospan in self.ring_transfer(input_rings[0], output_rings[0]):
@@ -241,6 +241,20 @@ class IFFTBlock(TransformBlock):
                 unpacked_data = ispan.data_view(self.dtype)
             result = np.fft.ifft(unpacked_data)
             ospan.data_view(np.complex64)[0][:] = result[0][:]
+class IFFT2Block(TransformBlock):
+    """Performs complex to complex 2D IFFT on input ring data"""
+    def __init__(self):
+        super(IFFT2Block, self).__init__()
+    def main(self, input_rings, output_rings):
+        """
+        @param[in] input_rings First ring in this list will be used for
+            data input.
+        @param[out] output_rings First ring in this list will be used for 
+            data output."""
+        self.gulp_size = 10000*4*2
+        for ispan, ospan in self.ring_transfer(input_rings[0], output_rings[0]):
+            result = np.ones(shape=(10000))
+            ospan.data_view(np.complex64)[0][:] = result[:]
 class WriteAsciiBlock(SinkBlock):
     """Copies input ring's data into ascii format
         in a text file."""
@@ -665,4 +679,3 @@ class NearestNeighborGriddingBlock(TransformBlock):
         out_span_generator = self.iterate_ring_write(output_rings[0])
         out_span = out_span_generator.next()
         out_span.data_view(np.complex64)[0][:] = grid.ravel()
-
