@@ -610,15 +610,59 @@ class FakeVisBlock(SourceBlock):
         super(FakeVisBlock, self).__init__()
         self.filename = filename
     def main(self, output_ring):
-        """Start the visibility generation
-        @param[out] output_ring Will contain the visibilities
+        """Start the visibility generation. 
+        @param[out] output_ring Will contain the visibilities in [[u,v,re,im],[u,..],..]
         """
         self.output_header = json.dumps(
-            {'dtype':str(np.float32), 
-            'nbit':32})
+            {'dtype':str(np.complex64), 
+            'nbit':64})
         uvw_data = np.loadtxt(
             self.filename, dtype=np.float32, usecols={3, 4, 5, 6})
         self.gulp_size = uvw_data.nbytes
         for span in self.iterate_ring_write(output_ring):
             span.data_view(np.float32)[0][:] = uvw_data.ravel()
             break
+
+class NearestNeighborGriddingBlock(TransformBlock):
+    """Perform a nearest neighbor gridding of visibilities"""
+    def __init__(self, shape):
+        super(NearestNeighborGriddingBlock, self).__init__()
+        self.shape = shape
+    def main(self, input_rings, output_rings):
+        """Compute a nearest neighbor gridding on the input data
+        @param[in] input_rings The first ring will be accumulated into 
+            a grid
+        @param[out] output_rings Once accumulated in a local variable, 
+            will be output on first output ring"""
+        grid = np.zeros(self.shape, dtype=np.complex64)
+        u_coords = np.array([])
+        v_coords = np.array([])
+        real_visibilities = np.array([])
+        complex_visibilities = np.array([])
+        self.gulp_size = 8**6
+        for in_span in self.iterate_ring_read(input_rings[0]):
+            u_coords = np.append(u_coords, in_span.data_view(np.float32)[0][0::4])
+            v_coords = np.append(v_coords, in_span.data_view(np.float32)[0][1::4])
+            real_visibilities = np.append(real_visibilities, in_span.data_view(np.float32)[0][2::4])
+            complex_visibilities = np.append(complex_visibilities, in_span.data_view(np.float32)[0][3::4])
+        min_ucoord = np.min(u_coords) 
+        max_ucoord = np.max(u_coords) 
+        #TODO: Rounding
+        grid_u_coords = ((u_coords-min_ucoord)/(max_ucoord-min_ucoord)*self.shape[0]-0.5).astype(int)
+        min_vcoord = np.min(v_coords) 
+        max_vcoord = np.max(v_coords) 
+        grid_v_coords = ((v_coords-min_vcoord)/(max_vcoord-min_vcoord)*self.shape[1]-0.5).astype(int)
+        for index_visibility in range(real_visibilities.size):
+            grid[
+                grid_u_coords[index_visibility], 
+                grid_v_coords[index_visibility]] += \
+                    real_visibilities[index_visibility] + \
+                    1j*complex_visibilities[index_visibility]
+        self.out_gulp_size = grid.nbytes
+        self.output_header = json.dumps(
+            {'dtype':str(np.complex64), 
+            'nbit':64})
+        out_span_generator = self.iterate_ring_write(output_rings[0])
+        out_span = out_span_generator.next()
+        out_span.data_view(np.complex64)[0][:] = grid.ravel()
+
