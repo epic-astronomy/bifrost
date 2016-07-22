@@ -190,24 +190,34 @@ class SinkBlock(object):
     def main(self, input_ring):
         """Initiate the block's transform."""
         affinity.set_core(self.core)
-class TestBlock(SourceBlock):
+class TestingBlock(SourceBlock):
     """Block for debugging purposes.
     Allows you to pass arbitrary N-dimensional arrays in initialization,
     which will be outputted into a ring buffer"""
-    def __init__(self, test_array):
+    def __init__(self, test_array, complex_numbers=False):
         """@param[in] test_array A list or numpy array containing test data"""
-        super(TestBlock, self).__init__()
-        self.test_array = np.array(test_array).astype(np.float32)
-        self.output_header = json.dumps(
-            {'nbit':32,
-             'dtype':str(np.float32),
-             'shape':self.test_array.shape})
+        super(TestingBlock, self).__init__()
+        if complex_numbers:
+            self.test_array = np.array(test_array).astype(np.complex64)
+            header = {
+                'nbit':64,
+                'dtype':str(np.complex64),
+                'shape':self.test_array.shape}
+            self.dtype = np.complex64
+        else:
+            self.test_array = np.array(test_array).astype(np.float32)
+            header = {
+                'nbit':32,
+                'dtype':str(np.float32),
+                'shape':self.test_array.shape}
+            self.dtype = np.float32
+        self.output_header = json.dumps(header)
     def main(self, output_ring):
         """Put the test array onto the output ring
         @param[in] output_ring Holds the flattend test array in a single span"""
         self.gulp_size = self.test_array.nbytes
         for ospan in self.iterate_ring_write(output_ring):
-            ospan.data_view(np.float32)[0][:] = self.test_array.ravel()
+            ospan.data_view(self.dtype)[0][:] = self.test_array.ravel()
             break
 class WriteHeaderBlock(SinkBlock):
     """Prints the header of a ring to a file"""
@@ -281,16 +291,28 @@ class IFFT2Block(TransformBlock):
     """Performs complex to complex 2D IFFT on input ring data"""
     def __init__(self):
         super(IFFT2Block, self).__init__()
+    def load_settings(self, input_header):
+        header = json.loads(input_header.tostring())
+        self.gulp_size = 4*4
+        self.out_gulp_size = 8*4
+        self.nbit = header['nbit']
+        self.dtype = np.dtype(header['dtype'].split()[1].split(".")[1].split("'")[0]).type
+        self.shape = header['shape']
+        header['nbit'] = 64
+        header['dtype'] = str(np.complex64)
+        self.output_header = json.dumps(header)
     def main(self, input_rings, output_rings):
         """
         @param[in] input_rings First ring in this list will be used for
             data input.
         @param[out] output_rings First ring in this list will be used for 
             data output."""
-        self.gulp_size = 10000*4*2
+        self.gulp_size = 4*4
+        self.out_gulp_size = 8*4
         for ispan, ospan in self.ring_transfer(input_rings[0], output_rings[0]):
-            result = np.ones(shape=(10000))
-            ospan.data_view(np.complex64)[0][:] = result[:]
+            input_data = ispan.data_view(np.complex64)[0][:]
+            ospan.data_view(np.complex64)[0][:] = input_data.reshape(self.shape)
+            break
 class WriteAsciiBlock(SinkBlock):
     """Copies input ring's data into ascii format
         in a text file."""
