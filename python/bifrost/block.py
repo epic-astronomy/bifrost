@@ -289,30 +289,29 @@ class IFFTBlock(TransformBlock):
             ospan.data_view(np.complex64)[0][:] = result[0][:]
 class IFFT2Block(TransformBlock):
     """Performs complex to complex 2D IFFT on input ring data"""
-    def __init__(self):
-        super(IFFT2Block, self).__init__()
+    def __init__(self, gulp_size=1048576):
+        super(IFFT2Block, self).__init__(gulp_size=gulp_size)
     def load_settings(self, input_header):
         header = json.loads(input_header.tostring())
-        self.gulp_size = 4*4
-        self.out_gulp_size = 8*4
-        self.nbit = header['nbit']
-        self.dtype = np.dtype(header['dtype'].split()[1].split(".")[1].split("'")[0]).type
-        self.shape = header['shape']
-        header['nbit'] = 64
-        header['dtype'] = str(np.complex64)
-        self.output_header = json.dumps(header)
+        self.frame_shape = header['frame_shape']
+        output_header = {}
+        output_header['nbit'] = 64
+        output_header['dtype'] = str(np.complex64)
+        self.output_header = json.dumps(output_header)
     def main(self, input_rings, output_rings):
         """
         @param[in] input_rings First ring in this list will be used for
             data input.
         @param[out] output_rings First ring in this list will be used for 
             data output."""
-        self.gulp_size = 4*4
-        self.out_gulp_size = 8*4
-        for ispan, ospan in self.ring_transfer(input_rings[0], output_rings[0]):
-            input_data = ispan.data_view(np.complex64)[0][:]
-            ospan.data_view(np.complex64)[0][:] = input_data.reshape(self.shape)
-            break
+        input_data = np.array([])
+        for ispan in self.iterate_ring_read(input_rings[0]):
+            input_data = np.append(input_data, ispan.data_view(np.complex64)[0][:])
+        input_data = input_data.reshape(self.frame_shape)
+        self.out_gulp_size = input_data.size*8
+        out_span_generator = self.iterate_ring_write(output_rings[0])
+        ospan = out_span_generator.next()
+        ospan.data_view(np.complex64)[0][:] = np.fft.fftshift(np.fft.ifft2(np.fft.ifftshift(input_data))).ravel()
 class WriteAsciiBlock(SinkBlock):
     """Copies input ring's data into ascii format
         in a text file."""
@@ -679,7 +678,8 @@ class FakeVisBlock(SourceBlock):
         self.filename = filename
         self.output_header = json.dumps(
             {'dtype':str(np.complex64),
-             'nbit':64})
+             'nbit':64,
+             'shape': [4, 1]})
     def main(self, output_ring):
         """Start the visibility generation.
         @param[out] output_ring Will contain the visibilities in [[u,v,re,im],[u,..],..]
@@ -733,7 +733,8 @@ class NearestNeighborGriddingBlock(TransformBlock):
         self.out_gulp_size = grid.nbytes
         self.output_header = json.dumps(
             {'dtype':str(np.complex64),
-             'nbit':64})
+             'nbit':64,
+             'frame_shape': self.shape})
         out_span_generator = self.iterate_ring_write(output_rings[0])
         out_span = out_span_generator.next()
         out_span.data_view(np.complex64)[0][:] = grid.ravel()

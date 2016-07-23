@@ -37,7 +37,7 @@ class TestTestingBlock(unittest.TestCase):
     def test_simple_dump(self):
         """Input some numbers, and ensure they are written to a file"""
         blocks = []
-        blocks.append((TestBlock([1, 2, 3]), [], [0]))
+        blocks.append((TestingBlock([1, 2, 3]), [], [0]))
         blocks.append((WriteAsciiBlock('.log.txt', gulp_size=3*4), [0], []))
         Pipeline(blocks).main()
         dumped_numbers = np.loadtxt('.log.txt')
@@ -46,7 +46,7 @@ class TestTestingBlock(unittest.TestCase):
         """Input a 2 dimensional list, and have this printed"""
         blocks = []
         test_array = [[1, 2], [3, 4]]
-        blocks.append((TestBlock(test_array), [], [0]))
+        blocks.append((TestingBlock(test_array), [], [0]))
         blocks.append((WriteAsciiBlock('.log.txt', gulp_size=4*4), [0], []))
         blocks.append((WriteHeaderBlock('.log2.txt'), [0], []))
         Pipeline(blocks).main()
@@ -399,15 +399,20 @@ class TestIFFT2Block(unittest.TestCase):
         brightness = np.loadtxt('.log.txt').astype(np.float32).view(np.complex64)
         magnitudes = np.abs(brightness)
         self.assertGreater(magnitudes[magnitudes > 0.1].size, 100)
-    def test_ifft_makes_image(self):
-        """Make sure the IFFT produces a non-gaussian image from mona list
-        visibility data"""
+    def test_ifft_correct_values(self):
+        """Make sure the IFFT produces values as if we were to do it without the block"""
         open('.log.txt', 'w').close()
         Pipeline(self.blocks).main()
-        brightness = np.loadtxt('.log.txt').astype(np.float32).view(np.complex64)
-        #calculate histogram of image
-        histogram = np.histogram(np.real(brightness), bins=100)[0]
-        #check if it is gaussian (and therefore probably just noise)
-        from scipy.stats import normaltest
-        probability_normal = normaltest(histogram)[1]
-        self.assertLess(probability_normal, 1e-2)
+        test_brightness = np.loadtxt('.log.txt').astype(np.float32).view(np.complex64)
+        test_brightness = test_brightness.reshape((100, 100))
+        self.blocks[2] = (WriteAsciiBlock('.log.txt'), [1], [])
+        del self.blocks[3]
+        open('.log.txt', 'w').close()
+        Pipeline(self.blocks).main()
+        grid = np.loadtxt('.log.txt').astype(np.float32).view(np.complex64)
+        grid = grid.reshape((100, 100))
+        brightness = np.fft.fftshift(np.fft.ifft2(np.fft.ifftshift(grid)))
+        from matplotlib import pyplot as plt
+        plt.imshow(np.real(test_brightness)) #Needs to be in row,col order
+        plt.savefig('mona.png')
+        np.testing.assert_almost_equal(test_brightness, brightness, 2)
