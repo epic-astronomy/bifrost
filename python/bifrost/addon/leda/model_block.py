@@ -30,6 +30,7 @@
 import ephem
 import json
 import numpy as np
+from itertools import izip
 from bifrost.block import SourceBlock
 
 def horizontal_to_cartesian(az, alt, radius=1):
@@ -92,11 +93,32 @@ class ScalarSkyModelBlock(SourceBlock):
         """Generate a model of the sky and put it on a single output span
         @param[in] output_ring The ring to put this visibility model on"""
         visibilities = self.generate_model()
-        self.gulp_size = visibilities.nbytes
+        baselines_xyz = np.zeros((
+            len(self.antenna_coordinates),
+            len(self.antenna_coordinates), 
+            3))
+        number_antennas = self.antenna_coordinates.shape[0]
+        #baselines_xyz = np.tile(self.antenna_coordinates[:,0:2], (1, number_antennas))
+        #baselines_xyz -= baselines_xyz.T
+        for index_i in range(len(self.antenna_coordinates)):
+            for index_j in range(len(self.antenna_coordinates)):
+                baselines_xyz[index_i, index_j] = self.antenna_coordinates[index_i] - self.antenna_coordinates[index_j]
+        baselines_u = baselines_xyz[:, :, 0]
+        baselines_v = baselines_xyz[:, :, 1]
+        out_data = np.zeros(4*256*256)
+        out_data = out_data.astype(np.float32)
+        self.gulp_size = out_data.nbytes
         self.output_header = json.dumps({
-            'nbit':64,
-            'dtype':str(np.complex64)})
-        print visibilities.ravel().shape
-        for out_span in self.iterate_ring_write(output_ring):
-            out_span.data_view(np.complex64)[0] = visibilities.ravel()
-            break
+            'nbit':32,
+            'dtype':str(np.float32)})
+        out_span_generator = self.iterate_ring_write(output_ring)
+        for frequency_index in range(self.frequencies.size):
+            out_span = out_span_generator.next()
+            visibilities_r = np.real(visibilities)[frequency_index]
+            visibilities_i = np.imag(visibilities)[frequency_index]
+            tmp_data = np.stack((baselines_u, baselines_v, visibilities_r, visibilities_i)).astype(np.float32)
+            for param in range(4):
+                for i in range(256):
+                    for j in range(256):
+                        out_data[param + 4*i + 4*256*j] = tmp_data[param, i, j]
+            out_span.data_view(np.float32)[0] = out_data.ravel()
