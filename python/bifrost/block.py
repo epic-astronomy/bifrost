@@ -704,19 +704,48 @@ class WaterfallBlock(object):
 
 class FakeVisBlock(SourceBlock):
     """Read a formatted file for fake visibility data"""
-    def __init__(self, filename):
+
+    def __init__(self, filename, num_stands):
         super(FakeVisBlock, self).__init__()
         self.filename = filename
+        self.num_stands = num_stands
         self.output_header = json.dumps(
             {'dtype':str(np.complex64),
              'nbit':64,
              'shape': [4, 1]})
     def main(self, output_ring):
         """Start the visibility generation.
-        @param[out] output_ring Will contain the visibilities in [[u,v,re,im],[u,..],..]
+        @param[out] output_ring Will contain the visibilities in [[stand1, stand2, u,v,re,im],[stand1,..],..]
         """
+	n_baseline = self.num_stands*(self.num_stands+1)//2
+
+	# Generate index of baselines -> stand
+	baselines = [ None for i in range(n_baseline) ]
+	index = 0
+	for st1 in range(self.num_stands):
+	    for st2 in range(st1, self.num_stands):
+  		baselines[index] = ( st1, st2 )
+		index += 1
+
+        self.output_header = json.dumps(
+            {'dtype':str(np.float32), 
+            'nbit':32})
+
         uvw_data = np.loadtxt(
-            self.filename, dtype=np.float32, usecols={3, 4, 5, 6})
+            self.filename, dtype=np.float32, usecols={1, 2, 3, 4, 5, 6})
+        random.shuffle(uvw_data)
+
+        # Strip a lot of the incoming values so we only have N_BASELINE visibilties. 
+	# Then assign stand numbers.
+	inner = np.array([ x for x in uvw_data if abs(x[2]) < 50 and abs(x[3]) < 50 ])
+	uvw_data = np.append(inner, uvw_data, axis=0)[:n_baseline]
+	print n_baseline, len(uvw_data)
+
+	# Assign stands
+	for i in range(len(uvw_data)):
+	    uvw_data[i][0] = baselines[i][0]
+	    uvw_data[i][1] = baselines[i][1]
+
         self.gulp_size = uvw_data.nbytes
         for span in self.iterate_ring_write(output_ring):
             span.data_view(np.float32)[0][:] = uvw_data.ravel()
