@@ -91,34 +91,27 @@ class ScalarSkyModelBlock(SourceBlock):
         return total_visibilities.astype(np.complex64)
     def main(self, output_ring):
         """Generate a model of the sky and put it on a single output span
-        @param[in] output_ring The ring to put this visibility model on"""
+        @param[in] output_ring The ring to put this visibility model on. 
+            Is entered as [[u,v,re,im],[u,..],..]"""
         visibilities = self.generate_model()
-        baselines_xyz = np.zeros((
+        number_antennas = self.antenna_coordinates.shape[0]
+        identity_matrix = np.ones((
             len(self.antenna_coordinates),
             len(self.antenna_coordinates), 
-            3))
-        number_antennas = self.antenna_coordinates.shape[0]
-        #baselines_xyz = np.tile(self.antenna_coordinates[:,0:2], (1, number_antennas))
-        #baselines_xyz -= baselines_xyz.T
-        for index_i in range(len(self.antenna_coordinates)):
-            for index_j in range(len(self.antenna_coordinates)):
-                baselines_xyz[index_i, index_j] = self.antenna_coordinates[index_i] - self.antenna_coordinates[index_j]
-        baselines_u = baselines_xyz[:, :, 0]
-        baselines_v = baselines_xyz[:, :, 1]
-        out_data = np.zeros(4*256*256)
-        out_data = out_data.astype(np.float32)
-        self.gulp_size = out_data.nbytes
+            3), dtype=np.float32)
+        baselines_xyz = (identity_matrix*self.antenna_coordinates)-(identity_matrix*self.antenna_coordinates).transpose((1, 0, 2))
+        baselines_u = baselines_xyz[:, :, 0].reshape(-1)
+        baselines_v = baselines_xyz[:, :, 1].reshape(-1)
+        self.gulp_size = baselines_u.nbytes*4
         self.output_header = json.dumps({
             'nbit':32,
             'dtype':str(np.float32)})
         out_span_generator = self.iterate_ring_write(output_ring)
         for frequency_index in range(self.frequencies.size):
             out_span = out_span_generator.next()
-            visibilities_r = np.real(visibilities)[frequency_index]
-            visibilities_i = np.imag(visibilities)[frequency_index]
-            tmp_data = np.stack((baselines_u, baselines_v, visibilities_r, visibilities_i)).astype(np.float32)
-            for param in range(4):
-                for i in range(256):
-                    for j in range(256):
-                        out_data[param + 4*i + 4*256*j] = tmp_data[param, i, j]
-            out_span.data_view(np.float32)[0] = out_data.ravel()
+            real_visibilities = visibilities[frequency_index].reshape(-1).view(np.float32)[0::2]
+            imaginary_visibilities = visibilities[frequency_index].reshape(-1).view(np.float32)[1::2]
+            out_span.data_view(np.float32)[0][0::4] = baselines_u
+            out_span.data_view(np.float32)[0][1::4] = baselines_v
+            out_span.data_view(np.float32)[0][2::4] = real_visibilities
+            out_span.data_view(np.float32)[0][3::4] = imaginary_visibilities 

@@ -124,9 +124,10 @@ class TestScalarSkyModelBlock(unittest.TestCase):
                     break
             iterator = 0
             self.sources = {}
+            number_sources = 1000
             for line in file_in:
                 iterator += 1
-                if iterator > 50000:
+                if iterator > number_sources:
                     break
                 if line[0].isspace():
                     continue
@@ -154,6 +155,5 @@ class TestScalarSkyModelBlock(unittest.TestCase):
         brightness = np.abs(np.fft.fftshift(np.fft.ifft2(np.fft.ifftshift(model))))
         # Should be many nonzero elements in the image
         self.assertGreater(brightness[brightness > 1e-30].size, 100)
-        # Should be some bright sources
-        from matplotlib.image import imsave
-        imsave('model.png', brightness)
+        # Should be some brighter sources
+        self.assertGreater(np.max(brightness)/np.average(brightness), 5)
