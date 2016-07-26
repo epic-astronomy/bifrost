@@ -144,6 +144,7 @@ class TransformBlock(object):
                 header=self.output_header,
                 nringlet=sequence_nringlet) as oseq:
                 with oseq.reserve(self.out_gulp_size) as span:
+                    #TODO: Need to continuously spawn extra spans as in SourceBlock
                     yield span
     def ring_transfer(self, input_ring, output_ring):
         """Iterate through two rings span-by-span"""
@@ -183,8 +184,9 @@ class SourceBlock(object):
                 sequence_name, sequence_time_tag,
                 header=self.output_header,
                 nringlet=1) as oseq:
-                with oseq.reserve(self.gulp_size) as span:
-                    yield span
+                while True:
+                    with oseq.reserve(self.gulp_size) as span:
+                        yield span
 class SinkBlock(object):
     """Defines the structure for a sink block"""
     def __init__(self, gulp_size=4096):
@@ -709,7 +711,7 @@ class NearestNeighborGriddingBlock(TransformBlock):
     def main(self, input_rings, output_rings):
         """Compute a nearest neighbor gridding on the input data
         @param[in] input_rings The first ring will be accumulated into
-            a grid
+            a grid. Expected data as floats: [[u,v,re,im],[u,..],..]
         @param[out] output_rings Once accumulated in a local variable,
             will be output on first output ring"""
         grid = np.zeros(self.shape, dtype=np.complex64)
