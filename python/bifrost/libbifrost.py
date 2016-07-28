@@ -36,7 +36,7 @@ def _load_bifrost_lib():
 	import os
 	# TODO: Keep these up-to-date
 	headers = ["common.h", "affinity.h", "memory.h",
-	    "ring.h", "transpose.h", "fft.h"]
+	    "ring.h", "transpose.h", "fft.h", "correlate.h"]
 	library_name = "libbifrost.so"
 	api_prefix   = "bf"
 	header_paths = ["/usr/local/include/bifrost",

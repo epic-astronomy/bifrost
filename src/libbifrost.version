@@ -99,6 +99,8 @@ VERS_0.6 {
                 bfFFTR2C1d;
                 bfFFTR2C2d;
 
+                bfSolveGains;
+
          local:
                 *;
 };

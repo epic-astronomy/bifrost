@@ -28,9 +28,14 @@
 import unittest
 import ephem
 import json
+import ctypes
 import numpy as np
+from bifrost.libbifrost import _bf
+from bifrost.GPUArray import GPUArray
 from model_block import ScalarSkyModelBlock
 from bifrost.block import Pipeline, WriteAsciiBlock, NearestNeighborGriddingBlock
+from bifrost.libbifrost import _bf
+from bifrost.GPUArray import GPUArray
 
 ovro = ephem.Observer()
 ovro.lat = '37.239782'
@@ -157,3 +162,37 @@ class TestScalarSkyModelBlock(unittest.TestCase):
         self.assertGreater(brightness[brightness > 1e-30].size, 100)
         # Should be some brighter sources
         self.assertGreater(np.max(brightness)/np.average(brightness), 5)
+
+class TestGainSolveBlock(unittest.TestCase):
+    """Test various functionality of the gain solve block"""
+    def test_throughput_and_exit(self):
+        """Make sure that the MitchCal C library can be called
+        (This does not actually test the block itself)"""
+        nchan = 1
+        nstand = 256
+        npol = 2
+        host_data = np.ones(shape=[nchan, nstand, npol, nstand, npol]).astype(np.complex64)
+        host_model = np.ones(shape=[nchan, nstand, npol, nstand, npol]).astype(np.complex64)
+        host_jones = np.ones(shape=[nchan, npol, nstand, npol]).astype(np.complex64)
+        host_flags = np.ones(shape=[nchan, nstand]).astype(np.complex64)
+        visibilities = GPUArray([nchan, nstand, npol, nstand, npol], np.complex64)
+        visibilities.set(host_data)
+        model = GPUArray([nchan, nstand, npol, nstand, npol], np.complex64)
+        model.set(host_model)
+        jones = GPUArray([nchan, npol, nstand, npol], np.complex64)
+        jones.set(host_jones)
+        flags = GPUArray([nchan, nstand], np.uint8)
+        flags.set(host_flags)
+        num_unconverged_type = ctypes.POINTER(ctypes.c_int)
+        num = ctypes.c_int(1)
+        num_unconverged = ctypes.cast(ctypes.addressof(num), num_unconverged_type)
+        array_jones = jones.as_BFarray()
+        _bf.SolveGains(
+            visibilities.as_BFconstarray(), 
+            model.as_BFconstarray(), 
+            array_jones,
+            flags.as_BFarray(),
+            True, 1.0, 1.0, 10, num_unconverged)
+        jones.buffer = array_jones.data
+        print jones.get()
+        np.testing.assert_almost_equal(flags.shape, [nchan, nstand])
