@@ -33,9 +33,9 @@
 #include <bifrost/common.h>
 #include <bifrost/memory.h>
 
-#ifdef __cplusplus
+//#ifdef __cplusplus
 extern "C" {
-#endif
+//#endif
 
 typedef struct __attribute__((aligned(8))) {
 	// Note: Using unions in here prevents vectorized ld/st (for some reason)
@@ -99,8 +99,8 @@ BFstatus bfSolveGains_old(BFsize             nchan,
                       int                maxiter,
                       int*               num_unconverged_ptr);
 
-#ifdef __cplusplus
+//#ifdef __cplusplus
 } // extern "C"
-#endif
+//#endif
 
 #endif // BF_CORRELATE_H_INCLUDE_GUARD_

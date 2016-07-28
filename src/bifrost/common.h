@@ -33,7 +33,7 @@
 
 #ifndef BF_COMMON_H_INCLUDE_GUARD_
 #define BF_COMMON_H_INCLUDE_GUARD_
-#define BF_MAX_DIM 3
+#define BF_MAX_DIM 100
 
 #include <stddef.h>
 #include <stdint.h>
@@ -41,6 +41,51 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+
+enum {
+    BF_DTYPE_NBIT_BITS      = 0x00FF,
+    BF_DTYPE_TYPE_BITS      = 0x0F00,
+    BF_DTYPE_INT_TYPE       = 0x0000,
+    BF_DTYPE_UINT_TYPE      = 0x0100,
+    BF_DTYPE_FLOAT_TYPE     = 0x0200,
+    BF_DTYPE_STRING_TYPE    = 0x0300,
+    BF_DTYPE_COMPLEX_BIT    = 0x1000,
+
+    BF_DTYPE_I1    =  1 | BF_DTYPE_INT_TYPE,
+    BF_DTYPE_I2    =  2 | BF_DTYPE_INT_TYPE,
+    BF_DTYPE_I4    =  4 | BF_DTYPE_INT_TYPE,
+    BF_DTYPE_I8    =  8 | BF_DTYPE_INT_TYPE,
+    BF_DTYPE_I16   = 16 | BF_DTYPE_INT_TYPE,
+    BF_DTYPE_I32   = 32 | BF_DTYPE_INT_TYPE,
+    BF_DTYPE_I64   = 64 | BF_DTYPE_INT_TYPE,
+
+    BF_DTYPE_U1    =   1 | BF_DTYPE_UINT_TYPE,
+    BF_DTYPE_U2    =   2 | BF_DTYPE_UINT_TYPE,
+    BF_DTYPE_U4    =   4 | BF_DTYPE_UINT_TYPE,
+    BF_DTYPE_U8    =   8 | BF_DTYPE_UINT_TYPE,
+    BF_DTYPE_U16   =  16 | BF_DTYPE_UINT_TYPE,
+    BF_DTYPE_U32   =  32 | BF_DTYPE_UINT_TYPE,
+    BF_DTYPE_U64   =  64 | BF_DTYPE_UINT_TYPE,
+
+    BF_DTYPE_F16   =  16 | BF_DTYPE_FLOAT_TYPE,
+    BF_DTYPE_F32   =  32 | BF_DTYPE_FLOAT_TYPE,
+    BF_DTYPE_F64   =  64 | BF_DTYPE_FLOAT_TYPE,
+    BF_DTYPE_F128  = 128 | BF_DTYPE_FLOAT_TYPE,
+
+    BF_DTYPE_CI1   =   1 | BF_DTYPE_INT_TYPE | BF_DTYPE_COMPLEX_BIT,
+    BF_DTYPE_CI2   =   2 | BF_DTYPE_INT_TYPE | BF_DTYPE_COMPLEX_BIT,
+    BF_DTYPE_CI4   =   4 | BF_DTYPE_INT_TYPE | BF_DTYPE_COMPLEX_BIT,
+    BF_DTYPE_CI8   =   8 | BF_DTYPE_INT_TYPE | BF_DTYPE_COMPLEX_BIT,
+    BF_DTYPE_CI16  =  16 | BF_DTYPE_INT_TYPE | BF_DTYPE_COMPLEX_BIT,
+    BF_DTYPE_CI32  =  32 | BF_DTYPE_INT_TYPE | BF_DTYPE_COMPLEX_BIT,
+    BF_DTYPE_CI64  =  64 | BF_DTYPE_INT_TYPE | BF_DTYPE_COMPLEX_BIT,
+
+    BF_DTYPE_CF16  =  16 | BF_DTYPE_FLOAT_TYPE | BF_DTYPE_COMPLEX_BIT,
+    BF_DTYPE_CF32  =  32 | BF_DTYPE_FLOAT_TYPE | BF_DTYPE_COMPLEX_BIT,
+    BF_DTYPE_CF64  =  64 | BF_DTYPE_FLOAT_TYPE | BF_DTYPE_COMPLEX_BIT,
+    BF_DTYPE_CF128 = 128 | BF_DTYPE_FLOAT_TYPE | BF_DTYPE_COMPLEX_BIT
+};
 
 typedef int                BFstatus;
 typedef int                BFbool;
@@ -83,6 +128,26 @@ typedef struct BFarray_ {
     BFsize strides[BF_MAX_DIM];
 } BFarray;
 
+/// Defines a single atom of data to be passed to a function.
+typedef struct BFconstarray_ {
+    /*! The data pointer can point towards any type of data, 
+     *  so long as there is a corresponding definition in dtype. 
+     *  This data should be an ndim array, which every element of
+     *  type dtype.
+     */
+    const void* data;
+    /*! Where this data is located in memory.
+     *  Used to ensure that operations called are localized within
+     *  that space, such as a CUDA funciton operating on device
+     *  memory.
+     */
+    BFspace space;
+    unsigned dtype;
+    int ndim;
+    BFsize shape[BF_MAX_DIM];
+    BFsize strides[BF_MAX_DIM];
+} BFconstarray;
+
 enum {
 	BF_STATUS_SUCCESS            = 0,
 	BF_STATUS_END_OF_DATA        = 1,
@@ -94,7 +159,9 @@ enum {
 	BF_STATUS_MEM_OP_FAILED      = 7,
 	BF_STATUS_UNSUPPORTED        = 8,
 	BF_STATUS_FAILED_TO_CONVERGE = 9,
-	BF_STATUS_INTERNAL_ERROR     = 10
+	BF_STATUS_INTERNAL_ERROR     = 10,
+        BF_STATUS_INVALID_SHAPE      = 11,
+        BF_STATUS_INVALID_SPACE      = 12
 };
 
 // Utility

@@ -270,11 +270,12 @@ void gains_iteration_kernel(int stand0,         // First stand to compute
 		thread_num_unconverged += (istate == BF_GAINSTATE_UNCONVERGED);
 	} // i
 	} // c
-	int warp_num_unconverged = warp_sum(thread_num_unconverged);
-	int tid = threadIdx.x + blockDim.x*threadIdx.y;
-	if( tid % warpSize == 0 ) {
-		atomicAdd(num_unconverged, warp_num_unconverged);
-	}
+        atomicAdd(num_unconverged, thread_num_unconverged);
+	//int warp_num_unconverged = warp_sum(thread_num_unconverged);
+	//int tid = threadIdx.x + blockDim.x*threadIdx.y;
+	//if( tid % warpSize == 0 ) {
+		//atomicAdd(num_unconverged, warp_num_unconverged);
+	//}
 }
 
 // TODO: Add stand and chan strides

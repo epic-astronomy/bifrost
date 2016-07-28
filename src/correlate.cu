@@ -33,21 +33,16 @@
 #include "assert.hpp"
 #include "cuda/stream.hpp"
 #include "Jones.hpp"
-
-#if BF_CUDA_ENABLED
-  #include "correlate_kernels.cuh"
-  #include "cuda/stream.hpp"
-  #include "cuda/device_variable.hpp"
-  #include <thrust/device_vector.h>
-  #include <thrust/transform.h>
-  #include <thrust/execution_policy.h>
-  #include <thrust/functional.h>
-  #include <thrust/iterator/transform_iterator.h>
-  #include <thrust/iterator/zip_iterator.h>
-  #include <thrust/iterator/counting_iterator.h>
-#else
-  typedef int cudaStream_t; // WAR
-#endif
+#include "correlate_kernels.cuh"
+#include "cuda/stream.hpp"
+#include "cuda/device_variable.hpp"
+#include <thrust/device_vector.h>
+#include <thrust/transform.h>
+#include <thrust/execution_policy.h>
+#include <thrust/functional.h>
+#include <thrust/iterator/transform_iterator.h>
+#include <thrust/iterator/zip_iterator.h>
+#include <thrust/iterator/counting_iterator.h>
 /*
 inline __host__ __device__
 BFcomplex64 make_BFcomplex64(float r, float i=0) {
@@ -58,12 +53,10 @@ BFcomplex64 make_BFcomplex64(float r, float i=0) {
 }
 */
 
-#if BF_CUDA_ENABLED
- #if THRUST_VERSION >= 100800 // WAR for old Thrust version on TK1
-  #define thrust_cuda_par_on(stream) thrust::cuda::par.on(stream)
- #else
-  #define thrust_cuda_par_on(stream) thrust::cuda::par(stream)
- #endif
+#if THRUST_VERSION >= 100800 // WAR for old Thrust version on TK1
+#define thrust_cuda_par_on(stream) thrust::cuda::par.on(stream)
+#else
+#define thrust_cuda_par_on(stream) thrust::cuda::par(stream)
 #endif
 
 BFstatus fill_hermitian_cuda(BFsize       nchan,
@@ -75,6 +68,7 @@ BFstatus fill_hermitian_cuda(BFsize       nchan,
 		TILE_DIM   = 32,
 		BLOCK_ROWS =  8
 	};
+        printf("Entered fill hermitian\n");
 	cuda::scoped_stream stream;
 	int ntile_side = (ninput-1) / TILE_DIM + 1;
 	int ntile = ntile_side*(ntile_side+1)/2;
@@ -166,6 +160,7 @@ BFstatus bfApplyGains(BFsize  nchan,
 template<typename T, typename U>
 inline bool shapes_equal(T const& a, U const& b) {
 	if( a.ndim != b.ndim ) {
+                printf("%d != %d\n", a.ndim, b.ndim);
 		return false;
 	}
 	for( int d=0; d<a.ndim; ++d ) {
@@ -184,9 +179,9 @@ inline bool valid_array(T const& a) {
 	         a.space == BF_SPACE_
 }
 */
-BFstatus bfSolveGains(BFconstarray V,      // [nchan,nstand^,npol^,nstand,npol] cf32
-                      BFconstarray M,      // [nchan,nstand^,npol^,nstand,npol] cf32
-                      BFarray      G,      // [nchan,pol^,nstand,npol] cf32
+BFstatus bfSolveGains(BFconstarray V,      // Observed data. [nchan,nstand^,npol^,nstand,npol] cf32
+                      BFconstarray M,      // The model. [nchan,nstand^,npol^,nstand,npol] cf32
+                      BFarray      G,      // Jones matrices. [nchan,pol^,nstand,npol] cf32
                       BFarray      flags,  // [nchan,nstand] i8
                       BFbool       l1norm,
                       float        l2reg,
@@ -222,6 +217,19 @@ BFstatus bfSolveGains(BFconstarray V,      // [nchan,nstand^,npol^,nstand,npol] 
 	BF_ASSERT(G.data, BF_STATUS_INVALID_POINTER);
 	BF_ASSERT(flags.data, BF_STATUS_INVALID_POINTER);
 	
+	int convergence_status = bfSolveGains_old(nchan,
+                         nstand,
+                         npol, 
+                         V.space,
+                         (const BFcomplex64*) V.data,
+                         (const BFcomplex64*) M.data,
+                         (BFcomplex64*) G.data,
+                         (int8_t*) flags.data,
+                         l1norm,
+                         l2reg,
+                         eps,
+                         maxiter,
+                         num_unconverged_ptr);
 	return BF_STATUS_SUCCESS;
 }
 
@@ -290,11 +298,14 @@ BFstatus bfSolveGains_old(BFsize             nchan,
 			std::cout << "CONVERGED AFTER " << it+1 << " ITERATIONS" << std::endl;
 			return BF_STATUS_SUCCESS;
 		}
-		std::cout << "Iteration " << it << ", num_unconverged = " << num_unconverged << std::endl;
+                if ( it%(int(maxiter/100.0)) == 0 ){
+		    std::cout << "Iteration " << it << ", num_unconverged = " << num_unconverged << std::endl;
+                }
 	}
 	if( num_unconverged_ptr ) {
 		*num_unconverged_ptr = num_unconverged;
 	}
+        printf("Failed to converge.\n");
 	return BF_STATUS_FAILED_TO_CONVERGE;
 }
 
