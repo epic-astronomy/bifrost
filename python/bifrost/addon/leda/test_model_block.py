@@ -163,65 +163,51 @@ class TestScalarSkyModelBlock(unittest.TestCase):
         # Should be some brighter sources
         self.assertGreater(np.max(brightness)/np.average(brightness), 5)
 
-class TestGainSolveBlock(unittest.TestCase):
-    """Test various functionality of the gain solve block"""
-    def test_throughput_and_exit(self):
-        """Make sure that the MitchCal C library can be called
-        (This does not actually test the block itself)"""
-        nchan = 1
-        nstand = 256
-        npol = 2
-        host_data = np.ones(shape=[nchan, nstand, npol, nstand, npol]).astype(np.complex64)
-        host_model = np.ones(shape=[nchan, nstand, npol, nstand, npol]).astype(np.complex64)
-        host_jones = np.ones(shape=[nchan, npol, nstand, npol]).astype(np.complex64)
-        host_flags = np.zeros(shape=[nchan, nstand]).astype(np.uint8)
-        host_flags[0, 0] = 1
-        visibilities = GPUArray([nchan, nstand, npol, nstand, npol], np.complex64)
-        visibilities.set(host_data)
-        model = GPUArray([nchan, nstand, npol, nstand, npol], np.complex64)
-        model.set(host_model)
-        jones = GPUArray([nchan, npol, nstand, npol], np.complex64)
-        jones.set(host_jones)
-        flags = GPUArray([nchan, nstand], np.uint8)
-        flags.set(host_flags)
-        num_unconverged_type = ctypes.POINTER(ctypes.c_int)
-        num = ctypes.c_int(1)
-        num_unconverged = ctypes.cast(ctypes.addressof(num), num_unconverged_type)
-        array_jones = jones.as_BFarray()
-        _check(_bf.SolveGains(
-            visibilities.as_BFconstarray(), 
-            model.as_BFconstarray(), 
-            array_jones,
-            flags.as_BFarray(),
-            True, 1.0, 1.0, 10, num_unconverged))
-        jones.buffer = array_jones.data
-        np.testing.assert_almost_equal(flags.shape, [nchan, nstand])
-    def test_changes_being_made(self):
-        """Check that there are some changes being made to the jones matrix"""
-        nchan = 1
-        nstand = 256
-        npol = 2
-        host_data = 10*np.random.rand(nchan, nstand, npol, nstand, npol).astype(np.complex64)
-        host_model = 10*np.random.rand(nchan, nstand, npol, nstand, npol).astype(np.complex64)
-        host_jones = 10*np.random.rand(nchan, npol, nstand, npol).astype(np.complex64)
+class TestGainSolve(unittest.TestCase):
+    """Test various functionality of the mitchcal gain solve"""
+    def setUp(self):
+        """Set up a random gain solve"""
+        self.nchan = 1
+        self.nstand = 256
+        self.npol = 2
+        nchan = self.nchan
+        nstand = self.nstand
+        npol = self.npol
+        host_data = 10*np.random.rand(
+            nchan, nstand, npol, nstand, npol).astype(np.complex64)
+        host_model = 10*np.random.rand(
+            nchan, nstand, npol, nstand, npol).astype(np.complex64)
+        self.host_jones = 10*np.random.rand(
+            nchan, npol, nstand, npol).astype(np.complex64)
         host_flags = (np.ones(shape=[nchan, nstand])*2).astype(np.int8)
         visibilities = GPUArray([nchan, nstand, npol, nstand, npol], np.complex64)
         visibilities.set(host_data)
         model = GPUArray([nchan, nstand, npol, nstand, npol], np.complex64)
         model.set(host_model)
-        jones = GPUArray([nchan, npol, nstand, npol], np.complex64)
-        jones.set(host_jones)
+        self.jones = GPUArray([nchan, npol, nstand, npol], np.complex64)
+        self.jones.set(self.host_jones)
         flags = GPUArray([nchan, nstand], np.int8)
         flags.set(host_flags)
         num_unconverged_type = ctypes.POINTER(ctypes.c_int)
         num = ctypes.c_int(1)
         num_unconverged = ctypes.cast(ctypes.addressof(num), num_unconverged_type)
-        array_jones = jones.as_BFarray(100)
+        array_jones = self.jones.as_BFarray(100)
         _bf.SolveGains(
             visibilities.as_BFconstarray(), 
             model.as_BFconstarray(), 
             array_jones,
             flags.as_BFarray(100),
             True, 1.0, 1.0, 20, num_unconverged)
-        jones.buffer = array_jones.data
-        self.assertGreater(np.max(np.abs(jones.get().reshape(-1)-host_jones.reshape(-1))), 0)
+        self.jones.buffer = array_jones.data
+    def test_throughput_and_exit(self):
+        """Make sure that the MitchCal C library can be called
+        (This does not actually test the block's functions themselves)"""
+        np.testing.assert_almost_equal(
+            self.jones.shape,
+            [self.nchan, self.npol, self.nstand, self.npol])
+    def test_changes_being_made(self):
+        """Check that there are some changes being made to the jones matrix"""
+        self.assertGreater(
+            np.max(np.abs(
+                self.jones.get().reshape(-1)-self.host_jones.reshape(-1))),
+            1e-3)
