@@ -170,13 +170,6 @@ class SourceBlock(object):
         self.gulp_size = gulp_size
         self.output_header = {}
         self.core = -1
-        self.oring = None
-    def begin_write(self, output_ring):
-        if self.oring is None:
-            with output_ring.begin_writing() as oring:
-                self.oring = oring
-                return self.oring
-        return self.oring
     def iterate_ring_write(
             self, output_ring, sequence_name="",
             sequence_time_tag=0):
@@ -186,7 +179,6 @@ class SourceBlock(object):
         @param[in] sequence_time_tag Time tag to label sequence
         """
         output_ring.resize(self.gulp_size)
-        #oring = self.begin_write(output_ring)
         with output_ring.begin_writing() as oring:
             with oring.begin_sequence(
                 sequence_name, sequence_time_tag,
