@@ -31,31 +31,36 @@
 #include <cuda_runtime_api.h>
 #include <cuda.h>
 #include <bifrost/correlate.h>
+#include <thrust/host_vector.h>
+#include <thrust/device_vector.h>
+#include <cuComplex.h>
+#include "cuda/stream.hpp"
 #define NCHAN 1
 #define NSTAND 256
 #define NPOL 2
 
 int main() {
-    BFspace space = BF_SPACE_CUDA;
+    //BFspace space = BF_SPACE_CUDA;
     //BFcomplex64 test_vis[NCHAN][NSTAND][NPOL][NSTAND][NPOL] = {0};
     //BFcomplex64 test_jones[NCHAN][NPOL][NSTAND][NPOL] = {0};
     //char flags_values[NCHAN][NSTAND] = {0};
-    BFcomplex64 *test_vis;
-    BFcomplex64 *test_model;
-    BFcomplex64 *test_jones;
-    char *flag_values;
-    cudaMalloc((void**)&test_vis, NCHAN*NSTAND*NPOL*NSTAND*NPOL*sizeof(BFcomplex64));
-    cudaMemset((void**)&test_vis, 1, NCHAN*NSTAND*NPOL*NSTAND*NPOL*sizeof(BFcomplex64));
-    cudaMalloc((void**)&test_model, NCHAN*NSTAND*NPOL*NSTAND*NPOL*sizeof(BFcomplex64));
-    cudaMemset((void**)&test_model, 2, NCHAN*NSTAND*NPOL*NSTAND*NPOL*sizeof(BFcomplex64));
-    cudaMalloc((void**)&test_jones, NCHAN*NPOL*NSTAND*NPOL*sizeof(BFcomplex64));
-    cudaMemset((void**)&test_jones, 1, NCHAN*NPOL*NSTAND*NPOL*sizeof(BFcomplex64));
-    cudaMalloc((void**)&flag_values, NCHAN*NSTAND*sizeof(char));
-    cudaMemset((void**)&flag_values, 0, NCHAN*NSTAND*sizeof(char));
+    thrust::device_vector<cuFloatComplex> test_vis(2);
+    /*
+    thrust::device_vector<BFcomplex64> test_model[NCHAN*NSTAND*NPOL*NSTAND*NPOL];
+    BFcomplex64 set_visibility;
+    for (int i = 0; i < NCHAN*NSTAND*NPOL*NSTAND*NPOL; i++)
+    {
+        ((BFcomplex64*)&test_vis)[i].r = 0; 
+        ((BFcomplex64*)&test_vis)[i].i = 0; 
+        ((BFcomplex64*)&test_model)[i].r = 0; 
+        ((BFcomplex64*)&test_model)[i].i = 0; 
+    }
+    thrust::device_vector<BFcomplex64> test_jones[NCHAN*NPOL*NSTAND*NPOL];
+    thrust::device_vector<int8_t> flag_values[NCHAN*NSTAND];
 
     BFconstarray V, M;
-    V.data = (void*)test_vis;
-    M.data = (void*)test_model;
+    V.data = (void*)thrust::raw_pointer_cast(&test_vis[0]);
+    M.data = (void*)thrust::raw_pointer_cast(&test_model[0]);
     V.ndim = 5;
     M.ndim = 5;
     V.space = space;
@@ -71,11 +76,10 @@ int main() {
     M.shape[3] = NSTAND;
     M.shape[4] = NPOL;
 
-
     BFarray G;
     G.ndim = 4;
     G.space = space;
-    G.data = (void*)test_jones;
+    G.data = (void*)thrust::raw_pointer_cast(&test_jones[0]);
     G.shape[0] = NCHAN;
     G.shape[1] = NPOL;
     G.shape[2] = NSTAND;
@@ -84,15 +88,23 @@ int main() {
     BFarray flags;
     flags.ndim = 2;
     flags.space = space;
-    flags.data = (void*)flag_values;
+    flags.data = (void*)thrust::raw_pointer_cast(&flag_values[0]);
     flags.shape[0] = NCHAN;
     flags.shape[1] = NSTAND;
     BFbool l1norm = 1;
     float l2reg = 1;
     float eps = 1;
-    int maxiter = 200000;
+    int maxiter = 2000;
     int num_unconverged_ptr;
-    bfSolveGains(V, M, G, flags, l1norm, l2reg, eps, maxiter, &num_unconverged_ptr);
+    printf ("Leaving main.cpp!\n");
+    //BFcomplex64 *jones_before = (BFcomplex64*)malloc(sizeof(BFcomplex64)*NCHAN*NPOL*NSTAND*NPOL);
+    //cudaMemcpy((void*) jones_before, (const void*) G.data, NCHAN*NPOL*NSTAND*NPOL*sizeof(BFcomplex64), cudaMemcpyDeviceToHost);
+    //printf("Before: %f+j%f\n", jones_before[0].r, jones_before[0].i);
+    int num_status = bfSolveGains(V, M, G, flags, l1norm, l2reg, eps, maxiter, &num_unconverged_ptr);
+    printf ("Back in main.cpp!\n");
+    BFcomplex64 result_jones[NCHAN][NPOL][NSTAND][NPOL];
+    //cudaMemcpy((void*) result_jones, (const void*) G.data, NCHAN*NPOL*NSTAND*NPOL*sizeof(BFcomplex64), cudaMemcpyDeviceToHost);
     //bfVisibilitiesFillHermitian(nchan, ninput, space, data, stride);
+    */
     return 0;
 }

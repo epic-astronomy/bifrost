@@ -34,7 +34,6 @@
 #include "cuda/stream.hpp"
 #include "Jones.hpp"
 #include "correlate_kernels.cuh"
-#include "cuda/stream.hpp"
 #include "cuda/device_variable.hpp"
 #include <thrust/device_vector.h>
 #include <thrust/transform.h>
@@ -188,6 +187,7 @@ BFstatus bfSolveGains(BFconstarray V,      // Observed data. [nchan,nstand^,npol
                       float        eps,
                       int          maxiter,
                       int*         num_unconverged_ptr) {
+        
 	BF_ASSERT(shapes_equal(V, M), BF_STATUS_INVALID_SHAPE);
 	BF_ASSERT(    V.ndim == 5, BF_STATUS_INVALID_SHAPE);
 	BF_ASSERT(    G.ndim == 4, BF_STATUS_INVALID_SHAPE);
@@ -216,8 +216,12 @@ BFstatus bfSolveGains(BFconstarray V,      // Observed data. [nchan,nstand^,npol
 	BF_ASSERT(M.data, BF_STATUS_INVALID_POINTER);
 	BF_ASSERT(G.data, BF_STATUS_INVALID_POINTER);
 	BF_ASSERT(flags.data, BF_STATUS_INVALID_POINTER);
-	
-	int convergence_status = bfSolveGains_old(nchan,
+        
+	BFcomplex64 *jones_before = (BFcomplex64*)malloc(sizeof(BFcomplex64)*nchan*npol*nstand*npol);
+    cudaMemcpy((void*) jones_before, (const void*)G.data, sizeof(BFcomplex64)*nchan*npol*nstand*npol, cudaMemcpyDeviceToHost);
+    printf("Before: %f+j%f\n", jones_before[0].r, jones_before[0].i);
+	int convergence_status = bfSolveGains_old(
+                         nchan,
                          nstand,
                          npol, 
                          V.space,
@@ -230,6 +234,9 @@ BFstatus bfSolveGains(BFconstarray V,      // Observed data. [nchan,nstand^,npol
                          eps,
                          maxiter,
                          num_unconverged_ptr);
+    printf ("Returned \n");
+        cudaMemcpy((void*) jones_before, (const void*)G.data, sizeof(BFcomplex64)*nchan*npol*nstand*npol, cudaMemcpyDeviceToHost);
+        printf("After: %f+j%f\n", jones_before[0].r, jones_before[0].i);
 	return BF_STATUS_SUCCESS;
 }
 
@@ -287,7 +294,7 @@ BFstatus bfSolveGains_old(BFsize             nchan,
 			 states, &num_unconverged,
 			 (it%2==1),
 			 l1norm, l2reg, eps);
-		//cudaStreamSynchronize(stream);
+		cudaStreamSynchronize(stream);
 		if( num_unconverged == 0 ) {
 			if( num_unconverged_ptr ) {
 				*num_unconverged_ptr = 0;
@@ -296,17 +303,23 @@ BFstatus bfSolveGains_old(BFsize             nchan,
 			// **TODO: Apply phase referencing!
 			
 			std::cout << "CONVERGED AFTER " << it+1 << " ITERATIONS" << std::endl;
-			return BF_STATUS_SUCCESS;
+            printf ("About to return\n");
+            return 0;
+            //return BF_STATUS_SUCCESS;
 		}
-                if ( it%(int(maxiter/100.0)) == 0 ){
+                if ( it%(int(maxiter/10.0)) == 0 ){
 		    std::cout << "Iteration " << it << ", num_unconverged = " << num_unconverged << std::endl;
                 }
 	}
+    printf ("About to return\n");
+    return BF_STATUS_SUCCESS;
+    /*
 	if( num_unconverged_ptr ) {
 		*num_unconverged_ptr = num_unconverged;
 	}
         printf("Failed to converge.\n");
 	return BF_STATUS_FAILED_TO_CONVERGE;
+    */
 }
 
 // HACK TESTING
@@ -322,3 +335,4 @@ BFstatus bfFoo(BFconstarray a,
 	//std::cout << a. << std::endl;
 	return BF_STATUS_SUCCESS;
 }
+
