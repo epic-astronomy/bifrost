@@ -31,6 +31,7 @@ from bifrost.block import SourceBlock, SinkBlock
 from bifrost.pipeline import Pipeline
 import json
 
+
 class NpTxBlock(SourceBlock):
     """Block for debugging purposes.
     Allows you to pass arbitrary N-dimensional arrays in initialization,
@@ -54,15 +55,20 @@ class NpTxBlock(SourceBlock):
         """Put the test array onto the output ring
         @param[in] output_ring Holds the flattend test array in a single span"""
         self.gulp_size = self.test_data.nbytes
+        self.initialize_oring(output_ring)
+
+        ospan_generator = self.iterate_ring_write(sequence_name=str(self.seed))
 
         for ii in range(100):
-            print ii
+            #print ii
             self.seed = ii
             self.output_header_dict['checksum'] = str(ii)
             self.output_header = json.dumps(self.output_header_dict)
             self.test_data = np.arange(self.test_data.shape[0], dtype='float32') + self.seed
-            for ospan in self.iterate_ring_write(output_ring, sequence_name=str(self.seed)):
-                ospan.data_view(np.float32)[0][:] = self.test_data.ravel()
+
+            ospan = ospan_generator.next()
+            ospan.data_view(np.float32)[0][:] = self.test_data.ravel()
+
 
 class NpRxBlock(SinkBlock):
 
@@ -90,9 +96,8 @@ class NpRxBlock(SinkBlock):
         span_generator = self.iterate_ring_read(input_ring)
         for span in span_generator:
             unpacked_data = span.data_view(self.dtype)
-            print "HERE"
-            print unpacked_data
-
+            print unpacked_data[0:4]
+            print self.header
 
 
 def test_np():

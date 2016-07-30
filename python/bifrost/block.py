@@ -124,18 +124,30 @@ class SourceBlock(object):
         self.output_header = {}
         self.core = -1
 
-    def iterate_ring_write(self, output_ring, sequence_name="", sequence_time_tag=0):
+        self.oring = None
+
+    def initialize_oring(self, output_ring):
+
+        output_ring.resize(self.gulp_size)
+        self.oring = output_ring.begin_writing()
+
+    def new_sequence(self, sequence_name="", sequence_time_tag=0):
+
+        self.oring.begin_sequence(sequence_name, sequence_time_tag,
+                                  header=self.output_header, nringlet=1)
+
+    def iterate_ring_write(self, sequence_name="", sequence_time_tag=0):
         """Iterate over output ring
         @param[in] output_ring Ring to write to
         @param[in] sequence_name Name to label sequence
         @param[in] sequence_time_tag Time tag to label sequence
         """
-        output_ring.resize(self.gulp_size)
-        with output_ring.begin_writing() as oring:
-            with oring.begin_sequence(sequence_name, sequence_time_tag, header=self.output_header, nringlet=1) as oseq:
-                while True:
-                    with oseq.reserve(self.gulp_size) as span:
-                        yield span
+
+        with self.oring.begin_sequence(sequence_name, sequence_time_tag,
+                                       header=self.output_header, nringlet=1) as oseq:
+            while True:
+                with oseq.reserve(self.gulp_size) as span:
+                    yield span
 
 
 class SinkBlock(object):
@@ -146,17 +158,27 @@ class SinkBlock(object):
         self.gulp_size = gulp_size
         self.header = {}
         self.core = -1
+        self.iring = None
 
     def load_settings(self, input_header):
         """Load in settings from input ring header"""
         self.header = json.loads(input_header.tostring())
 
+    def initialize_iring(self, input_ring):
+
+        input_ring.resize(self.gulp_size)
+        self.iring = input_ring
+
     def iterate_ring_read(self, input_ring):
         """Iterate through one input ring
         @param[in] input_ring Ring to read through"""
-        input_ring.resize(self.gulp_size)
+        self.initialize_iring(input_ring)
+
+        print "HERE0"
         for sequence in input_ring.read(guarantee=True):
             self.load_settings(sequence.header)
+            print sequence.header
+            print "HERE"
             for span in sequence.read(self.gulp_size):
                 yield span
 
