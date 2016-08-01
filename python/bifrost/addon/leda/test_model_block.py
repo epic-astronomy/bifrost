@@ -242,8 +242,8 @@ class TestGainSolveBlock(unittest.TestCase):
                 self.nstand, self.npol]).astype(np.float32)
             out_jones = self.generate_new_jones(model, data, jones)
             self.assertEqual(
-                out_jones.size, 
-                np.product([nchan, self.npol, self.nstand, self.npol]))
+                out_jones.shape, 
+                jones.shape)
     def test_jones_changing(self):
         """Assert that the jones matrices are different than as entered"""
         model = np.zeros(shape=[
