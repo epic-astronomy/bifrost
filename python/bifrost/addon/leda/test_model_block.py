@@ -235,11 +235,11 @@ class TestGainSolveBlock(unittest.TestCase):
             model = np.zeros(shape=[
                 nchan, self.nstand, 
                 self.npol, self.nstand, 
-                self.npol]).astype(np.float32)
+                self.npol]).astype(np.complex64)
             data = np.copy(model)
             jones = np.zeros(shape=[
                 nchan, self.npol, 
-                self.nstand, self.npol]).astype(np.float32)
+                self.nstand, self.npol]).astype(np.complex64)
             out_jones = self.generate_new_jones(model, data, jones)
             self.assertEqual(
                 out_jones.shape, 
@@ -249,10 +249,10 @@ class TestGainSolveBlock(unittest.TestCase):
         model = np.zeros(shape=[
             self.nchan, self.nstand, 
             self.npol, self.nstand, 
-            self.npol]).astype(np.float32)
+            self.npol]).astype(np.complex64)
         data = np.copy(model)
         jones = np.zeros(shape=[
             self.nchan, self.npol, 
-            self.nstand, self.npol]).astype(np.float32)
+            self.nstand, self.npol]).astype(np.complex64)
         out_jones = self.generate_new_jones(model, data, jones)
         self.assertGreater(np.max(np.abs(out_jones - jones)), 1e-3)
