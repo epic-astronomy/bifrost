@@ -821,7 +821,6 @@ class GainSolveBlock(TransformBlock):
     def load_settings(self, input_header):
         self.shapes.append(json.loads(input_header.tostring())['shape'])
         self.gulp_size = np.product(self.shapes[-1])*8
-        self.out_gulp_size = self.gulp_size
         self.output_header = input_header
     def main(self, input_rings, output_rings):
         data_span_generator = self.iterate_ring_read(input_rings[0])
@@ -852,6 +851,7 @@ class GainSolveBlock(TransformBlock):
             gpu_flags.as_BFarray(100),
             True, 1.0, 1.0, 20, num_unconverged)
         gpu_jones.buffer = array_jones.data
+        self.out_gulp_size = jones.nbytes
         out_jones_generator = self.iterate_ring_write(output_rings[0])
         out_jones = out_jones_generator.next()
         out_jones.data_view(np.complex64)[0][:] = gpu_jones.get().ravel()
