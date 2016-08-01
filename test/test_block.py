@@ -328,7 +328,7 @@ class TestFakeVisBlock(unittest.TestCase):
         self.datafile_name = "/data1/mcranmer/data/fake/mona_uvw.dat"
         self.blocks = []
         self.blocks.append(
-            (FakeVisBlock(self.datafile_name), [], [0]))
+            (FakeVisBlock(self.datafile_name, 512), [], [0]))
         self.blocks.append((WriteAsciiBlock('.log.txt'), [0], []))
     def test_output_size(self):
         """Make sure the outputs are being sized appropriate to the file"""
@@ -355,7 +355,7 @@ class TestFakeVisBlock(unittest.TestCase):
     def test_different_size_data(self):
         """Assert that different data sizes are processed properly"""
         datafile_name = "/data1/mcranmer/data/fake/mona_uvw_half.dat"
-        self.blocks[0] = (FakeVisBlock(datafile_name), [], [0])
+        self.blocks[0] = (FakeVisBlock(datafile_name, 512), [], [0])
         Pipeline(self.blocks).main()
         length_ring_buffer = len(open('.log.txt', 'r').read().split(' '))
         length_data_file = sum(1 for line in open(datafile_name, 'r'))
@@ -366,7 +366,7 @@ class TestNearestNeighborGriddingBlock(unittest.TestCase):
         """Run a pipeline on a fake visibility set and grid it"""
         self.datafile_name = "/data1/mcranmer/data/fake/mona_uvw.dat"
         self.blocks = []
-        self.blocks.append((FakeVisBlock(self.datafile_name), [], [0]))
+        self.blocks.append((FakeVisBlock(self.datafile_name, 512), [], [0]))
         self.blocks.append((NearestNeighborGriddingBlock(shape=(100, 100)), [0], [1]))
         self.blocks.append((WriteAsciiBlock('.log.txt'), [1], []))
     def test_output_size(self):
@@ -398,7 +398,7 @@ class TestIFFT2Block(unittest.TestCase):
         """Run a pipeline on a fake visibility set and IFFT it after gridding"""
         self.datafile_name = "/data1/mcranmer/data/fake/mona_uvw.dat"
         self.blocks = []
-        self.blocks.append((FakeVisBlock(self.datafile_name), [], [0]))
+        self.blocks.append((FakeVisBlock(self.datafile_name, 512), [], [0]))
         self.blocks.append((NearestNeighborGriddingBlock(shape=(100, 100)), [0], [1]))
         self.blocks.append((IFFT2Block(), [1], [2]))
         self.blocks.append((WriteAsciiBlock('.log.txt'), [2], []))
