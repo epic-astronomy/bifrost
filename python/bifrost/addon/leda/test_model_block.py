@@ -214,20 +214,48 @@ class TestGainSolve(unittest.TestCase):
             1e-3)
 class TestGainSolveBlock(unittest.TestCase):
     """Test the gain solve block, which calls mitchcal gain solve"""
+    def setUp(self):
+        self.nchan = 1
+        self.nstand = 256
+        self.npol = 2
+    def generate_new_jones(self, model, data, jones):
+        """Run a pipeline to create a new jones matrix"""
+        blocks = []
+        blocks.append((TestingBlock(model), [], ['model']))
+        blocks.append((TestingBlock(data), [], ['data']))
+        blocks.append((TestingBlock(jones), [], ['jones_in']))
+        blocks.append((GainSolveBlock(), ['data', 'model', 'jones_in'], ['jones_out']))
+        blocks.append((WriteAsciiBlock('.log.txt'), ['jones_out'], []))
+        Pipeline(blocks).main()
+        out_jones = np.loadtxt('.log.txt')
+        return out_jones.reshape(jones.shape)
     def test_throughput_size(self):
         """Test input/output sizes are compatible"""
         for nchan in range(1, 5):
-            blocks = []
-            nstand = 256
-            npol = 2
-            model = np.zeros(shape=[nchan, nstand, npol, nstand, npol]).astype(np.float32)
-            data = np.zeros(shape=[nchan, nstand, npol, nstand, npol]).astype(np.float32)
-            jones = np.zeros(shape=[nchan, npol, nstand, npol]).astype(np.float32)
-            blocks.append((TestingBlock(model), [], ['model']))
-            blocks.append((TestingBlock(data), [], ['data']))
-            blocks.append((TestingBlock(jones), [], ['jones_in']))
-            blocks.append((GainSolveBlock(), ['data', 'model', 'jones_in'], ['jones_out']))
-            blocks.append((WriteAsciiBlock('.log.txt'), ['jones_out'], []))
-            Pipeline(blocks).main()
-            out_jones = np.loadtxt('.log.txt')
-            self.assertEqual(out_jones.size, np.product([nchan, npol, nstand, npol]))
+            model = np.zeros(shape=[
+                nchan, self.nstand, 
+                self.npol, self.nstand, 
+                self.npol]).astype(np.float32)
+            data = np.copy(model)
+            jones = np.zeros(shape=[
+                nchan, self.npol, 
+                self.nstand, self.npol]).astype(np.float32)
+            out_jones = self.generate_new_jones(model, data, jones)
+            self.assertEqual(
+                out_jones.size, 
+                np.product([nchan, self.npol, self.nstand, self.npol]))
+    def test_jones_changing(self):
+        """Assert that the jones matrices are different than as entered"""
+        model = np.zeros(shape=[
+            self.nchan, self.nstand, 
+            self.npol, self.nstand, 
+            self.npol]).astype(np.float32)
+        data = np.copy(model)
+        jones = np.zeros(shape=[
+            self.nchan, self.npol, 
+            self.nstand, self.npol]).astype(np.float32)
+        out_jones = self.generate_new_jones(model, data, jones)
+        self.assertEqual(
+            out_jones.size, 
+            np.product([self.nchan, self.npol, self.nstand, self.npol]))
+        self.assertGreater(np.max(np.abs(out_jones - jones.ravel())), 1e-3)
