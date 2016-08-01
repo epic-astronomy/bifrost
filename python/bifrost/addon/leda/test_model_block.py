@@ -218,13 +218,13 @@ class TestGainSolveBlock(unittest.TestCase):
         self.nchan = 1
         self.nstand = 256
         self.npol = 2
-    def generate_new_jones(self, model, data, jones):
+    def generate_new_jones(self, model, data, jones, flags):
         """Run a pipeline to create a new jones matrix"""
         blocks = []
         blocks.append((TestingBlock(model), [], ['model']))
         blocks.append((TestingBlock(data), [], ['data']))
         blocks.append((TestingBlock(jones), [], ['jones_in']))
-        blocks.append((GainSolveBlock(), ['data', 'model', 'jones_in'], ['jones_out']))
+        blocks.append((GainSolveBlock(flags), ['data', 'model', 'jones_in'], ['jones_out']))
         blocks.append((WriteAsciiBlock('.log.txt'), ['jones_out'], []))
         Pipeline(blocks).main()
         out_jones = np.loadtxt('.log.txt')
@@ -232,6 +232,8 @@ class TestGainSolveBlock(unittest.TestCase):
     def test_throughput_size(self):
         """Test input/output sizes are compatible"""
         for nchan in range(1, 5):
+            flags = np.zeros(shape=[
+                nchan, self.nstand]).astype(np.int8)
             model = np.zeros(shape=[
                 nchan, self.nstand, 
                 self.npol, self.nstand, 
@@ -240,12 +242,14 @@ class TestGainSolveBlock(unittest.TestCase):
             jones = np.zeros(shape=[
                 nchan, self.npol, 
                 self.nstand, self.npol]).astype(np.complex64)
-            out_jones = self.generate_new_jones(model, data, jones)
+            out_jones = self.generate_new_jones(model, data, jones, flags)
             self.assertEqual(
                 out_jones.shape, 
                 jones.shape)
     def test_jones_changing(self):
         """Assert that the jones matrices are different than as entered"""
+        flags = np.zeros(shape=[
+            self.nchan, self.nstand]).astype(np.int8)
         model = np.zeros(shape=[
             self.nchan, self.nstand, 
             self.npol, self.nstand, 
@@ -254,5 +258,5 @@ class TestGainSolveBlock(unittest.TestCase):
         jones = np.zeros(shape=[
             self.nchan, self.npol, 
             self.nstand, self.npol]).astype(np.complex64)
-        out_jones = self.generate_new_jones(model, data, jones)
+        out_jones = self.generate_new_jones(model, data, jones, flags)
         self.assertGreater(np.max(np.abs(out_jones - jones)), 1e-3)
