@@ -126,9 +126,9 @@ class TransformBlock(object):
         self.output_header = input_header
     def iterate_ring_read(self, input_ring):
         """Iterate through one input ring"""
-        input_ring.resize(self.gulp_size)
         for sequence in input_ring.read(guarantee=True):
             self.load_settings(sequence.header)
+            input_ring.resize(self.gulp_size)
             for span in sequence.read(self.gulp_size):
                 yield span
     def iterate_ring_write(
@@ -200,9 +200,9 @@ class SinkBlock(object):
     def iterate_ring_read(self, input_ring):
         """Iterate through one input ring
         @param[in] input_ring Ring to read through"""
-        input_ring.resize(self.gulp_size)
         for sequence in input_ring.read(guarantee=True):
             self.load_settings(sequence.header)
+            input_ring.resize(self.gulp_size)
             for span in sequence.read(self.gulp_size):
                 yield span
 class TestingBlock(SourceBlock):
@@ -367,6 +367,8 @@ class WriteAsciiBlock(SinkBlock):
     def load_settings(self, input_header):
         header_dict = json.loads(input_header.tostring())
         self.nbit = header_dict['nbit']
+        if 'shape' in header_dict:
+            self.gulp_size = self.nbit*np.product(header_dict['shape'])/8
         self.dtype = np.dtype(header_dict['dtype'].split()[1].split(".")[1].split("'")[0]).type
     def main(self, input_ring):
         """Initiate the writing to filename
@@ -384,11 +386,15 @@ class WriteAsciiBlock(SinkBlock):
                 else:
                     unpacked_data = span.data_view(self.dtype)
             if data_accumulate is not None:
-                data_accumulate = np.concatenate((data_accumulate, unpacked_data[0]))
+                data_accumulate = np.concatenate((data_accumulate, unpacked_data.ravel()), axis=0).ravel()
             else:
-                data_accumulate = unpacked_data[0]
+                data_accumulate = unpacked_data.ravel()
         text_file = open(self.filename, 'a')
-        np.savetxt(text_file, data_accumulate.reshape((1,-1)))
+        x = data_accumulate.reshape((1, -1))
+        if self.dtype == np.complex64:
+            np.savetxt(text_file, x.view(np.float32))
+        else:
+            np.savetxt(text_file, x)
 class CopyBlock(TransformBlock):
     """Copies input ring's data to the output ring"""
     def __init__(self, gulp_size=1048576):
@@ -733,7 +739,7 @@ class FakeVisBlock(SourceBlock):
 
         uvw_data = np.loadtxt(
             self.filename, dtype=np.float32, usecols={1, 2, 3, 4, 5, 6})
-        random.shuffle(uvw_data)
+        np.random.shuffle(uvw_data)
 
         # Strip a lot of the incoming values so we only have N_BASELINE visibilties. 
 	# Then assign stand numbers.
@@ -798,3 +804,20 @@ class NearestNeighborGriddingBlock(TransformBlock):
         out_span_generator = self.iterate_ring_write(output_rings[0])
         out_span = out_span_generator.next()
         out_span.data_view(np.complex64)[0][:] = grid.ravel()
+
+class GainSolveBlock(TransformBlock):
+    """Optimize the Jones matrices to produce the sky model."""
+    def load_settings(self, input_header):
+        self.shape = json.loads(input_header.tostring())['shape']
+        self.gulp_size = np.product(self.shape)*4
+        self.out_gulp_size = self.gulp_size
+        self.output_header = input_header
+    def main(self, input_rings, output_rings):
+        #data_span_generator = self.iterate_ring_read(input_rings[0])
+        #model_span_generator = self.iterate_ring_read(input_rings[1])
+        jones_span_generator = self.iterate_ring_read(input_rings[2])
+        jones = jones_span_generator.next()
+        self.out_gulp_size = self.gulp_size
+        out_jones_generator = self.iterate_ring_write(output_rings[0])
+        out_jones = out_jones_generator.next()
+        out_jones.data_view(np.float32)[0][:] = jones.data_view(np.float32).ravel()
