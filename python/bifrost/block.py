@@ -814,14 +814,8 @@ class NearestNeighborGriddingBlock(TransformBlock):
 
 class GainSolveBlock(TransformBlock):
     """Optimize the Jones matrices to produce the sky model."""
-    def __init__(
-            self, model_gulp_size=4096, 
-            data_gulp_size=4096, jones_gulp_size=4096, 
-            flags = []):
+    def __init__(self, flags = []):
         super(GainSolveBlock, self).__init__()
-        self.model_gulp_size = model_gulp_size
-        self.data_gulp_size = data_gulp_size
-        self.jones_gulp_size = jones_gulp_size
         self.flags = np.array(flags)
         self.shapes = []
     def load_settings(self, input_header):
@@ -835,10 +829,8 @@ class GainSolveBlock(TransformBlock):
         jones_span_generator = self.iterate_ring_read(input_rings[2])
         data = data_span_generator.next()
         data = data.data_view(np.complex64).reshape(self.shapes[0])
-        self.gulp_size = self.model_gulp_size
         model = model_span_generator.next()
         model = model.data_view(np.complex64).reshape(self.shapes[1])
-        self.gulp_size = self.jones_gulp_size
         jones = jones_span_generator.next()
         jones = jones.data_view(np.complex64).reshape(self.shapes[2])
         gpu_data = GPUArray(data.shape, np.complex64)
