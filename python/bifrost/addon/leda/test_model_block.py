@@ -255,7 +255,4 @@ class TestGainSolveBlock(unittest.TestCase):
             self.nchan, self.npol, 
             self.nstand, self.npol]).astype(np.float32)
         out_jones = self.generate_new_jones(model, data, jones)
-        self.assertEqual(
-            out_jones.size, 
-            np.product([self.nchan, self.npol, self.nstand, self.npol]))
-        self.assertGreater(np.max(np.abs(out_jones - jones.ravel())), 1e-3)
+        self.assertGreater(np.max(np.abs(out_jones - jones)), 1e-3)
