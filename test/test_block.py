@@ -31,10 +31,13 @@ This file tests all aspects of the Bifrost.block module.
 import unittest
 import numpy as np
 from bifrost.ring import Ring
+from bifrost.libbifrost import _bf
+from bifrost.GPUArray import GPUArray
 from bifrost.block import TestingBlock, WriteAsciiBlock, WriteHeaderBlock
 from bifrost.block import SigprocReadBlock, CopyBlock, KurtosisBlock, FoldBlock
 from bifrost.block import IFFTBlock, FFTBlock, Pipeline, FakeVisBlock
 from bifrost.block import NearestNeighborGriddingBlock, IFFT2Block
+from bifrost.block import GainSolveBlock
 
 class TestTestingBlock(unittest.TestCase):
     """Test the TestingBlock for basic functionality"""
@@ -456,3 +459,57 @@ class TestPipeline(unittest.TestCase):
         Pipeline(block_set_two).main()
         result = np.loadtxt('.log.txt').astype(np.float32)
         np.testing.assert_almost_equal(result, [1, 2, 3])
+class TestGainSolveBlock(unittest.TestCase):
+    """Test the gain solve block, which calls mitchcal gain solve"""
+    def setUp(self):
+        self.nchan = 1
+        self.nstand = 256
+        self.npol = 2
+    def generate_new_jones(self, model, data, jones, flags):
+        """Run a pipeline to create a new jones matrix"""
+        blocks = []
+        blocks.append((TestingBlock(model), [], ['model']))
+        blocks.append((TestingBlock(data), [], ['data']))
+        blocks.append((TestingBlock(jones), [], ['jones_in']))
+        blocks.append((
+            GainSolveBlock(flags=flags), 
+            ['data', 'model', 'jones_in'], 
+            ['jones_out']))
+        blocks.append((WriteAsciiBlock('.log.txt'), ['jones_out'], []))
+        Pipeline(blocks).main()
+        out_jones = np.loadtxt('.log.txt').astype(np.float32).view(np.complex64)
+        return out_jones
+    def test_throughput_size(self):
+        """Test input/output sizes are compatible"""
+        for nchan in range(1, 5):
+            flags = np.zeros(shape=[
+                nchan, self.nstand]).astype(np.int8)
+            model = np.zeros(shape=[
+                nchan, self.nstand, 
+                self.npol, self.nstand, 
+                self.npol]).astype(np.complex64)
+            data = np.copy(model)
+            jones = np.zeros(shape=[
+                nchan, self.npol, 
+                self.nstand, self.npol]).astype(np.complex64)
+            out_jones = self.generate_new_jones(model, data, jones, flags)
+            self.assertEqual(
+                out_jones.size, 
+                jones.size)
+    def test_jones_changing(self):
+        """Assert that the jones matrices are different than as entered"""
+        flags = 2*np.ones(shape=[
+            self.nchan, self.nstand]).astype(np.int8)
+        model = 10*np.random.rand(
+            self.nchan, self.nstand, 
+            self.npol, self.nstand, 
+            self.npol).astype(np.complex64)
+        data = 10*np.random.rand(
+            self.nchan, self.nstand, 
+            self.npol, self.nstand, 
+            self.npol).astype(np.complex64)
+        jones = np.ones(shape=[
+            self.nchan, self.npol, 
+            self.nstand, self.npol]).astype(np.complex64)
+        out_jones = self.generate_new_jones(model, data, jones, flags)
+        self.assertGreater(np.max(np.abs(out_jones - jones.ravel())), 1e-3)
