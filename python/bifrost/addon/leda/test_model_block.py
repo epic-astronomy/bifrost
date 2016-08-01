@@ -224,7 +224,7 @@ class TestGainSolveBlock(unittest.TestCase):
         blocks.append((TestingBlock(model), [], ['model']))
         blocks.append((TestingBlock(data), [], ['data']))
         blocks.append((TestingBlock(jones), [], ['jones_in']))
-        blocks.append((GainSolveBlock(flags), ['data', 'model', 'jones_in'], ['jones_out']))
+        blocks.append((GainSolveBlock(flags=flags), ['data', 'model', 'jones_in'], ['jones_out']))
         blocks.append((WriteAsciiBlock('.log.txt'), ['jones_out'], []))
         Pipeline(blocks).main()
         out_jones = np.loadtxt('.log.txt')
@@ -248,14 +248,17 @@ class TestGainSolveBlock(unittest.TestCase):
                 jones.shape)
     def test_jones_changing(self):
         """Assert that the jones matrices are different than as entered"""
-        flags = np.zeros(shape=[
+        flags = np.ones(shape=[
             self.nchan, self.nstand]).astype(np.int8)
-        model = np.zeros(shape=[
+        model = 10*np.random.rand(
             self.nchan, self.nstand, 
             self.npol, self.nstand, 
-            self.npol]).astype(np.complex64)
-        data = np.copy(model)
-        jones = np.zeros(shape=[
+            self.npol).astype(np.complex64)
+        data = 10*np.random.rand(
+            self.nchan, self.nstand, 
+            self.npol, self.nstand, 
+            self.npol).astype(np.complex64)
+        jones = np.ones(shape=[
             self.nchan, self.npol, 
             self.nstand, self.npol]).astype(np.complex64)
         out_jones = self.generate_new_jones(model, data, jones, flags)
