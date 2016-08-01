@@ -32,6 +32,7 @@ of a simple transform which works on a span by span basis.
 """
 import json
 import threading
+import ctypes
 import numpy as np
 import matplotlib
 ## Use a graphical backend which supports threading
@@ -39,6 +40,7 @@ matplotlib.use('Agg')
 from matplotlib import pyplot as plt
 import bifrost
 from bifrost import affinity
+from bifrost.libbifrost import _bf
 from bifrost.ring import Ring
 from bifrost.GPUArray import GPUArray
 from bifrost.sigproc import SigprocFile, unpack
@@ -127,9 +129,9 @@ class TransformBlock(object):
         self.output_header = input_header
     def iterate_ring_read(self, input_ring):
         """Iterate through one input ring"""
+        input_ring.resize(self.gulp_size)
         for sequence in input_ring.read(guarantee=True):
             self.load_settings(sequence.header)
-            input_ring.resize(self.gulp_size)
             for span in sequence.read(self.gulp_size):
                 yield span
     def iterate_ring_write(
@@ -813,38 +815,51 @@ class NearestNeighborGriddingBlock(TransformBlock):
 class GainSolveBlock(TransformBlock):
     """Optimize the Jones matrices to produce the sky model."""
     def __init__(
-            self, model_gulp_size = 4096, 
-            data_gulp_size = 4096, jones_gulp_size = 4096, 
+            self, model_gulp_size=4096, 
+            data_gulp_size=4096, jones_gulp_size=4096, 
             flags = []):
+        super(GainSolveBlock, self).__init__()
         self.model_gulp_size = model_gulp_size
         self.data_gulp_size = data_gulp_size
         self.jones_gulp_size = jones_gulp_size
         self.flags = np.array(flags)
+        self.shapes = []
     def load_settings(self, input_header):
-        self.shape = json.loads(input_header.tostring())['shape']
-        self.gulp_size = np.product(self.shape)*4
+        self.shapes.append(json.loads(input_header.tostring())['shape'])
+        self.gulp_size = np.product(self.shapes[-1])*8
         self.out_gulp_size = self.gulp_size
         self.output_header = input_header
     def main(self, input_rings, output_rings):
         data_span_generator = self.iterate_ring_read(input_rings[0])
         model_span_generator = self.iterate_ring_read(input_rings[1])
         jones_span_generator = self.iterate_ring_read(input_rings[2])
-        self.gulp_size = self.data_gulp_size
         data = data_span_generator.next()
+        data = data.data_view(np.complex64).reshape(self.shapes[0])
         self.gulp_size = self.model_gulp_size
         model = model_span_generator.next()
+        model = model.data_view(np.complex64).reshape(self.shapes[1])
         self.gulp_size = self.jones_gulp_size
         jones = jones_span_generator.next()
-
-        gpu_data = GPUArray(data.data_view(np.complex64).shape, np.complex64)
-        gpu_model = GPUArray(model.data_view(np.complex64).shape, np.complex64)
-        gpu_jones = GPUArray(jones.data_view(np.complex64).shape, np.complex64)
+        jones = jones.data_view(np.complex64).reshape(self.shapes[2])
+        gpu_data = GPUArray(data.shape, np.complex64)
+        gpu_model = GPUArray(model.shape, np.complex64)
+        gpu_jones = GPUArray(jones.shape, np.complex64)
         gpu_flags = GPUArray(self.flags.shape, np.int8)
-        gpu_data.set(data.data_view(np.complex64))
-        gpu_model.set(model.data_view(np.complex64))
-        gpu_jones.set(jones.data_view(np.complex64))
+        gpu_data.set(data)
+        gpu_model.set(model)
+        gpu_jones.set(jones)
         gpu_flags.set(self.flags)
-
+        array_jones = gpu_jones.as_BFarray(100)
+        num_unconverged_type = ctypes.POINTER(ctypes.c_int)
+        num = ctypes.c_int(1)
+        num_unconverged = ctypes.cast(ctypes.addressof(num), num_unconverged_type)
+        _bf.SolveGains(
+            gpu_data.as_BFconstarray(100), 
+            gpu_model.as_BFconstarray(100), 
+            array_jones,
+            gpu_flags.as_BFarray(100),
+            True, 1.0, 1.0, 20, num_unconverged)
+        gpu_jones.buffer = array_jones.data
         out_jones_generator = self.iterate_ring_write(output_rings[0])
         out_jones = out_jones_generator.next()
-        out_jones.data_view(np.complex64)[0][:] = jones.data_view(np.complex64).ravel()
+        out_jones.data_view(np.complex64)[0][:] = gpu_jones.get().ravel()
