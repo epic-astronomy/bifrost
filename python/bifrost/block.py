@@ -212,6 +212,9 @@ class TestingBlock(SourceBlock):
     def __init__(self, test_array, complex_numbers=False):
         """@param[in] test_array A list or numpy array containing test data"""
         super(TestingBlock, self).__init__()
+        if isinstance(test_array, np.ndarray):
+            if test_array.dtype == np.complex64:
+                complex_numbers = True
         if complex_numbers:
             self.test_array = np.array(test_array).astype(np.complex64)
             header = {
@@ -813,11 +816,13 @@ class GainSolveBlock(TransformBlock):
         self.out_gulp_size = self.gulp_size
         self.output_header = input_header
     def main(self, input_rings, output_rings):
-        #data_span_generator = self.iterate_ring_read(input_rings[0])
-        #model_span_generator = self.iterate_ring_read(input_rings[1])
+        data_span_generator = self.iterate_ring_read(input_rings[0])
+        model_span_generator = self.iterate_ring_read(input_rings[1])
         jones_span_generator = self.iterate_ring_read(input_rings[2])
+        data = data_span_generator.next()
+        model = model_span_generator.next()
         jones = jones_span_generator.next()
-        self.out_gulp_size = self.gulp_size
+        data.data_view(np.float32)
         out_jones_generator = self.iterate_ring_write(output_rings[0])
         out_jones = out_jones_generator.next()
         out_jones.data_view(np.float32)[0][:] = jones.data_view(np.float32).ravel()
