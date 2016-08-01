@@ -200,9 +200,9 @@ class SinkBlock(object):
     def iterate_ring_read(self, input_ring):
         """Iterate through one input ring
         @param[in] input_ring Ring to read through"""
+        input_ring.resize(self.gulp_size)
         for sequence in input_ring.read(guarantee=True):
             self.load_settings(sequence.header)
-            input_ring.resize(self.gulp_size)
             for span in sequence.read(self.gulp_size):
                 yield span
 class TestingBlock(SourceBlock):
