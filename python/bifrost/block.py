@@ -40,6 +40,7 @@ from matplotlib import pyplot as plt
 import bifrost
 from bifrost import affinity
 from bifrost.ring import Ring
+from bifrost.GPUArray import GPUArray
 from bifrost.sigproc import SigprocFile, unpack
 
 class Pipeline(object):
@@ -210,7 +211,8 @@ class TestingBlock(SourceBlock):
     Allows you to pass arbitrary N-dimensional arrays in initialization,
     which will be outputted into a ring buffer"""
     def __init__(self, test_array, complex_numbers=False):
-        """@param[in] test_array A list or numpy array containing test data"""
+        """Figure out data settings from the test array.
+        @param[in] test_array A list or numpy array containing test data"""
         super(TestingBlock, self).__init__()
         if isinstance(test_array, np.ndarray):
             if test_array.dtype == np.complex64:
@@ -810,6 +812,14 @@ class NearestNeighborGriddingBlock(TransformBlock):
 
 class GainSolveBlock(TransformBlock):
     """Optimize the Jones matrices to produce the sky model."""
+    def __init__(
+            self, model_gulp_size = 4096, 
+            data_gulp_size = 4096, jones_gulp_size = 4096, 
+            flags = []):
+        self.model_gulp_size = model_gulp_size
+        self.data_gulp_size = data_gulp_size
+        self.jones_gulp_size = jones_gulp_size
+        self.flags = np.array(flags)
     def load_settings(self, input_header):
         self.shape = json.loads(input_header.tostring())['shape']
         self.gulp_size = np.product(self.shape)*4
@@ -819,10 +829,22 @@ class GainSolveBlock(TransformBlock):
         data_span_generator = self.iterate_ring_read(input_rings[0])
         model_span_generator = self.iterate_ring_read(input_rings[1])
         jones_span_generator = self.iterate_ring_read(input_rings[2])
+        self.gulp_size = self.data_gulp_size
         data = data_span_generator.next()
+        self.gulp_size = self.model_gulp_size
         model = model_span_generator.next()
+        self.gulp_size = self.jones_gulp_size
         jones = jones_span_generator.next()
-        data.data_view(np.float32)
+
+        gpu_data = GPUArray(data.data_view(np.complex64).shape, np.complex64)
+        gpu_model = GPUArray(model.data_view(np.complex64).shape, np.complex64)
+        gpu_jones = GPUArray(jones.data_view(np.complex64).shape, np.complex64)
+        gpu_flags = GPUArray(self.flags.shape, np.int8)
+        gpu_data.set(data.data_view(np.complex64))
+        gpu_model.set(model.data_view(np.complex64))
+        gpu_jones.set(jones.data_view(np.complex64))
+        gpu_flags.set(self.flags)
+
         out_jones_generator = self.iterate_ring_write(output_rings[0])
         out_jones = out_jones_generator.next()
-        out_jones.data_view(np.float32)[0][:] = jones.data_view(np.float32).ravel()
+        out_jones.data_view(np.complex64)[0][:] = jones.data_view(np.complex64).ravel()
