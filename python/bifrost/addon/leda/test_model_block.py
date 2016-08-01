@@ -224,15 +224,14 @@ class TestGainSolveBlock(unittest.TestCase):
         blocks.append((TestingBlock(model), [], ['model']))
         blocks.append((TestingBlock(data), [], ['data']))
         blocks.append((TestingBlock(jones), [], ['jones_in']))
-        blocks.append((GainSolveBlock(
-            model_gulp_size=model.nbytes, 
-            data_gulp_size=data.nbytes, 
-            jones_gulp_size=jones.nbytes, 
-            flags=flags), ['data', 'model', 'jones_in'], ['jones_out']))
+        blocks.append((
+            GainSolveBlock(flags=flags), 
+            ['data', 'model', 'jones_in'], 
+            ['jones_out']))
         blocks.append((WriteAsciiBlock('.log.txt'), ['jones_out'], []))
         Pipeline(blocks).main()
-        out_jones = np.loadtxt('.log.txt')
-        return out_jones.reshape(jones.shape)
+        out_jones = np.loadtxt('.log.txt').astype(np.float32).view(np.complex64)
+        return out_jones
     def test_throughput_size(self):
         """Test input/output sizes are compatible"""
         for nchan in range(1, 5):
@@ -248,8 +247,8 @@ class TestGainSolveBlock(unittest.TestCase):
                 self.nstand, self.npol]).astype(np.complex64)
             out_jones = self.generate_new_jones(model, data, jones, flags)
             self.assertEqual(
-                out_jones.shape, 
-                jones.shape)
+                out_jones.size, 
+                jones.size)
     def test_jones_changing(self):
         """Assert that the jones matrices are different than as entered"""
         flags = 2*np.ones(shape=[
@@ -266,4 +265,4 @@ class TestGainSolveBlock(unittest.TestCase):
             self.nchan, self.npol, 
             self.nstand, self.npol]).astype(np.complex64)
         out_jones = self.generate_new_jones(model, data, jones, flags)
-        self.assertGreater(np.max(np.abs(out_jones - jones)), 1e-3)
+        self.assertGreater(np.max(np.abs(out_jones - jones.ravel())), 1e-3)
