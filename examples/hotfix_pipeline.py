@@ -180,7 +180,7 @@ class FakeeVisBlock(TransformBlock):
         self.output_header = json.dumps(
             {'dtype':str(np.complex64),
              'nbit':64,
-             'shape': [4, 1]})
+             'shape': [6, 1]})
     def main(self, input_rings, output_rings):
         """Start the visibility generation.
         @param[out] output_ring Will contain the visibilities in [[stand1, stand2, u,v,re,im],[stand1,..],..]
@@ -205,7 +205,6 @@ class FakeeVisBlock(TransformBlock):
 	# Then assign stand numbers.
 	inner = np.array([ x for x in uvw_data if abs(x[2]) < 50 and abs(x[3]) < 50 ])
 	uvw_data = np.append(inner, uvw_data, axis=0)[:n_baseline]
-	print n_baseline, len(uvw_data)
 	# Assign stands
 	for i in range(len(uvw_data)):
 	    uvw_data[i][0] = baselines[i][0]
@@ -214,16 +213,18 @@ class FakeeVisBlock(TransformBlock):
             1, N_STANDS, 
             2, N_STANDS, 
             2]).astype(np.complex64)
-        print uvw_matrix.shape, uvw_data.shape
         uv = []
         for row in uvw_data:
             stand1 = int(row[0])
             stand2 = int(row[1])
             uv.append([stand1, stand2, row[2], row[3]])
+            #uv.append([stand2, stand1, -row[2], -row[3]])
             uvw_matrix[0, stand1, 0, stand2, 0] += row[4]+1j*row[5]
             uvw_matrix[0, stand1, 1, stand2, 1] += row[4]+1j*row[5]
+            #uvw_matrix[0, stand2, 0, stand1, 0] += row[4]-1j*row[5]
+            #uvw_matrix[0, stand2, 1, stand1, 1] += row[4]-1j*row[5]
+        print len(uv), uvw_matrix.shape
         uv = np.array(uv).astype(np.float32)
-        print np.max(uvw_matrix)
         self.out_gulp_size = uvw_matrix.nbytes
         self.header = json.dumps({
             'dtype':str(np.complex64), 
@@ -252,15 +253,15 @@ class FakeeVisBlock(TransformBlock):
 blocks = []
 jones = 1*np.ones(shape=[
     1, 2, N_STANDS, 2]).astype(np.complex64)
-#jones[0, 0, :, 1] = np.zeros(N_STANDS)[:].astype(np.complex64)
-#jones[0, 1, :, 0] = np.zeros(N_STANDS)[:].astype(np.complex64)
+jones[0, 0, :, 1] = np.zeros(N_STANDS)[:].astype(np.complex64)
+jones[0, 1, :, 0] = np.zeros(N_STANDS)[:].astype(np.complex64)
 flags = 2*np.ones(shape=[
     1, N_STANDS]).astype(np.int8)
 blocks.append((FakeeVisBlock("mona_uvw.dat", N_STANDS), [], ['uncalibrated', 'uv_coords']))
-blocks.append((FakeeVisBlock("mona_uvw.dat", N_STANDS), [], ['perfect', 0]))
+#blocks.append((FakeeVisBlock("mona_uvw.dat", N_STANDS), [], ['perfect', 0]))
 blocks.append((TestingBlock(jones), [], ['jones_in']))
 blocks.append((GainSolveBlock(flags, max_iterations=2000), ['uncalibrated', 'uncalibrated', 'jones_in'], ['model_out', 'jones_out']))
-blocks.append((WriteAsciiBlock('model_out.txt'), ['model_out'], []))
+blocks.append((WriteAsciiBlock('model_out.txt'), ['uncalibrated'], []))
 blocks.append((WriteAsciiBlock('uv_coords.txt'), ['uv_coords'], []))
 Pipeline(blocks).main()
 output_visibilities = np.loadtxt('model_out.txt', dtype=np.float32).view(np.complex64).reshape((N_STANDS, 2, N_STANDS, 2))
@@ -286,7 +287,7 @@ new_blocks.append((NearestNeighborGriddingBlock((250,250)), ['viz'], ['gridded']
 new_blocks.append((IFFT2Block(), ['gridded'], ['ifftd']))
 new_blocks.append((WriteAsciiBlock('ifftd.txt'), ['ifftd'], []))
 Pipeline(new_blocks).main()
-dirty_image = np.real(np.loadtxt('ifftd.txt', dtype=np.float32).view(np.complex64).reshape((250, 250)))
+dirty_image = np.abs(np.loadtxt('ifftd.txt', dtype=np.float32).view(np.complex64).reshape((250, 250)))
 from matplotlib import image
 image.imsave('is_this_mona.png', dirty_image)
 """
