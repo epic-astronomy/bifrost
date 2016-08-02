@@ -259,11 +259,11 @@ flags = 2*np.ones(shape=[
 blocks.append((FakeeVisBlock("mona_uvw.dat", N_STANDS), [], ['uncalibrated', 'uv_coords']))
 blocks.append((FakeeVisBlock("mona_uvw.dat", N_STANDS), [], ['perfect', 0]))
 blocks.append((TestingBlock(jones), [], ['jones_in']))
-blocks.append((GainSolveBlock(flags, max_iterations=2000), ['uncalibrated', 'perfect', 'jones_in'], ['model_out', 'jones_out']))
-blocks.append((WriteAsciiBlock('.log.txt'), ['model_out'], []))
+blocks.append((GainSolveBlock(flags, max_iterations=2000), ['uncalibrated', 'uncalibrated', 'jones_in'], ['model_out', 'jones_out']))
+blocks.append((WriteAsciiBlock('model_out.txt'), ['model_out'], []))
 blocks.append((WriteAsciiBlock('uv_coords.txt'), ['uv_coords'], []))
 Pipeline(blocks).main()
-output_visibilities = np.loadtxt('.log.txt', dtype=np.float32).view(np.complex64).reshape((N_STANDS, 2, N_STANDS, 2))
+output_visibilities = np.loadtxt('model_out.txt', dtype=np.float32).view(np.complex64).reshape((N_STANDS, 2, N_STANDS, 2))
 visibilities = np.array([np.linalg.det(
     np.array([
     [output_visibilities[i, 0, j, 0], output_visibilities[i, 0, j, 1]],
@@ -282,13 +282,13 @@ gridding_feed = np.array(gridding_feed)
 
 new_blocks = []
 new_blocks.append((TestingBlock(gridding_feed), [], ['viz']))
-new_blocks.append((NearestNeighborGriddingBlock((200,200)), ['viz'], ['gridded']))
+new_blocks.append((NearestNeighborGriddingBlock((250,250)), ['viz'], ['gridded']))
 new_blocks.append((IFFT2Block(), ['gridded'], ['ifftd']))
-new_blocks.append((WriteAsciiBlock('.log.txt'), ['ifftd'], []))
+new_blocks.append((WriteAsciiBlock('ifftd.txt'), ['ifftd'], []))
 Pipeline(new_blocks).main()
-dirty_image = np.real(np.loadtxt('uv_coords.txt', dtype=np.float32).view(np.complex64).reshape((200, 200)))
-from matplotlib import pyplot
-pyplot.imshow(dirty_image)
+dirty_image = np.real(np.loadtxt('ifftd.txt', dtype=np.float32).view(np.complex64).reshape((250, 250)))
+from matplotlib import image
+image.imsave('is_this_mona.png', dirty_image)
 """
 bad_stands = [ 0,56,57,58,59,60,61,62,63,72,74,75,76,77,78,82,83,84,85,86,87,91,92,93,104,120,121,122,123,124,125,126,127,128,145,148,157,161,164,168,184,185,186,187,188,189,190,191,197,220,224,225,238,239,240,241,242,243,244,245,246,247,248,249,250,251,252,253,254,255 ]
 flags = 2*np.ones(shape=[
