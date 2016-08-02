@@ -171,7 +171,7 @@ class GridBlock(TransformBlock):
         plt.imshow(image, cmap="gray")
         plt.savefig("x.png")
 
-class FakeeVisBlock(SourceBlock):
+class FakeeVisBlock(TransformBlock):
     """Read a formatted file for fake visibility data"""
     def __init__(self, filename, num_stands):
         super(FakeeVisBlock, self).__init__()
@@ -181,7 +181,7 @@ class FakeeVisBlock(SourceBlock):
             {'dtype':str(np.complex64),
              'nbit':64,
              'shape': [4, 1]})
-    def main(self, output_ring):
+    def main(self, input_rings, output_rings):
         """Start the visibility generation.
         @param[out] output_ring Will contain the visibilities in [[stand1, stand2, u,v,re,im],[stand1,..],..]
         """
@@ -214,13 +214,17 @@ class FakeeVisBlock(SourceBlock):
             1, N_STANDS, 
             2, N_STANDS, 
             2]).astype(np.complex64)
+        print uvw_matrix.shape, uvw_data.shape
+        uv = []
         for row in uvw_data:
             stand1 = int(row[0])
             stand2 = int(row[1])
+            uv.append([stand1, stand2, row[2], row[3]])
             uvw_matrix[0, stand1, 0, stand2, 0] += row[4]+1j*row[5]
             uvw_matrix[0, stand1, 1, stand2, 1] += row[4]+1j*row[5]
+        uv = np.array(uv).astype(np.float32)
         print np.max(uvw_matrix)
-        self.gulp_size = uvw_matrix.nbytes
+        self.out_gulp_size = uvw_matrix.nbytes
         self.header = json.dumps({
             'dtype':str(np.complex64), 
             'nbit':64,
@@ -229,9 +233,21 @@ class FakeeVisBlock(SourceBlock):
             'dtype':str(np.complex64), 
             'nbit':64,
             'shape':uvw_matrix.shape})
-        span_generator = self.iterate_ring_write(output_ring)
+        span_generator = self.iterate_ring_write(output_rings[0])
         span = span_generator.next()
         span.data_view(np.complex64)[0][:] = uvw_matrix.ravel()
+        self.header = json.dumps({
+            'dtype':str(np.float32), 
+            'nbit':32,
+            'shape':uv.shape})
+        self.output_header = json.dumps({
+            'dtype':str(np.float32), 
+            'nbit':32,
+            'shape':uv.shape})
+        self.out_gulp_size = uv.nbytes
+        uv_span_generator = self.iterate_ring_write(output_rings[1])
+        uv_span = uv_span_generator.next()
+        uv_span.data_view(np.float32)[0][:] = uv.ravel()
 
 blocks = []
 jones = 1*np.ones(shape=[
@@ -240,13 +256,39 @@ jones = 1*np.ones(shape=[
 #jones[0, 1, :, 0] = np.zeros(N_STANDS)[:].astype(np.complex64)
 flags = 2*np.ones(shape=[
     1, N_STANDS]).astype(np.int8)
-blocks.append((FakeeVisBlock("mona_uvw.dat", N_STANDS), [], ['uncalibrated']))
-blocks.append((FakeeVisBlock("mona_uvw.dat", N_STANDS), [], ['perfect']))
+blocks.append((FakeeVisBlock("mona_uvw.dat", N_STANDS), [], ['uncalibrated', 'uv_coords']))
+blocks.append((FakeeVisBlock("mona_uvw.dat", N_STANDS), [], ['perfect', 0]))
 blocks.append((TestingBlock(jones), [], ['jones_in']))
-blocks.append((GainSolveBlock(flags, max_iterations=20000), ['uncalibrated', 'perfect', 'jones_in'], ['model_out', 'jones_out']))
+blocks.append((GainSolveBlock(flags, max_iterations=2000), ['uncalibrated', 'perfect', 'jones_in'], ['model_out', 'jones_out']))
 blocks.append((WriteAsciiBlock('.log.txt'), ['model_out'], []))
+blocks.append((WriteAsciiBlock('uv_coords.txt'), ['uv_coords'], []))
 Pipeline(blocks).main()
-output_visibilities = np.loadtxt('.log.txt', dtype=np.float32).view(np.complex64).reshape((1, N_STANDS, 2, N_STANDS, 2))
+output_visibilities = np.loadtxt('.log.txt', dtype=np.float32).view(np.complex64).reshape((N_STANDS, 2, N_STANDS, 2))
+visibilities = np.array([np.linalg.det(
+    np.array([
+    [output_visibilities[i, 0, j, 0], output_visibilities[i, 0, j, 1]],
+    [output_visibilities[i, 1, j, 0], output_visibilities[i, 1, j, 1]]
+    ])) for i in range(N_STANDS) for j in range(N_STANDS)]).reshape(
+        (N_STANDS, N_STANDS))
+uv_points = np.loadtxt('uv_coords.txt', dtype=np.float32).reshape((N_BASELINE, 4))
+#Now have visibilities at each uv coord given...
+gridding_feed = []
+for row in uv_points:
+    stand1 = int(row[0])
+    stand2 = int(row[1])
+    curr_viz = visibilities[stand1, stand2]
+    gridding_feed.append([row[2], row[3], np.real(curr_viz), np.imag(curr_viz)])
+gridding_feed = np.array(gridding_feed)
+
+new_blocks = []
+new_blocks.append((TestingBlock(gridding_feed), [], ['viz']))
+new_blocks.append((NearestNeighborGriddingBlock((200,200)), ['viz'], ['gridded']))
+new_blocks.append((IFFT2Block(), ['gridded'], ['ifftd']))
+new_blocks.append((WriteAsciiBlock('.log.txt'), ['ifftd'], []))
+Pipeline(new_blocks).main()
+dirty_image = np.real(np.loadtxt('uv_coords.txt', dtype=np.float32).view(np.complex64).reshape((200, 200)))
+from matplotlib import pyplot
+pyplot.imshow(dirty_image)
 """
 bad_stands = [ 0,56,57,58,59,60,61,62,63,72,74,75,76,77,78,82,83,84,85,86,87,91,92,93,104,120,121,122,123,124,125,126,127,128,145,148,157,161,164,168,184,185,186,187,188,189,190,191,197,220,224,225,238,239,240,241,242,243,244,245,246,247,248,249,250,251,252,253,254,255 ]
 flags = 2*np.ones(shape=[
