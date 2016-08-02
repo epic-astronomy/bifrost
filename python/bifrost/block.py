@@ -814,10 +814,11 @@ class NearestNeighborGriddingBlock(TransformBlock):
 
 class GainSolveBlock(TransformBlock):
     """Optimize the Jones matrices to produce the sky model."""
-    def __init__(self, flags = []):
+    def __init__(self, flags = [], max_iterations = 20):
         super(GainSolveBlock, self).__init__()
         self.flags = np.array(flags)
         self.shapes = []
+        self.max_iterations = max_iterations
     def load_settings(self, input_header):
         self.shapes.append(json.loads(input_header.tostring())['shape'])
         self.gulp_size = np.product(self.shapes[-1])*8
@@ -832,6 +833,8 @@ class GainSolveBlock(TransformBlock):
         model = model.data_view(np.complex64).reshape(self.shapes[1])
         jones = jones_span_generator.next()
         jones = jones.data_view(np.complex64).reshape(self.shapes[2])
+        assert model.shape == data.shape
+        assert jones.shape[2] == model.shape[1]
         gpu_data = GPUArray(data.shape, np.complex64)
         gpu_model = GPUArray(model.shape, np.complex64)
         gpu_jones = GPUArray(jones.shape, np.complex64)
@@ -849,9 +852,36 @@ class GainSolveBlock(TransformBlock):
             gpu_model.as_BFconstarray(100), 
             array_jones,
             gpu_flags.as_BFarray(100),
-            True, 1.0, 1.0, 20, num_unconverged)
+            True, 1.0, 1.0, self.max_iterations, num_unconverged)
         gpu_jones.buffer = array_jones.data
         self.out_gulp_size = jones.nbytes
-        out_jones_generator = self.iterate_ring_write(output_rings[0])
+        out_jones_generator = self.iterate_ring_write(output_rings[1])
         out_jones = out_jones_generator.next()
         out_jones.data_view(np.complex64)[0][:] = gpu_jones.get().ravel()
+
+        """ Y = G X G^
+        BFstatus bfApplyGains(BFsize  nchan,
+                              BFsize  nstand,
+                              BFsize  npol,
+                              BFspace space,
+                              BFbool  invert,
+                              const BFcomplex64* X,
+                              const BFcomplex64* G,
+                              const int8_t*      states,
+                              BFcomplex64*       Y);
+                              """
+        gpu_output_image = GPUArray(data.shape, np.complex64)
+        array_data = gpu_output_image.as_BFarray(100).data
+        _bf.ApplyGains(
+            jones.shape[0],
+            jones.shape[2],
+            jones.shape[1],
+            2,
+            0,
+            _bf.BFcomplex64(gpu_data.as_BFconstarray(100).data),
+            array_jones.data,
+            array_data)
+        gpu_output_image.buffer = array_data
+        out_model_generator = self.iterate_ring_write(output_rings[0])
+        out_model = out_model_generator.next()
+        out_model.data_view(np.complex64)[0][:] = gpu_output_image.get().ravel()
