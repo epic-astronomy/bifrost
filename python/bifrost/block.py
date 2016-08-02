@@ -860,28 +860,21 @@ class GainSolveBlock(TransformBlock):
         out_jones.data_view(np.complex64)[0][:] = gpu_jones.get().ravel()
 
         """ Y = G X G^
-        BFstatus bfApplyGains(BFsize  nchan,
-                              BFsize  nstand,
-                              BFsize  npol,
-                              BFspace space,
-                              BFbool  invert,
-                              const BFcomplex64* X,
-                              const BFcomplex64* G,
-                              const int8_t*      states,
-                              BFcomplex64*       Y);
+BFstatus bfApplyGainsArray(BFconstarray X, // Observed data. [nchan,nstand^,npol^,nstand,npol] cf32
+                           BFconstarray G, // Jones matrices. [nchan,pol^,nstand,npol] cf32
+                           BFarray      V, // Observed data. [nchan,nstand^,npol^,nstand,npol] cf32
+                           BFarray      flags);  // [nchan,nstand] i8
                               """
         gpu_output_image = GPUArray(data.shape, np.complex64)
-        array_data = gpu_output_image.as_BFarray(100).data
-        _bf.ApplyGains(
-            jones.shape[0],
-            jones.shape[2],
-            jones.shape[1],
-            2,
-            0,
-            _bf.BFcomplex64(gpu_data.as_BFconstarray(100).data),
-            array_jones.data,
-            array_data)
-        gpu_output_image.buffer = array_data
+        array_image = gpu_output_image.as_BFarray(100)
+        _bf.ApplyGainsArray(
+            gpu_data.as_BFconstarray(100),
+            gpu_jones.as_BFconstarray(100),
+            array_image,
+            gpu_flags.as_BFarray(100))
+        gpu_output_image.buffer = array_image.data
+        resultant_image = gpu_output_image.get()
+        self.out_gulp_size = resultant_image.nbytes
         out_model_generator = self.iterate_ring_write(output_rings[0])
         out_model = out_model_generator.next()
         out_model.data_view(np.complex64)[0][:] = gpu_output_image.get().ravel()
