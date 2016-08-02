@@ -219,15 +219,34 @@ class FakeeVisBlock(SourceBlock):
             stand2 = int(row[1])
             uvw_matrix[0, stand1, 0, stand2, 0] += row[4]+1j*row[5]
             uvw_matrix[0, stand1, 1, stand2, 1] += row[4]+1j*row[5]
+        print np.max(uvw_matrix)
         self.gulp_size = uvw_matrix.nbytes
+        self.header = json.dumps({
+            'dtype':str(np.complex64), 
+            'nbit':64,
+            'shape':uvw_matrix.shape})
+        self.output_header = json.dumps({
+            'dtype':str(np.complex64), 
+            'nbit':64,
+            'shape':uvw_matrix.shape})
         span_generator = self.iterate_ring_write(output_ring)
         span = span_generator.next()
         span.data_view(np.complex64)[0][:] = uvw_matrix.ravel()
 
 blocks = []
+jones = 1*np.ones(shape=[
+    1, 2, N_STANDS, 2]).astype(np.complex64)
+#jones[0, 0, :, 1] = np.zeros(N_STANDS)[:].astype(np.complex64)
+#jones[0, 1, :, 0] = np.zeros(N_STANDS)[:].astype(np.complex64)
+flags = 2*np.ones(shape=[
+    1, N_STANDS]).astype(np.int8)
 blocks.append((FakeeVisBlock("mona_uvw.dat", N_STANDS), [], ['uncalibrated']))
-blocks.append((FakeeVisBlock("mona_uvw.dat", N_STANDS), [], ['uncalibrated']))
+blocks.append((FakeeVisBlock("mona_uvw.dat", N_STANDS), [], ['perfect']))
+blocks.append((TestingBlock(jones), [], ['jones_in']))
+blocks.append((GainSolveBlock(flags, max_iterations=20000), ['uncalibrated', 'perfect', 'jones_in'], ['model_out', 'jones_out']))
+blocks.append((WriteAsciiBlock('.log.txt'), ['jones_out'], []))
 Pipeline(blocks).main()
+print np.loadtxt('.log.txt', dtype=np.float32).view(np.complex64)
 """
 bad_stands = [ 0,56,57,58,59,60,61,62,63,72,74,75,76,77,78,82,83,84,85,86,87,91,92,93,104,120,121,122,123,124,125,126,127,128,145,148,157,161,164,168,184,185,186,187,188,189,190,191,197,220,224,225,238,239,240,241,242,243,244,245,246,247,248,249,250,251,252,253,254,255 ]
 flags = 2*np.ones(shape=[
