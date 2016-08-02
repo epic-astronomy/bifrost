@@ -244,9 +244,9 @@ blocks.append((FakeeVisBlock("mona_uvw.dat", N_STANDS), [], ['uncalibrated']))
 blocks.append((FakeeVisBlock("mona_uvw.dat", N_STANDS), [], ['perfect']))
 blocks.append((TestingBlock(jones), [], ['jones_in']))
 blocks.append((GainSolveBlock(flags, max_iterations=20000), ['uncalibrated', 'perfect', 'jones_in'], ['model_out', 'jones_out']))
-blocks.append((WriteAsciiBlock('.log.txt'), ['jones_out'], []))
+blocks.append((WriteAsciiBlock('.log.txt'), ['model_out'], []))
 Pipeline(blocks).main()
-print np.loadtxt('.log.txt', dtype=np.float32).view(np.complex64)
+output_visibilities = np.loadtxt('.log.txt', dtype=np.float32).view(np.complex64).reshape((1, N_STANDS, 2, N_STANDS, 2))
 """
 bad_stands = [ 0,56,57,58,59,60,61,62,63,72,74,75,76,77,78,82,83,84,85,86,87,91,92,93,104,120,121,122,123,124,125,126,127,128,145,148,157,161,164,168,184,185,186,187,188,189,190,191,197,220,224,225,238,239,240,241,242,243,244,245,246,247,248,249,250,251,252,253,254,255 ]
 flags = 2*np.ones(shape=[
