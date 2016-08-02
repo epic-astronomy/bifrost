@@ -100,6 +100,7 @@ VERS_0.6 {
                 bfFFTR2C2d;
 
                 bfSolveGains;
+                bfApplyGains;
 
          local:
                 *;
