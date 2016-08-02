@@ -62,7 +62,7 @@ class FakeCalBlock(TransformBlock):
     def __init__(self, flags, num_stands):
 
         super(FakeCalBlock, self).__init__(gulp_size=UV_SPAN_SIZE)
-	self.num_stands = num_stands
+        self.num_stands = num_stands
 
     def main(self, input_rings, output_rings):
         """Initiate the block's processing"""
@@ -76,58 +76,45 @@ class FakeCalBlock(TransformBlock):
         dtype = np.float32
 
         for ispan, ospan in self.ring_transfer(input_rings[0], output_rings[0]):
-	    uv_list = ispan.data.reshape(N_BASELINE, 6*nbit/8).view(dtype)
+            uv_list = ispan.data.reshape(N_BASELINE, 6*nbit/8).view(dtype)
 
-	    if True:
-	        # Calibrate. It's a bit round-about but there's a reason.
+            if True:
+                # Calibrate. It's a bit round-about but there's a reason.
 
-	        # Take the vis values (FFT components) and generate a model P from them, using some random J matrices.
-	        # These V, J, P are called "perfect" because they are an exact solution to P = J V J
+                # Take the vis values (FFT components) and generate a model P from them, using some random J matrices.
+                # These V, J, P are called "perfect" because they are an exact solution to P = J V J
 
-		num_stands = 8			# Pretend this many to cut down the work
- 
-	        perfect_V = [ [ None for i in range(num_stands) ] for j in range(num_stands) ]
-	        i = 0
-	        for j in range(num_stands):
-  	            for k in range(j+1, num_stands):
-		        vis = complex(uv_list[i][4], uv_list[i][5])
-		        zero = complex(0, 0)
-    		        perfect_V[j][k] = v_p_matrices.Matrix(vis, zero, zero, zero)
-		        i += 1
+                num_stands = 16                 # Pretend this many to cut down the work
 
-	        perfect_V[4][5].printm()
+                perfect_V = [ [ None for i in range(num_stands) ] for j in range(num_stands) ]
+                i = 0
+                for j in range(num_stands):
+                    for k in range(j+1, num_stands):
+                        vis = complex(uv_list[i][4], uv_list[i][5])
+                        zero = complex(0, 0)
+                        perfect_V[j][k] = v_p_matrices.Matrix(vis, zero, zero, zero)
+                        i += 1
 
-    	        cal_matrices = v_p_matrices.V_P_J(num_stands)
-    	        perfect_P, perfect_J = cal_matrices.create_perfect_P(perfect_V)		# perfect
+                cal_matrices = v_p_matrices.V_P_J(num_stands)
+                perfect_P, perfect_J = cal_matrices.create_perfect_P(perfect_V)         # perfect
 
-	        # Now generate an imperfect V by perturbing the orginal ones. They are not perturbed randomly,
-	        # but using another hidden set of J
-                V_perturb = cal_matrices.perturb_V(perfect_V, perfect_J, perfect_P)
 
-	        # Now using the perfect_P as the model, and the orginal perfect_J as J estimates, see if we can find
-	        # a solution for V_perturb. In normal circumstances this would be the end. However we want to compare the solution
-	        # against the original visibilities (actually I want to use the solved visibilities). Thus generate a model
-		# from the solution. From that model and the perfect J's, generate solution visibilities to match against the originals.
-		# These visibilities are V_cal. 
-		
-    	        V_cal = cal_matrices.solve(V_perturb, perfect_J, perfect_P)
+                # Now generate perturbed J
+                J_perturb = cal_matrices.perturb_J(perfect_J)
 
-	        V_cal[4][5].printm()
+                print "Residual of perturbation", cal_matrices.residual(perfect_V, J_perturb, perfect_P)
 
-	        # Unpack
-	        new_uv_list = copy.deepcopy(uv_list)		# Return V_cal to see if the image changes
-	        i = 0
-	        for j in range(num_stands):
-  	            for k in range(j+1, num_stands):
-		        new_uv_list[i][4] = V_cal[j][k].matrix[0][0].real
-		        new_uv_list[i][5] = V_cal[j][k].matrix[0][0].imag
-		        i += 1
 
-	        # Send out
-	    
-	        ospan.data[0][:] = new_uv_list.view(dtype=np.uint8).ravel()
+                # Now attempt to find a solution using the perturbed J.
+                J_cal = cal_matrices.solve(perfect_V, J_perturb, perfect_P)
 
-	    else: ospan.data[0][:] = uv_list.view(dtype=np.uint8).ravel()
+                print "Residual of solution", cal_matrices.residual(perfect_V, J_cal, perfect_P)
+
+                # You could generate new V from the J_cal and perfect_P
+
+                # Send out
+
+                ospan.data[0][:] = uv_list.view(dtype=np.uint8).ravel()
 
 class GridBlock(TransformBlock):
     """This block performs gridding of visibilities (1 pol only) onto UV grid"""
