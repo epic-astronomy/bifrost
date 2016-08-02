@@ -145,22 +145,14 @@ class V_P_J(object):
 	print "Residual of perfect P, J, V (should be 0)", self.residual(V, J, P)
 	return P, J
 
-    def perturb_V(self, V, J, P):
-        V_perturb = copy.deepcopy(V)
-	J_perturb = copy.deepcopy(J)
+    def perturb_J(self, J):
+ 	J_perturb = copy.deepcopy(J)
 
         # Perturb J so we can perturb V. 
         for j in range(self.num_stands):
              J_perturb[j].perturb()
   
-        # Calculate perturbed V
-        for j in range(self.num_stands):
-          for k in range(j+1, self.num_stands):
-            V_perturb[j][k] = J_perturb[j].multiply(P[j][k]).multiply(J_perturb[k].transpose())
-
-	print "Residual of perturbed V", self.residual(V_perturb, J, P)
-
-	return V_perturb
+	return J_perturb
 
     def compare_vis(self, j_matrices_elements):
         J_in = [ None for j in range(self.num_stands) ]
@@ -170,23 +162,23 @@ class V_P_J(object):
 		complex(j_matrices_elements[j*8+2], j_matrices_elements[j*8+3]),
 		complex(j_matrices_elements[j*8+4], j_matrices_elements[j*8+5]),
 		complex(j_matrices_elements[j*8+6], j_matrices_elements[j*8+7]))
-        return self.residual(self.V_perturb, J_in, self.P)
+        return self.residual(self.V, J_in, self.P)
 
 
-    def solve(self, V_perturb, J, P):		# Using an optimization routine
-        self.V_perturb = V_perturb
+    def solve(self, V, J_perturb, P):		# Using an optimization routine
+        self.V = V
 	self.P = P
 
         flat = [ None for i in range(self.num_stands*8) ]
         for j in range(self.num_stands):
-            flat[j*8+0] = J[j].matrix[0][0].real
-            flat[j*8+1] = J[j].matrix[0][0].imag
-            flat[j*8+2] = J[j].matrix[0][1].real
-            flat[j*8+3] = J[j].matrix[0][1].imag
-            flat[j*8+4] = J[j].matrix[1][0].real
-            flat[j*8+5] = J[j].matrix[1][0].imag
-            flat[j*8+6] = J[j].matrix[1][1].real
-            flat[j*8+7] = J[j].matrix[1][1].imag
+            flat[j*8+0] = J_perturb[j].matrix[0][0].real
+            flat[j*8+1] = J_perturb[j].matrix[0][0].imag
+            flat[j*8+2] = J_perturb[j].matrix[0][1].real
+            flat[j*8+3] = J_perturb[j].matrix[0][1].imag
+            flat[j*8+4] = J_perturb[j].matrix[1][0].real
+            flat[j*8+5] = J_perturb[j].matrix[1][0].imag
+            flat[j*8+6] = J_perturb[j].matrix[1][1].real
+            flat[j*8+7] = J_perturb[j].matrix[1][1].imag
 
         res = scipy.optimize.minimize(self.compare_vis, flat)
         print "Success?", res.success
@@ -201,24 +193,8 @@ class V_P_J(object):
 		complex(result_J[j*8+4], result_J[j*8+5]),
 		complex(result_J[j*8+6], result_J[j*8+7]))
 
-        print "Residual of solution", self.residual(self.V_perturb, J_result, self.P)
-        print "iterations",res.nfev
 
-	# Find the new model based on the solution
-        P_new = [ [ None for i in range(self.num_stands) ] for j in range(self.num_stands) ]
-        for j in range(self.num_stands):
-            for k in range(j+1, self.num_stands):
-                P_new[j][k] =  (J_result[j].inverse()).multiply(V_perturb[j][k]).multiply(J_result[k].transpose().inverse())
-
-	# From the new model and original J, get the visibilties
-        V_new = [ [ None for i in range(self.num_stands) ] for j in range(self.num_stands) ]
-        for j in range(self.num_stands):
-            for k in range(j+1, self.num_stands):
-                V_new[j][k] =  J[j].multiply(P_new[j][k]).multiply(J[k].transpose())
-
-	
-
-	return V_new
+	return J_result
 
 
     def residual(self, Vin, Jin, Pin):  # Between V and J.P.Jt
