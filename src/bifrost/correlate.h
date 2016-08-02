@@ -56,6 +56,11 @@ BFstatus bfVisibilitiesFillHermitian(BFsize       nchan,
                                      BFcomplex64* data,   // [nchan,ninput,ninput]
                                      BFsize       stride);
 
+BFstatus bfApplyGainsArray(BFconstarray X, // Observed data. [nchan,nstand^,npol^,nstand,npol] cf32
+                           BFconstarray G, // Jones matrices. [nchan,pol^,nstand,npol] cf32
+                           BFarray      V, // Observed data. [nchan,nstand^,npol^,nstand,npol] cf32
+                           BFarray      flags);  // [nchan,nstand] i8
+
 BFstatus bfApplyGains(BFsize  nchan,
                       BFsize  nstand,
                       BFsize  npol,

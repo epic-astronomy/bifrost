@@ -101,6 +101,7 @@ VERS_0.6 {
 
                 bfSolveGains;
                 bfApplyGains;
+                bfApplyGainsArray;
 
          local:
                 *;

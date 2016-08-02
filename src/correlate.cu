@@ -120,6 +120,26 @@ BFstatus bfVisibilitiesReorder(BFsize             nchan,
                                BFcomplex64*       optr,
                                BFsize             ostride);
 
+// Apply gains, but allows array input.
+BFstatus bfApplyGainsArray(BFconstarray X, // Observed data. [nchan,nstand^,npol^,nstand,npol] cf32
+                           BFconstarray G, // Jones matrices. [nchan,pol^,nstand,npol] cf32
+                           BFarray      V, // Observed data. [nchan,nstand^,npol^,nstand,npol] cf32
+                           BFarray      flags){  // [nchan,nstand] i8
+    BFsize nchan  = V.shape[0];
+    BFsize nstand = V.shape[1];
+    BFsize npol   = V.shape[2];
+    BFspace space = V.space;
+    bfApplyGains(nchan,
+                 nstand,
+                 npol, 
+                 space,
+                 0,
+                 (const BFcomplex64*) X.data,
+                 (const BFcomplex64*) G.data,
+                 (const int8_t*)      flags.data,
+                 (BFcomplex64*)       V.data);
+    return BF_STATUS_SUCCESS;
+}
 // Y = G X G^
 BFstatus bfApplyGains(BFsize  nchan,
                       BFsize  nstand,
