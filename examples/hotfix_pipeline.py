@@ -185,6 +185,7 @@ class FakeeVisBlock(TransformBlock):
         """Start the visibility generation.
         @param[out] output_ring Will contain the visibilities in [[stand1, stand2, u,v,re,im],[stand1,..],..]
         """
+        # N_BASELINE is redundant
 	n_baseline = self.num_stands*(self.num_stands+1)//2
 
 	# Generate index of baselines -> stand
@@ -205,25 +206,36 @@ class FakeeVisBlock(TransformBlock):
 	# Then assign stand numbers.
 	inner = np.array([ x for x in uvw_data if abs(x[2]) < 50 and abs(x[3]) < 50 ])
 	uvw_data = np.append(inner, uvw_data, axis=0)[:n_baseline]
+
 	# Assign stands
 	for i in range(len(uvw_data)):
 	    uvw_data[i][0] = baselines[i][0]
 	    uvw_data[i][1] = baselines[i][1]
+
         uvw_matrix = np.zeros(shape=[
-            1, N_STANDS, 
-            2, N_STANDS, 
+            1, self.num_stands, 
+            2, self.num_stands, 
             2]).astype(np.complex64)
         uv = []
+
         for row in uvw_data:
             stand1 = int(row[0])
             stand2 = int(row[1])
-            uv.append([stand1, stand2, row[2], row[3]])
-            if stand1 != stand2:
-                uv.append([stand2, stand1, -row[2], -row[3]])
-            uvw_matrix[0, stand1, 0, stand2, 0] = row[4]+1j*row[5]
-            uvw_matrix[0, stand1, 1, stand2, 1] = row[4]+1j*row[5]
-            uvw_matrix[0, stand2, 0, stand1, 0] = row[4]-1j*row[5]
-            uvw_matrix[0, stand2, 1, stand1, 1] = row[4]-1j*row[5]
+
+	    if stand1 != stand2:
+              uv.append([stand1, stand2, row[2], row[3]])
+              uv.append([stand2, stand1, -row[2], -row[3]])
+
+              uvw_matrix[0, stand1, 0, stand2, 0] = row[4]+1j*row[5]
+
+              uvw_matrix[0, stand2, 0, stand1, 0] = row[4]-1j*row[5]
+ 
+	# List the UV co-ords and the visibility
+        for i in range(len(uv)):
+	    stand1 = uv[i][0]
+	    stand2 = uv[i][1]
+            if abs(uvw_matrix[0, stand1, 0, stand2, 0]) > 0: print uv[i][2], uv[i][3], uvw_matrix[0, stand1, 0, stand2, 0]
+
         uv = np.array(uv).astype(np.float32)
         self.out_gulp_size = uvw_matrix.nbytes
         self.header = json.dumps({
@@ -268,7 +280,7 @@ output_visibilities = np.loadtxt('model_out.txt', dtype=np.float32).view(np.comp
 scalar_visibilities = output_visibilities[:, 0, :, 0]
 uv_points = np.loadtxt('uv_coords.txt', dtype=np.float32).reshape((N_STANDS*N_STANDS, 4))[:, 2:]
 
-"""
+
 visibilities = np.array([np.linalg.det(
     np.array([
     [output_visibilities[i, 0, j, 0], output_visibilities[i, 0, j, 1]],
@@ -284,9 +296,9 @@ for row in uv_points:
     curr_viz = visibilities[stand1, stand2]
     gridding_feed.append([row[2], row[3], np.real(curr_viz), np.imag(curr_viz)])
 gridding_feed = np.array(gridding_feed)
-"""
 
-"""
+
+
 new_blocks = []
 new_blocks.append((TestingBlock(gridding_feed), [], ['viz']))
 new_blocks.append((NearestNeighborGriddingBlock((250,250)), ['viz'], ['gridded']))
@@ -296,7 +308,7 @@ Pipeline(new_blocks).main()
 dirty_image = np.abs(np.loadtxt('ifftd.txt', dtype=np.float32).view(np.complex64).reshape((250, 250)))
 from matplotlib import image
 image.imsave('is_this_mona.png', dirty_image)
-"""
+
 """
 bad_stands = [ 0,56,57,58,59,60,61,62,63,72,74,75,76,77,78,82,83,84,85,86,87,91,92,93,104,120,121,122,123,124,125,126,127,128,145,148,157,161,164,168,184,185,186,187,188,189,190,191,197,220,224,225,238,239,240,241,242,243,244,245,246,247,248,249,250,251,252,253,254,255 ]
 flags = 2*np.ones(shape=[
