@@ -474,7 +474,7 @@ class TestGainSolveBlock(unittest.TestCase):
         blocks.append((
             GainSolveBlock(flags=flags), 
             ['data', 'model', 'jones_in'], 
-            ['jones_out']))
+            ['calibrated_data', 'jones_out']))
         blocks.append((WriteAsciiBlock('.log.txt'), ['jones_out'], []))
         Pipeline(blocks).main()
         out_jones = np.loadtxt('.log.txt').astype(np.float32).view(np.complex64)
