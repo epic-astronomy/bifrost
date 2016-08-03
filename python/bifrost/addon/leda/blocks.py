@@ -35,6 +35,7 @@ import bifrost
 import json
 import numpy as np
 from bifrost import block
+from bifrost.block import SourceBlock
 
 
 # Read a collection of DADA files and form an array of time series data over
@@ -43,11 +44,11 @@ from bifrost import block
 # Add a list of frequencies present. This could be the full band,
 # but there could be gaps. Downstream functionality has to be aware of the gaps.
 # Allow specification of span size based on time interval
-class DadaReadBlock(object):
+class DadaReadBlock(SourceBlock):
 
   # Assemble a group of files in the time direction and the frequency direction
   # time_stamp is of the form "2016-05-24-11:04:38", or a DADA file ending in .dada
-  def __init__(self, time_stamp, core=-1, gulp_nframe=4096):
+  def __init__(self, filename, core=-1, gulp_nframe=4096):
     self.CHANNEL_WIDTH = 0.024
     self.SAMPLING_RATE = 41.66666666667e-6
     self.N_CHAN = 109
@@ -59,22 +60,7 @@ class DadaReadBlock(object):
     self.core = core
 
     beamformer_scans = []
-    if time_stamp[-5:] == ".dada": beamformer_scans.append(bandfiles.BandFiles(time_stamp))  # Just one file
-    else:
-      finish = False
-      i = 0
-      while not finish:         # This loop gathers files by time
-        new_offset = str(i*self.OBS_OFFSET)
-        file_name = time_stamp+"_"+"0"*(16-len(new_offset))+new_offset+".000000.dada"
-
-        scan = bandfiles.BandFiles(file_name)           # The BandFiles class gathers by frequency
-
-        finish = ( len(scan.files) == 0 )
-
-        if not finish: beamformer_scans.append(scan)
-
-        i += 1
-
+    beamformer_scans.append(bandfiles.BandFiles(filename))  # Just one file
     # Report what we've got
     print "Num files in time:",  len(beamformer_scans)
     print "File and number:"
@@ -83,10 +69,10 @@ class DadaReadBlock(object):
 
     self.beamformer_scans = beamformer_scans     # List of full-band time steps
 
-  def main(self, input_rings, output_rings):
+  def main(self, output_ring):
     bifrost.affinity.set_core(self.core)
 
-    self.oring = output_rings[0]
+    self.oring = output_ring
     # Calculate some constants for sizes
     length_one_second = int(round(1/self.SAMPLING_RATE))
     ring_span_size = length_one_second*self.N_CHAN*4                    # 1 second, all the channels (109) and then 4-byte floats
@@ -94,6 +80,7 @@ class DadaReadBlock(object):
     number_of_seconds = 120     # Change this
 
     ohdr = {}
+    ohdr["shape"] = (self.N_CHAN, 1)
     ohdr["frame_shape"] = ( self.N_CHAN, 1 )
     ohdr["nbit"] = 32
     ohdr["dtype"] = str(np.float32)

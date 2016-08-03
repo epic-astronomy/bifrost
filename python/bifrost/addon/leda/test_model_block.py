@@ -27,12 +27,14 @@
 
 import unittest
 import ephem
+import os
 import json
 import ctypes
 import numpy as np
 from bifrost.libbifrost import _bf, _check
 from bifrost.GPUArray import GPUArray
 from model_block import ScalarSkyModelBlock
+from blocks import DadaReadBlock
 from bifrost.block import Pipeline, WriteAsciiBlock, NearestNeighborGriddingBlock
 from bifrost.block import TestingBlock
 from bifrost.GPUArray import GPUArray
@@ -210,3 +212,12 @@ class TestGainSolve(unittest.TestCase):
             np.max(np.abs(
                 self.jones.get().reshape(-1)-self.host_jones.reshape(-1))),
             1e-3)
+class TestDadaReadBlock(unittest.TestCase):
+    """Test different features of the DadaReadBlock"""
+    def test_throughput(self):
+        """Make sure that some data is being put out of the block"""
+        blocks = []
+        blocks.append((DadaReadBlock('/data1/mcranmer/data/real/leda/2016_xaa.dada'), [], [0]))
+        blocks.append((WriteAsciiBlock('.log.txt'), [0], []))
+        Pipeline(blocks).main()
+        self.assertGreater(os.path.getsize('.log.txt'), 1000)
