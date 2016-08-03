@@ -362,7 +362,7 @@ class IFFT2Block(TransformBlock):
 class WriteAsciiBlock(SinkBlock):
     """Copies input ring's data into ascii format
         in a text file."""
-    def __init__(self, filename, gulp_size=1048576):
+    def __init__(self, filename, gulp_size=1048576, speed_read_factor=1):
         """@param[in] filename Name of file to write ascii to
         @param[out] gulp_size How much of the file to write at once"""
         super(WriteAsciiBlock, self).__init__()
@@ -370,12 +370,13 @@ class WriteAsciiBlock(SinkBlock):
         self.gulp_size = gulp_size
         self.nbit = 8
         self.dtype = np.uint8
+        self.speed_read_factor = speed_read_factor
         open(self.filename, "w").close() ## erase file
     def load_settings(self, input_header):
         header_dict = json.loads(input_header.tostring())
         self.nbit = header_dict['nbit']
         if 'shape' in header_dict:
-            self.gulp_size = self.nbit*np.product(header_dict['shape'])/8
+            self.gulp_size = self.nbit*np.product(header_dict['shape'])/8*self.speed_read_factor
         self.dtype = np.dtype(header_dict['dtype'].split()[1].split(".")[1].split("'")[0]).type
     def main(self, input_ring):
         """Initiate the writing to filename

@@ -218,6 +218,6 @@ class TestDadaReadBlock(unittest.TestCase):
         """Make sure that some data is being put out of the block"""
         blocks = []
         blocks.append((DadaReadBlock('/data1/mcranmer/data/real/leda/2016_xaa.dada'), [], [0]))
-        blocks.append((WriteAsciiBlock('.log.txt'), [0], []))
+        blocks.append((WriteAsciiBlock('.log.txt', speed_read_factor=8**4), [0], []))
         Pipeline(blocks).main()
         self.assertGreater(os.path.getsize('.log.txt'), 1000)
