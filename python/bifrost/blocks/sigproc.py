@@ -29,7 +29,7 @@ import json
 
 from bifrost.sigproc import SigprocFile
 
-from python.bifrost.block import SourceBlock
+from bifrost.block import SourceBlock
 
 
 class SigprocReadBlock(SourceBlock):
