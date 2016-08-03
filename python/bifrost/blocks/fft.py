@@ -30,7 +30,7 @@ import json
 import numpy as np
 from bifrost.sigproc import unpack
 
-from python.bifrost.block import TransformBlock
+from bifrost.block import TransformBlock
 
 
 class FFTBlock(TransformBlock):

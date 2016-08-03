@@ -29,7 +29,7 @@ import json
 
 import numpy as np
 
-from python.bifrost.block import TransformBlock
+from bifrost.block import TransformBlock
 
 
 class KurtosisBlock(TransformBlock):

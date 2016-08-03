@@ -30,7 +30,7 @@ import json
 import bifrost
 import numpy as np
 
-from python.bifrost.block import TransformBlock, insert_zeros_evenly
+from bifrost.block import TransformBlock, insert_zeros_evenly
 
 
 class FoldBlock(TransformBlock):
