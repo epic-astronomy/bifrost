@@ -227,6 +227,43 @@ class WriteHeaderBlock(SinkBlock):
         span_dummy_generator = self.iterate_ring_read(input_ring)
         span_dummy_generator.next()
 
+class WriteAsciiBlock(SinkBlock):
+    """Copies input ring's data into ascii format
+        in a text file."""
 
+    def __init__(self, filename, gulp_size=1048576):
+        """@param[in] filename Name of file to write ascii to
+        @param[out] gulp_size How much of the file to write at once"""
+        super(WriteAsciiBlock, self).__init__()
+        self.filename = filename
+        self.gulp_size = gulp_size
+        self.nbit = 8
+        self.dtype = np.uint8
+        open(self.filename, "w").close() ## erase file
 
+    def load_settings(self, input_header):
+        header_dict = json.loads(input_header.tostring())
+        self.nbit = header_dict['nbit']
+        self.dtype = np.dtype(header_dict['dtype'].split()[1].split(".")[1].split("'")[0]).type
 
+    def main(self, input_ring):
+        """Initiate the writing to filename
+        @param[in] input_rings First ring in this list will be used for
+            data
+        @param[out] output_rings This list of rings won't be used."""
+        span_generator = self.iterate_ring_read(input_ring)
+        data_accumulate = None
+        for span in span_generator:
+            if self.nbit < 8:
+                unpacked_data = unpack(span.data_view(self.dtype), self.nbit)
+            else:
+                if self.dtype == np.complex64:
+                    unpacked_data = span.data_view(self.dtype).view(np.float32)
+                else:
+                    unpacked_data = span.data_view(self.dtype)
+            if data_accumulate is not None:
+                data_accumulate = np.concatenate((data_accumulate, unpacked_data[0]))
+            else:
+                data_accumulate = unpacked_data[0]
+        text_file = open(self.filename, 'a')
+        np.savetxt(text_file, data_accumulate.reshape((1,-1)))
