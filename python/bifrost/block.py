@@ -136,13 +136,13 @@ class SourceBlock(object):
         self.oring.begin_sequence(sequence_name, sequence_time_tag,
                                   header=self.output_header, nringlet=1)
 
-    def iterate_ring_write(self, sequence_name="", sequence_time_tag=0):
+    def iterate_ring_write(self, output_ring, sequence_name="", sequence_time_tag=0):
         """Iterate over output ring
         @param[in] output_ring Ring to write to
         @param[in] sequence_name Name to label sequence
         @param[in] sequence_time_tag Time tag to label sequence
         """
-
+        self.initialize_oring(output_ring)
         with self.oring.begin_sequence(sequence_name, sequence_time_tag,
                                        header=self.output_header, nringlet=1) as oseq:
             while True:
