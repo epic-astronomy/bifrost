@@ -32,8 +32,11 @@ import unittest
 import numpy as np
 from bifrost.ring import Ring
 from bifrost.block import TestingBlock, WriteAsciiBlock, WriteHeaderBlock
-from bifrost.block import SigprocReadBlock, CopyBlock, KurtosisBlock, FoldBlock
-from bifrost.block import IFFTBlock, FFTBlock, Pipeline
+from bifrost.blocks.sigproc import SigprocReadBlock
+from bifrost.blocks.fold import FoldBlock
+from bifrost.blocks.fft import IFFTBlock, FFTBlock
+from bifrost.blocks.kurtosis import KurtosisBlock
+from bifrost.pipeline import Pipeline
 
 class TestIterateRingWrite(unittest.TestCase):
     """Test the iterate_ring_write function of SourceBlocks/TransformBlocks"""
