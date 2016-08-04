@@ -171,9 +171,26 @@ class GridBlock(TransformBlock):
         plt.imshow(image, cmap="gray")
         plt.savefig("x.png")
 
+def disturb_visibilities(uvw_matrix, jones):
+    """Apply jones to uvw matrix.
+        uvw_matrix = np.zeros(shape=[
+            1, self.num_stands, 
+            2, self.num_stands, 
+            2]).astype(np.complex64)
+        jones = 2*np.random.rand(
+            1, 2, N_STANDS, 2).astype(np.complex64)
+            """
+    n_stands = uvw_matrix.shape[1]
+    for i in range(n_stands):
+        for j in range(n_stands):
+            uvw_matrix[0, i, :, j, :] = np.dot(
+                np.dot(jones[0, :, i, :], uvw_matrix[0, i, :, j, :]),
+                np.conj(jones[0, :, j, :]))
+    return uvw_matrix
+    
 class FakeeVisBlock(TransformBlock):
     """Read a formatted file for fake visibility data"""
-    def __init__(self, filename, num_stands):
+    def __init__(self, filename, num_stands, disturb = False):
         super(FakeeVisBlock, self).__init__()
         self.filename = filename
         self.num_stands = num_stands
@@ -181,6 +198,7 @@ class FakeeVisBlock(TransformBlock):
             {'dtype':str(np.complex64),
              'nbit':64,
              'shape': [6, 1]})
+        self.disturb = disturb
     def main(self, input_rings, output_rings):
         """Start the visibility generation.
         @param[out] output_ring Will contain the visibilities in [[stand1, stand2, u,v,re,im],[stand1,..],..]
@@ -201,6 +219,7 @@ class FakeeVisBlock(TransformBlock):
             'nbit':32})
         uvw_data = np.loadtxt(
             self.filename, dtype=np.float32, usecols={1, 2, 3, 4, 5, 6})
+        np.random.seed(10)
         np.random.shuffle(uvw_data)
         # Strip a lot of the incoming values so we only have N_BASELINE visibilties. 
 	# Then assign stand numbers.
@@ -227,6 +246,12 @@ class FakeeVisBlock(TransformBlock):
             uvw_matrix[0, stand1, 1, stand2, 1] = row[4]+1j*row[5]
             uvw_matrix[0, stand2, 0, stand1, 0] = row[4]-1j*row[5]
             uvw_matrix[0, stand2, 1, stand1, 1] = row[4]-1j*row[5]
+
+        jones = 5*np.random.rand(
+            1, 2, N_STANDS, 2).astype(np.complex64)
+        if self.disturb:
+            print "This sentence should occur only once."
+            uvw_matrix = disturb_visibilities(uvw_matrix, jones)
         uv = np.array(uv).astype(np.float32)
         self.out_gulp_size = uvw_matrix.nbytes
         self.output_header = json.dumps({
@@ -244,39 +269,46 @@ class FakeeVisBlock(TransformBlock):
         uv_span_generator = self.iterate_ring_write(output_rings[1])
         uv_span = uv_span_generator.next()
         uv_span.data_view(np.float32)[0][:] = uv.ravel().astype(np.float32)
+
+def generate_image_from_file(data_file, uv_coords_file, image_file):
+    output_visibilities = np.loadtxt(data_file, dtype=np.float32).view(np.complex64).reshape((N_STANDS, 2, N_STANDS, 2))
+    scalar_visibilities = output_visibilities[:, 0, :, 0]
+    uv_points = np.loadtxt(uv_coords_file, dtype=np.float32).reshape((N_STANDS, N_STANDS, 2))
+    data_to_grid = np.zeros(shape=[N_STANDS, N_STANDS, 4])
+    for i in range(N_STANDS):
+        for j in range(N_STANDS):
+            data_to_grid[i, j] = np.array([
+                uv_points[i, j, 0],
+                uv_points[i, j, 1],
+                np.real(scalar_visibilities[i, j]), 
+                np.imag(scalar_visibilities[i, j])])
+    new_blocks = []
+    new_blocks.append((TestingBlock(data_to_grid), [], ['viz']))
+    new_blocks.append((NearestNeighborGriddingBlock((512,512)), ['viz'], ['gridded']))
+    new_blocks.append((IFFT2Block(), ['gridded'], ['ifftd']))
+    new_blocks.append((WriteAsciiBlock('ifftd.txt'), ['ifftd'], []))
+    Pipeline(new_blocks).main()
+    dirty_image = np.abs(np.loadtxt('ifftd.txt', dtype=np.float32).view(np.complex64).reshape((512, 512)))
+    from matplotlib import image
+    image.imsave(image_file, dirty_image, cmap='gray')
+
 blocks = []
 jones = 1*np.ones(shape=[
     1, 2, N_STANDS, 2]).astype(np.complex64)
-jones[0, 0, :, 1] = np.zeros(N_STANDS)[:].astype(np.complex64)
-jones[0, 1, :, 0] = np.zeros(N_STANDS)[:].astype(np.complex64)
 flags = 2*np.ones(shape=[
     1, N_STANDS]).astype(np.int8)
-blocks.append((FakeeVisBlock("mona_uvw.dat", N_STANDS), [], ['uncalibrated', 'uv_coords']))
+blocks.append((FakeeVisBlock("mona_uvw.dat", N_STANDS), [], ['perfect', 'uv_coords']))
+blocks.append((FakeeVisBlock("mona_uvw.dat", N_STANDS, disturb=True), [], ['uncalibrated', 'junk_uv_coords']))
 blocks.append((TestingBlock(jones), [], ['jones_in']))
-blocks.append((GainSolveBlock(flags, max_iterations=2000), ['uncalibrated', 'uncalibrated', 'jones_in'], ['model_out', 'jones_out']))
-blocks.append((WriteAsciiBlock('model_out.txt'), ['model_out'], []))
+blocks.append((GainSolveBlock(flags, max_iterations=2000), ['uncalibrated', 'perfect', 'jones_in'], ['model_out', 'jones_out']))
+blocks.append((WriteAsciiBlock('model.txt'), ['perfect'], []))
+blocks.append((WriteAsciiBlock('uncalibrated.txt'), ['uncalibrated'], []))
+blocks.append((WriteAsciiBlock('calibrated.txt'), ['model_out'], []))
 blocks.append((WriteAsciiBlock('uv_coords.txt'), ['uv_coords'], []))
 Pipeline(blocks).main()
-output_visibilities = np.loadtxt('model_out.txt', dtype=np.float32).view(np.complex64).reshape((N_STANDS, 2, N_STANDS, 2))
-scalar_visibilities = output_visibilities[:, 0, :, 0]
-uv_points = np.loadtxt('uv_coords.txt', dtype=np.float32).reshape((N_STANDS, N_STANDS, 2))
-data_to_grid = np.zeros(shape=[N_STANDS, N_STANDS, 4])
-for i in range(N_STANDS):
-    for j in range(N_STANDS):
-        data_to_grid[i, j] = np.array([
-            uv_points[i, j, 0],
-            uv_points[i, j, 1],
-            np.real(scalar_visibilities[i, j]), 
-            np.imag(scalar_visibilities[i, j])])
-new_blocks = []
-new_blocks.append((TestingBlock(data_to_grid), [], ['viz']))
-new_blocks.append((NearestNeighborGriddingBlock((512,512)), ['viz'], ['gridded']))
-new_blocks.append((IFFT2Block(), ['gridded'], ['ifftd']))
-new_blocks.append((WriteAsciiBlock('ifftd.txt'), ['ifftd'], []))
-Pipeline(new_blocks).main()
-dirty_image = np.abs(np.loadtxt('ifftd.txt', dtype=np.float32).view(np.complex64).reshape((512, 512)))
-from matplotlib import image
-image.imsave('is_this_mona.png', dirty_image, cmap='gray')
+generate_image_from_file('model.txt', 'uv_coords.txt', 'model.png')
+generate_image_from_file('uncalibrated.txt', 'uv_coords.txt', 'uncalibrated.png')
+generate_image_from_file('calibrated.txt', 'uv_coords.txt', 'calibrated.png')
 
 """
 visibilities = np.array([np.linalg.det(
