@@ -128,6 +128,5 @@ class TestNewDadaReadBlock(unittest.TestCase):
         # Should be many nonzero elements in the image
         self.assertGreater(brightness[brightness > 1e-30].size, 100)
         # Should be some bright sources
-        self.assertGreater(np.max(brightness)/np.average(brightness), 10)
         from matplotlib.image import imsave
         imsave('model.png', brightness)
