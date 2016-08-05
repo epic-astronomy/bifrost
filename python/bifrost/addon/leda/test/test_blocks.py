@@ -81,11 +81,15 @@ class TestNewDadaReadBlock(unittest.TestCase):
         self.logfile = '.log.txt'
         dadafile = '/data1/hg/dada_plot/2016-02-03-22_37_50_0001287429875776.dada'
         self.blocks = []
-        self.blocks.append((NewDadaReadBlock(dadafile, output_chans=[42]), [], [0]))
+        self.blocks.append((NewDadaReadBlock(dadafile, output_chans=[42], time_steps=1), [], [0]))
         self.blocks.append((WriteAsciiBlock(self.logfile), [0], []))
         Pipeline(self.blocks).main() 
     def test_read_and_write(self):
         """Make sure some data is being written"""
         dumpsize = os.path.getsize(self.logfile)
         self.assertGreater(dumpsize, 100)
+    def test_imaging(self):
+        """Try to grid and image the data"""
+        visibilities = np.loadtxt(self.logfile, dtype=np.float32).view(np.complex64)
+        print visibilities.shape
 

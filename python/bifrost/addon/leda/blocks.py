@@ -113,10 +113,11 @@ class DadaReadBlock(SourceBlock):
 
 class NewDadaReadBlock(SourceBlock):
     """Read a dada file in with frequency channels in ringlets."""
-    def __init__(self, filename, output_chans):
+    def __init__(self, filename, output_chans, time_steps):
         super(NewDadaReadBlock, self).__init__()
         self.filename = filename
         self.output_chans = output_chans
+        self.time_steps = time_steps
     def _cast_to_type(self, string):
         try: return int(string)
         except ValueError: pass
@@ -169,8 +170,8 @@ class NewDadaReadBlock(SourceBlock):
             'dtype':str(np.complex64), 
             'shape':[1, nbaseline, npol, npol]})
         for i, span in enumerate(self.iterate_ring_write(output_ring)):
-            if i >= ntime:
-                print "Reached end of data chunk"
+            if i >= ntime or i>=self.time_steps:
+                print "Stopping read of Dada file."
                 break
             print "Grabbing data. iteration ", i
             if True:
