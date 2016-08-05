@@ -27,9 +27,10 @@
 
 import unittest
 import bifrost
+import json
 import os
 import numpy as np
-from bifrost.block import WriteAsciiBlock, Pipeline
+from bifrost.block import WriteAsciiBlock, Pipeline, TestingBlock, NearestNeighborGriddingBlock
 from bifrost.addon.leda.blocks import DadaReadBlock, NewDadaReadBlock
 
 def load_telescope(filename):
@@ -90,6 +91,43 @@ class TestNewDadaReadBlock(unittest.TestCase):
         self.assertGreater(dumpsize, 100)
     def test_imaging(self):
         """Try to grid and image the data"""
-        visibilities = np.loadtxt(self.logfile, dtype=np.float32).view(np.complex64)
-        print visibilities.shape
-
+        baseline_visibilities = np.loadtxt(self.logfile, dtype=np.float32).view(np.complex64)
+        n_stations = 256
+        n_baselines = n_stations*(n_stations+1)//2
+        baseline_visibilities = baseline_visibilities.reshape(
+            (n_baselines, 2, 2))[:, 0, 0]
+        redundant_visibilities = np.zeros(shape=[n_stations, n_stations]).astype(np.complex64)
+        for i in range(n_stations):
+            for j in range(i+1):
+                baseline_index = i*(i+1)//2 + j
+                redundant_visibilities[i, j] = baseline_visibilities[baseline_index]
+                redundant_visibilities[j, i] = np.conj(baseline_visibilities[baseline_index])
+        antenna_coordinates = load_telescope("/data1/mcranmer/data/real/leda/lwa_ovro.telescope.json")[1]
+        identity_matrix = np.ones((n_stations, n_stations, 3), dtype=np.float32)
+        baselines_xyz = (identity_matrix*antenna_coordinates)-(identity_matrix*antenna_coordinates).transpose((1, 0, 2))
+        baselines_u = baselines_xyz[:, :, 0].reshape(-1)
+        baselines_v = baselines_xyz[:, :, 1].reshape(-1)
+        real_visibilities = redundant_visibilities.reshape(-1).view(np.float32)[0::2]
+        imaginary_visibilities = redundant_visibilities.reshape(-1).view(np.float32)[1::2]
+        out_data = np.zeros(shape=[redundant_visibilities.size*4]).astype(np.float32)
+        out_data[0::4] = baselines_u
+        out_data[1::4] = baselines_v
+        out_data[2::4] = real_visibilities
+        out_data[3::4] = imaginary_visibilities 
+        blocks = []
+        gridding_shape = (512, 512)
+        blocks.append((TestingBlock(out_data), [], [0]))
+        blocks.append((NearestNeighborGriddingBlock(gridding_shape), [0], [1]))
+        blocks.append((WriteAsciiBlock('.log.txt'), [1], []))
+        Pipeline(blocks).main()
+        model = np.loadtxt('.log.txt').astype(np.float32).view(np.complex64)
+        model = model.reshape(gridding_shape)
+        # Should be the size of the desired grid
+        self.assertEqual(model.size, np.product(gridding_shape))
+        brightness = np.abs(np.fft.fftshift(np.fft.ifft2(np.fft.ifftshift(model))))
+        # Should be many nonzero elements in the image
+        self.assertGreater(brightness[brightness > 1e-30].size, 100)
+        # Should be some bright sources
+        self.assertGreater(np.max(brightness)/np.average(brightness), 10)
+        from matplotlib.image import imsave
+        imsave('model.png', brightness)

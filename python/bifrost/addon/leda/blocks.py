@@ -168,11 +168,8 @@ class NewDadaReadBlock(SourceBlock):
         self.output_header = json.dumps({
             'nbit':64, 
             'dtype':str(np.complex64), 
-            'shape':[1, nbaseline, npol, npol]})
+            'shape':[len(self.output_chans), nbaseline, npol, npol]})
         for i, span in enumerate(self.iterate_ring_write(output_ring)):
-            if i >= ntime or i>=self.time_steps:
-                print "Stopping read of Dada file."
-                break
             print "Grabbing data. iteration ", i
             if True:
                 full_data = np.fromfile(
@@ -186,10 +183,14 @@ class NewDadaReadBlock(SourceBlock):
                 try:
                     full_data = full_data.reshape(
                         (nchan,nbaseline,npol,npol))
+                    print nchan, nbaseline, npol
                     select_channel_data = full_data[self.output_chans, :, :, :]
                     span.data_view(np.complex64)[0][:] = select_channel_data.ravel()
                     print "Ring has been written."
                 except:
                     print "Cancel data read", full_data.nbytes, full_framesize*8, self.gulp_size
                     exit()
+            if i+1 >= ntime or i+1 >= self.time_steps:
+                print "Stopping read of Dada file."
+                break
         f.close()
