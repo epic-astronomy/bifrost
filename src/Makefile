@@ -51,6 +51,7 @@ ifndef NOCUDA
   LIBBIFROST_OBJS += \
   transpose.o \
   fft.o \
+  correlate.o \
   #apsynth.o
 endif
 #LIBBIFROST_HEADERS = bfcommon.h bfmemory.h bfaffinity.h bfring.h bfring_impl.hpp bftranspose.h bfudp.h Socket.hpp
@@ -83,7 +84,7 @@ $(LIBBIFROST_SO): $(LIBBIFROST_OBJS)
 #bfring.o: bfring.cpp bfring.h
 #	$(CXX) -o $@ -c $(CXX_FLAGS) $(INC) $<
 
-test_bifrost: test_bifrost.cpp $(LIBBIFROST_SO) $(INC_DIR)/bifrost.hpp $(INC_DIR)/bifrost.h
+test_bifrost: test_bifrost.cpp $(LIBBIFROST_SO)
 	$(CXX) -o $@ $(CXX_FLAGS) $(INC) $< -L$(LIB_DIR) -lbifrost
 
 clean:

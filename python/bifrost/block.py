@@ -32,6 +32,7 @@ of a simple transform which works on a span by span basis.
 """
 import json
 import threading
+import ctypes
 import numpy as np
 import matplotlib
 ## Use a graphical backend which supports threading
@@ -39,7 +40,9 @@ matplotlib.use('Agg')
 from matplotlib import pyplot as plt
 import bifrost
 from bifrost import affinity
+from bifrost.libbifrost import _bf
 from bifrost.ring import Ring
+from bifrost.GPUArray import GPUArray
 from bifrost.sigproc import SigprocFile, unpack
 
 class Pipeline(object):
@@ -144,6 +147,7 @@ class TransformBlock(object):
                 header=self.output_header,
                 nringlet=sequence_nringlet) as oseq:
                 with oseq.reserve(self.out_gulp_size) as span:
+                    #TODO: Need to continuously spawn extra spans as in SourceBlock
                     yield span
     def ring_transfer(self, input_ring, output_ring):
         """Iterate through two rings span-by-span"""
@@ -208,20 +212,34 @@ class TestingBlock(SourceBlock):
     """Block for debugging purposes.
     Allows you to pass arbitrary N-dimensional arrays in initialization,
     which will be outputted into a ring buffer"""
-    def __init__(self, test_array):
-        """@param[in] test_array A list or numpy array containing test data"""
+    def __init__(self, test_array, complex_numbers=False):
+        """Figure out data settings from the test array.
+        @param[in] test_array A list or numpy array containing test data"""
         super(TestingBlock, self).__init__()
-        self.test_array = np.array(test_array).astype(np.float32)
-        self.output_header = json.dumps(
-            {'nbit':32,
-             'dtype':str(np.float32),
-             'shape':self.test_array.shape})
+        if isinstance(test_array, np.ndarray):
+            if test_array.dtype == np.complex64:
+                complex_numbers = True
+        if complex_numbers:
+            self.test_array = np.array(test_array).astype(np.complex64)
+            header = {
+                'nbit':64,
+                'dtype':str(np.complex64),
+                'shape':self.test_array.shape}
+            self.dtype = np.complex64
+        else:
+            self.test_array = np.array(test_array).astype(np.float32)
+            header = {
+                'nbit':32,
+                'dtype':str(np.float32),
+                'shape':self.test_array.shape}
+            self.dtype = np.float32
+        self.output_header = json.dumps(header)
     def main(self, output_ring):
         """Put the test array onto the output ring
         @param[in] output_ring Holds the flattend test array in a single span"""
         self.gulp_size = self.test_array.nbytes
         for ospan in self.iterate_ring_write(output_ring):
-            ospan.data_view(np.float32)[0][:] = self.test_array.ravel()
+            ospan.data_view(self.dtype)[0][:] = self.test_array.ravel()
             break
 class WriteHeaderBlock(SinkBlock):
     """Prints the header of a ring to a file"""
@@ -241,7 +259,7 @@ class WriteHeaderBlock(SinkBlock):
         span_dummy_generator = self.iterate_ring_read(input_ring)
         span_dummy_generator.next()
 class FFTBlock(TransformBlock):
-    """Performs complex to complex IFFT on input ring data"""
+    """Performs complex to complex 1D FFT on input ring data"""
     def __init__(self, gulp_size):
         super(FFTBlock, self).__init__()
         self.nbit = 8
@@ -281,7 +299,7 @@ class FFTBlock(TransformBlock):
         result = np.fft.fft(data_accumulate)
         ospan.data_view(np.complex64)[0] = result.ravel()
 class IFFTBlock(TransformBlock):
-    """Performs complex to complex IFFT on input ring data"""
+    """Performs complex to complex 1D IFFT on input ring data"""
     def __init__(self, gulp_size):
         super(IFFTBlock, self).__init__()
         self.gulp_size = gulp_size
@@ -297,7 +315,7 @@ class IFFTBlock(TransformBlock):
     def main(self, input_rings, output_rings):
         """
         @param[in] input_rings First ring in this list will be used for
-            data
+            data input.
         @param[out] output_rings First ring in this list will be used for 
             data output."""
         data_accumulate = None
@@ -316,6 +334,31 @@ class IFFTBlock(TransformBlock):
         ospan = outspan_generator.next()
         result = np.fft.ifft(data_accumulate)
         ospan.data_view(np.complex64)[0][:] = result[:]
+class IFFT2Block(TransformBlock):
+    """Performs complex to complex 2D IFFT on input ring data"""
+    def __init__(self, gulp_size=1048576):
+        super(IFFT2Block, self).__init__(gulp_size=gulp_size)
+    def load_settings(self, input_header):
+        header = json.loads(input_header.tostring())
+        self.frame_shape = header['frame_shape']
+        output_header = {}
+        output_header['nbit'] = 64
+        output_header['dtype'] = str(np.complex64)
+        self.output_header = json.dumps(output_header)
+    def main(self, input_rings, output_rings):
+        """
+        @param[in] input_rings First ring in this list will be used for
+            data input.
+        @param[out] output_rings First ring in this list will be used for 
+            data output."""
+        input_data = np.array([])
+        for ispan in self.iterate_ring_read(input_rings[0]):
+            input_data = np.append(input_data, ispan.data_view(np.complex64)[0][:])
+        input_data = input_data.reshape(self.frame_shape)
+        self.out_gulp_size = input_data.size*8
+        out_span_generator = self.iterate_ring_write(output_rings[0])
+        ospan = out_span_generator.next()
+        ospan.data_view(np.complex64)[0][:] = np.fft.fftshift(np.fft.ifft2(np.fft.ifftshift(input_data))).ravel()
 class WriteAsciiBlock(SinkBlock):
     """Copies input ring's data into ascii format
         in a text file."""
@@ -331,6 +374,8 @@ class WriteAsciiBlock(SinkBlock):
     def load_settings(self, input_header):
         header_dict = json.loads(input_header.tostring())
         self.nbit = header_dict['nbit']
+        if 'shape' in header_dict:
+            self.gulp_size = self.nbit*np.product(header_dict['shape'])/8
         self.dtype = np.dtype(header_dict['dtype'].split()[1].split(".")[1].split("'")[0]).type
     def main(self, input_ring):
         """Initiate the writing to filename
@@ -353,6 +398,15 @@ class WriteAsciiBlock(SinkBlock):
                 data_accumulate = unpacked_data[0]
         text_file = open(self.filename, 'a')
         np.savetxt(text_file, data_accumulate.reshape((1,-1)))
+                data_accumulate = np.concatenate((data_accumulate, unpacked_data.ravel()), axis=0).ravel()
+            else:
+                data_accumulate = unpacked_data.ravel()
+        text_file = open(self.filename, 'a')
+        x = data_accumulate.reshape((1, -1))
+        if self.dtype == np.complex64:
+            np.savetxt(text_file, x.view(np.float32))
+        else:
+            np.savetxt(text_file, x)
 class CopyBlock(TransformBlock):
     """Copies input ring's data to the output ring"""
     def __init__(self, gulp_size=1048576):
@@ -664,6 +718,168 @@ class WaterfallBlock(object):
                         (waterfall_matrix, curr_data), 0)
                 except:
                     print "Bad shape for waterfall"
-                    pass
         return waterfall_matrix
 
+class FakeVisBlock(SourceBlock):
+    """Read a formatted file for fake visibility data"""
+
+    def __init__(self, filename, num_stands):
+        super(FakeVisBlock, self).__init__()
+        self.filename = filename
+        self.num_stands = num_stands
+        self.output_header = json.dumps(
+            {'dtype':str(np.complex64),
+             'nbit':64,
+             'shape': [4, 1]})
+    def main(self, output_ring):
+        """Start the visibility generation.
+        @param[out] output_ring Will contain the visibilities in [[stand1, stand2, u,v,re,im],[stand1,..],..]
+        """
+	n_baseline = self.num_stands*(self.num_stands+1)//2
+
+	# Generate index of baselines -> stand
+	baselines = [ None for i in range(n_baseline) ]
+	index = 0
+	for st1 in range(self.num_stands):
+	    for st2 in range(st1, self.num_stands):
+  		baselines[index] = ( st1, st2 )
+		index += 1
+
+        self.output_header = json.dumps(
+            {'dtype':str(np.float32), 
+            'nbit':32})
+
+        uvw_data = np.loadtxt(
+            self.filename, dtype=np.float32, usecols={1, 2, 3, 4, 5, 6})
+        np.random.shuffle(uvw_data)
+
+        # Strip a lot of the incoming values so we only have N_BASELINE visibilties. 
+	# Then assign stand numbers.
+	inner = np.array([ x for x in uvw_data if abs(x[2]) < 50 and abs(x[3]) < 50 ])
+	uvw_data = np.append(inner, uvw_data, axis=0)[:n_baseline]
+	print n_baseline, len(uvw_data)
+
+	# Assign stands
+	for i in range(len(uvw_data)):
+	    uvw_data[i][0] = baselines[i][0]
+	    uvw_data[i][1] = baselines[i][1]
+
+        self.gulp_size = uvw_data.nbytes
+        for span in self.iterate_ring_write(output_ring):
+            span.data_view(np.float32)[0][:] = uvw_data.ravel()
+            break
+
+class NearestNeighborGriddingBlock(TransformBlock):
+    """Perform a nearest neighbor gridding of visibility data"""
+    def __init__(self, shape):
+        super(NearestNeighborGriddingBlock, self).__init__()
+        self.shape = shape
+    def _normalize_coordinates(self, coordinates):
+        """Turn float coordinates from another grid into one of self.shape
+        @param[in] coordinates The coordinates to normalize (numpy.ndarray)"""
+        shifted = coordinates-np.min(coordinates)
+        amplitude_unity = shifted/np.max(shifted)
+        normalized = amplitude_unity*self.shape[0]-0.5
+        return normalized.astype(int)
+    def main(self, input_rings, output_rings):
+        """Compute a nearest neighbor gridding on the input data
+        @param[in] input_rings The first ring will be accumulated into
+            a grid. Expected data as floats: [[u,v,re,im],[u,..],..]
+        @param[out] output_rings Once accumulated in a local variable,
+            will be output on first output ring"""
+        grid = np.zeros(self.shape, dtype=np.complex64)
+        u_coords = np.array([])
+        v_coords = np.array([])
+        real_visibilities = np.array([])
+        complex_visibilities = np.array([])
+        self.gulp_size = 8**6
+        for in_span in self.iterate_ring_read(input_rings[0]):
+            u_coords = np.append(u_coords, in_span.data_view(np.float32)[0][0::4])
+            v_coords = np.append(v_coords, in_span.data_view(np.float32)[0][1::4])
+            real_visibilities = np.append(real_visibilities, in_span.data_view(np.float32)[0][2::4])
+            complex_visibilities = np.append(
+                complex_visibilities,
+                in_span.data_view(np.float32)[0][3::4])
+        grid_u_coords = self._normalize_coordinates(u_coords)
+        grid_v_coords = self._normalize_coordinates(v_coords)
+        for index_visibility in range(real_visibilities.size): #pylint: disable=maybe-no-member
+            grid[
+                grid_u_coords[index_visibility],
+                grid_v_coords[index_visibility]] += \
+                    real_visibilities[index_visibility] + \
+                    1j*complex_visibilities[index_visibility]
+        self.out_gulp_size = grid.nbytes
+        self.output_header = json.dumps(
+            {'dtype':str(np.complex64),
+             'nbit':64,
+             'frame_shape': self.shape})
+        out_span_generator = self.iterate_ring_write(output_rings[0])
+        out_span = out_span_generator.next()
+        out_span.data_view(np.complex64)[0][:] = grid.ravel()
+
+class GainSolveBlock(TransformBlock):
+    """Optimize the Jones matrices to produce the sky model."""
+    def __init__(self, flags = [], max_iterations = 20):
+        super(GainSolveBlock, self).__init__()
+        self.flags = np.array(flags)
+        self.shapes = []
+        self.max_iterations = max_iterations
+    def load_settings(self, input_header):
+        self.shapes.append(json.loads(input_header.tostring())['shape'])
+        self.gulp_size = np.product(self.shapes[-1])*8
+        self.output_header = input_header
+    def main(self, input_rings, output_rings):
+        data_span_generator = self.iterate_ring_read(input_rings[0])
+        model_span_generator = self.iterate_ring_read(input_rings[1])
+        jones_span_generator = self.iterate_ring_read(input_rings[2])
+        data = data_span_generator.next()
+        data = data.data_view(np.complex64).reshape(self.shapes[0])
+        model = model_span_generator.next()
+        model = model.data_view(np.complex64).reshape(self.shapes[1])
+        jones = jones_span_generator.next()
+        jones = jones.data_view(np.complex64).reshape(self.shapes[2])
+        assert model.shape == data.shape
+        assert jones.shape[2] == model.shape[1]
+        gpu_data = GPUArray(data.shape, np.complex64)
+        gpu_model = GPUArray(model.shape, np.complex64)
+        gpu_jones = GPUArray(jones.shape, np.complex64)
+        gpu_flags = GPUArray(self.flags.shape, np.int8)
+        gpu_data.set(data)
+        gpu_model.set(model)
+        gpu_jones.set(jones)
+        gpu_flags.set(self.flags)
+        array_jones = gpu_jones.as_BFarray(100)
+        num_unconverged_type = ctypes.POINTER(ctypes.c_int)
+        num = ctypes.c_int(1)
+        num_unconverged = ctypes.cast(ctypes.addressof(num), num_unconverged_type)
+        _bf.SolveGains(
+            gpu_data.as_BFconstarray(100), 
+            gpu_model.as_BFconstarray(100), 
+            array_jones,
+            gpu_flags.as_BFarray(100),
+            True, 1.0, 1.0, self.max_iterations, num_unconverged)
+        gpu_jones.buffer = array_jones.data
+        self.out_gulp_size = jones.nbytes
+        out_jones_generator = self.iterate_ring_write(output_rings[1])
+        out_jones = out_jones_generator.next()
+        out_jones.data_view(np.complex64)[0][:] = gpu_jones.get().ravel()
+
+        """ Y = G X G^
+BFstatus bfApplyGainsArray(BFconstarray X, // Observed data. [nchan,nstand^,npol^,nstand,npol] cf32
+                           BFconstarray G, // Jones matrices. [nchan,pol^,nstand,npol] cf32
+                           BFarray      V, // Observed data. [nchan,nstand^,npol^,nstand,npol] cf32
+                           BFarray      flags);  // [nchan,nstand] i8
+                              """
+        gpu_output_image = GPUArray(data.shape, np.complex64)
+        array_image = gpu_output_image.as_BFarray(100)
+        _bf.ApplyGainsArray(
+            gpu_data.as_BFconstarray(100),
+            gpu_jones.as_BFconstarray(100),
+            array_image,
+            gpu_flags.as_BFarray(100))
+        gpu_output_image.buffer = array_image.data
+        resultant_image = gpu_output_image.get()
+        self.out_gulp_size = resultant_image.nbytes
+        out_model_generator = self.iterate_ring_write(output_rings[0])
+        out_model = out_model_generator.next()
+        out_model.data_view(np.complex64)[0][:] = gpu_output_image.get().ravel()

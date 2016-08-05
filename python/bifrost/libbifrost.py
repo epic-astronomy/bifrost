@@ -36,10 +36,10 @@ def _load_bifrost_lib():
 	import os
 	# TODO: Keep these up-to-date
 	headers = ["common.h", "affinity.h", "memory.h",
-	    "ring.h", "transpose.h", "fft.h"]
+	    "ring.h", "transpose.h", "fft.h", "correlate.h"]
 	library_name = "libbifrost.so"
 	api_prefix   = "bf"
-	header_paths = ["/usr/local/include/bifrost",
+	header_paths = ["/usr/local/include/bifrost","/data1/mcranmer/usr/local/include/bifrost",
 					"../src/bifrost"] # TODO: Remove this one?
 	include_env  = 'BIFROST_INCLUDE_PATH'
 	# PYCLIBRARY ISSUE

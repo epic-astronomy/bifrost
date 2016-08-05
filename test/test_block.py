@@ -31,9 +31,13 @@ This file tests all aspects of the Bifrost.block module.
 import unittest
 import numpy as np
 from bifrost.ring import Ring
+from bifrost.libbifrost import _bf
+from bifrost.GPUArray import GPUArray
 from bifrost.block import TestingBlock, WriteAsciiBlock, WriteHeaderBlock
 from bifrost.block import SigprocReadBlock, CopyBlock, KurtosisBlock, FoldBlock
-from bifrost.block import IFFTBlock, FFTBlock, Pipeline
+from bifrost.block import IFFTBlock, FFTBlock, Pipeline, FakeVisBlock
+from bifrost.block import NearestNeighborGriddingBlock, IFFT2Block
+from bifrost.block import GainSolveBlock
 
 class TestIterateRingWrite(unittest.TestCase):
     """Test the iterate_ring_write function of SourceBlocks/TransformBlocks"""
@@ -333,6 +337,118 @@ class TestIFFTBlock(unittest.TestCase):
         Pipeline(self.blocks).main()
         untouched_result = np.loadtxt(self.logfile).astype(np.float32)
         np.testing.assert_almost_equal(unfft_result, untouched_result, 2)
+
+class TestFakeVisBlock(unittest.TestCase):
+    """Performs tests of the fake visibility Block."""
+    def setUp(self):
+        self.datafile_name = "/data1/mcranmer/data/fake/mona_uvw.dat"
+        self.blocks = []
+        self.blocks.append(
+            (FakeVisBlock(self.datafile_name, 512), [], [0]))
+        self.blocks.append((WriteAsciiBlock('.log.txt'), [0], []))
+    def test_output_size(self):
+        """Make sure the outputs are being sized appropriate to the file"""
+        Pipeline(self.blocks).main()
+        # Number of uvw values:
+        length_ring_buffer = len(open('.log.txt', 'r').read().split(' '))
+        length_data_file = sum(1 for line in open(self.datafile_name, 'r'))
+        self.assertAlmostEqual(length_ring_buffer, 4*length_data_file, -2)
+    def test_valid_output(self):
+        """Make sure that the numbers in the ring match the uvw data"""
+        Pipeline(self.blocks).main()
+        ring_buffer_10th_u_coord = open('.log.txt', 'r').read().split(' ')[9*4]
+        line_count = 0
+        for line in open(self.datafile_name, 'r'):
+            line_count += 1
+            if line_count == 10:
+                data_file_10th_line = line
+                break
+        data_file_10th_u_coord = data_file_10th_line.split(' ')[3]
+        self.assertAlmostEqual(
+            float(ring_buffer_10th_u_coord),
+            float(data_file_10th_u_coord),
+            3)
+    def test_different_size_data(self):
+        """Assert that different data sizes are processed properly"""
+        datafile_name = "/data1/mcranmer/data/fake/mona_uvw_half.dat"
+        self.blocks[0] = (FakeVisBlock(datafile_name, 512), [], [0])
+        Pipeline(self.blocks).main()
+        length_ring_buffer = len(open('.log.txt', 'r').read().split(' '))
+        length_data_file = sum(1 for line in open(datafile_name, 'r'))
+        self.assertAlmostEqual(length_ring_buffer, 4*length_data_file, -2)
+class TestNearestNeighborGriddingBlock(unittest.TestCase):
+    """Test the functionality of the nearest neighbor gridding block"""
+    def setUp(self):
+        """Run a pipeline on a fake visibility set and grid it"""
+        self.datafile_name = "/data1/mcranmer/data/fake/mona_uvw.dat"
+        self.blocks = []
+        self.blocks.append((FakeVisBlock(self.datafile_name, 512), [], [0]))
+        self.blocks.append((NearestNeighborGriddingBlock(shape=(100, 100)), [0], [1]))
+        self.blocks.append((WriteAsciiBlock('.log.txt'), [1], []))
+    def test_output_size(self):
+        """Make sure that 10,000 grid points are created"""
+        Pipeline(self.blocks).main()
+        grid = np.loadtxt('.log.txt').astype(np.float32).view(np.complex64)
+        self.assertEqual(grid.size, 10000)
+    def test_same_magnitude(self):
+        Pipeline(self.blocks).main()
+        grid = np.loadtxt('.log.txt').astype(np.float32).view(np.complex64)
+        magnitudes = np.abs(grid)
+        self.assertGreater(magnitudes[magnitudes > 0.1].size, 100)
+    def test_makes_image(self):
+        """Make sure that the grid can be IFFT'd into a non-gaussian image"""
+        self.blocks[1] = (NearestNeighborGriddingBlock(shape=(512, 512)), [0], [1])
+        Pipeline(self.blocks).main()
+        grid = np.loadtxt('.log.txt').astype(np.float32).view(np.complex64)
+        grid = grid.reshape((512, 512))
+        image = np.real(np.fft.fftshift(np.fft.ifft2(np.fft.ifftshift(grid))))
+        #calculate histogram of image
+        histogram = np.histogram(image.ravel(), bins=100)[0]
+        #check if it is gaussian (and therefore probably just noise)
+        from scipy.stats import normaltest
+        probability_normal = normaltest(histogram)[1]
+        self.assertLess(probability_normal, 1e-2)
+class TestIFFT2Block(unittest.TestCase):
+    """Test the functionality of the 2D inverse fourier transform block"""
+    def setUp(self):
+        """Run a pipeline on a fake visibility set and IFFT it after gridding"""
+        self.datafile_name = "/data1/mcranmer/data/fake/mona_uvw.dat"
+        self.blocks = []
+        self.blocks.append((FakeVisBlock(self.datafile_name, 512), [], [0]))
+        self.blocks.append((NearestNeighborGriddingBlock(shape=(100, 100)), [0], [1]))
+        self.blocks.append((IFFT2Block(), [1], [2]))
+        self.blocks.append((WriteAsciiBlock('.log.txt'), [2], []))
+    def test_output_size(self):
+        """Make sure that the output is the same size as the input
+        The input size should be coming from the shape on the nearest neighbor"""
+        open('.log.txt', 'w').close()
+        Pipeline(self.blocks).main()
+        brightness = np.real(np.loadtxt('.log.txt').astype(np.float32).view(np.complex64))
+        self.assertEqual(brightness.size, 10000)
+    def test_same_magnitude(self):
+        """Make sure that many points are nonzero"""
+        open('.log.txt', 'w').close()
+        Pipeline(self.blocks).main()
+        brightness = np.loadtxt('.log.txt').astype(np.float32).view(np.complex64)
+        magnitudes = np.abs(brightness)
+        self.assertGreater(magnitudes[magnitudes > 0.1].size, 100)
+    def test_ifft_correct_values(self):
+        """Make sure the IFFT produces values as if we were to do it without the block"""
+        open('.log.txt', 'w').close()
+        Pipeline(self.blocks).main()
+        test_brightness = np.loadtxt('.log.txt').astype(np.float32).view(np.complex64)
+        test_brightness = test_brightness.reshape((100, 100))
+        self.blocks[2] = (WriteAsciiBlock('.log.txt'), [1], [])
+        del self.blocks[3]
+        open('.log.txt', 'w').close()
+        Pipeline(self.blocks).main()
+        grid = np.loadtxt('.log.txt').astype(np.float32).view(np.complex64)
+        grid = grid.reshape((100, 100))
+        brightness = np.fft.fftshift(np.fft.ifft2(np.fft.ifftshift(grid)))
+        from matplotlib import pyplot as plt
+        plt.imshow(np.real(test_brightness)) #Needs to be in row,col order
+        plt.savefig('mona.png')
+        np.testing.assert_almost_equal(test_brightness, brightness, 2)
 class TestPipeline(unittest.TestCase):
     """Test rigidity and features of the pipeline"""
     def test_naming_rings(self):
@@ -356,3 +472,57 @@ class TestPipeline(unittest.TestCase):
         Pipeline(block_set_two).main()
         result = np.loadtxt('.log.txt').astype(np.float32)
         np.testing.assert_almost_equal(result, [1, 2, 3])
+class TestGainSolveBlock(unittest.TestCase):
+    """Test the gain solve block, which calls mitchcal gain solve"""
+    def setUp(self):
+        self.nchan = 1
+        self.nstand = 256
+        self.npol = 2
+    def generate_new_jones(self, model, data, jones, flags):
+        """Run a pipeline to create a new jones matrix"""
+        blocks = []
+        blocks.append((TestingBlock(model), [], ['model']))
+        blocks.append((TestingBlock(data), [], ['data']))
+        blocks.append((TestingBlock(jones), [], ['jones_in']))
+        blocks.append((
+            GainSolveBlock(flags=flags), 
+            ['data', 'model', 'jones_in'], 
+            ['calibrated_data', 'jones_out']))
+        blocks.append((WriteAsciiBlock('.log.txt'), ['jones_out'], []))
+        Pipeline(blocks).main()
+        out_jones = np.loadtxt('.log.txt').astype(np.float32).view(np.complex64)
+        return out_jones
+    def test_throughput_size(self):
+        """Test input/output sizes are compatible"""
+        for nchan in range(1, 5):
+            flags = np.zeros(shape=[
+                nchan, self.nstand]).astype(np.int8)
+            model = np.zeros(shape=[
+                nchan, self.nstand, 
+                self.npol, self.nstand, 
+                self.npol]).astype(np.complex64)
+            data = np.copy(model)
+            jones = np.zeros(shape=[
+                nchan, self.npol, 
+                self.nstand, self.npol]).astype(np.complex64)
+            out_jones = self.generate_new_jones(model, data, jones, flags)
+            self.assertEqual(
+                out_jones.size, 
+                jones.size)
+    def test_jones_changing(self):
+        """Assert that the jones matrices are different than as entered"""
+        flags = 2*np.ones(shape=[
+            self.nchan, self.nstand]).astype(np.int8)
+        model = 10*np.random.rand(
+            self.nchan, self.nstand, 
+            self.npol, self.nstand, 
+            self.npol).astype(np.complex64)
+        data = 10*np.random.rand(
+            self.nchan, self.nstand, 
+            self.npol, self.nstand, 
+            self.npol).astype(np.complex64)
+        jones = np.ones(shape=[
+            self.nchan, self.npol, 
+            self.nstand, self.npol]).astype(np.complex64)
+        out_jones = self.generate_new_jones(model, data, jones, flags)
+        self.assertGreater(np.max(np.abs(out_jones - jones.ravel())), 1e-3)
