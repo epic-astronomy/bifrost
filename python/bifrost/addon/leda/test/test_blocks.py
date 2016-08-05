@@ -32,6 +32,20 @@ import numpy as np
 from bifrost.block import WriteAsciiBlock, Pipeline
 from bifrost.addon.leda.blocks import DadaReadBlock, NewDadaReadBlock
 
+def load_telescope(filename):
+    with open(filename, 'r') as telescope_file:
+        telescope = json.load(telescope_file)
+    coords_local = np.array(telescope['coords']['local']['__data__'], dtype=np.float32)
+    # Reshape into ant,column
+    coords_local = coords_local.reshape(coords_local.size/4,4)
+    ant_coords = coords_local[:,1:]
+    inputs = np.array(telescope['inputs']['__data__'], dtype=np.float32)
+    # Reshape into ant,pol,column
+    inputs      = inputs.reshape(inputs.size/7/2,2,7)
+    delays      = inputs[:,:,5]*1e-9
+    dispersions = inputs[:,:,6]*1e-9
+    return telescope, ant_coords, delays, dispersions
+
 class TestDadaBlock(unittest.TestCase):
     """Test the ability of the Dada block to read
         in data that is compatible with other blocks."""
@@ -68,9 +82,10 @@ class TestNewDadaReadBlock(unittest.TestCase):
         dadafile = '/data1/hg/dada_plot/2016-02-03-22_37_50_0001287429875776.dada'
         self.blocks = []
         self.blocks.append((NewDadaReadBlock(dadafile, output_chans=[42]), [], [0]))
-        self.blocks.append((WriteAsciiBlock(self.ogfile), [0], []))
+        self.blocks.append((WriteAsciiBlock(self.logfile), [0], []))
         Pipeline(self.blocks).main() 
     def test_read_and_write(self):
         """Make sure some data is being written"""
         dumpsize = os.path.getsize(self.logfile)
         self.assertGreater(dumpsize, 100)
+
