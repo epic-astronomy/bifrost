@@ -129,4 +129,4 @@ class TestNewDadaReadBlock(unittest.TestCase):
         self.assertGreater(brightness[brightness > 1e-30].size, 100)
         # Should be some bright sources
         from matplotlib.image import imsave
-        imsave('model.png', brightness)
+        imsave('sky.png', brightness, cmap='gray')
