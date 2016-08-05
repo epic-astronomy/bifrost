@@ -393,11 +393,6 @@ class WriteAsciiBlock(SinkBlock):
                 else:
                     unpacked_data = span.data_view(self.dtype)
             if data_accumulate is not None:
-                data_accumulate = np.concatenate((data_accumulate, unpacked_data[0]))
-            else:
-                data_accumulate = unpacked_data[0]
-        text_file = open(self.filename, 'a')
-        np.savetxt(text_file, data_accumulate.reshape((1,-1)))
                 data_accumulate = np.concatenate((data_accumulate, unpacked_data.ravel()), axis=0).ravel()
             else:
                 data_accumulate = unpacked_data.ravel()
