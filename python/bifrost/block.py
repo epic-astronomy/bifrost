@@ -853,8 +853,17 @@ class GainSolveBlock(TransformBlock):
             gpu_model.as_BFconstarray(100), 
             array_jones,
             gpu_flags.as_BFarray(100),
-            True, 1.0, 1.0, self.max_iterations, num_unconverged)
+            True, 7.0, 0.000001, self.max_iterations, num_unconverged)
+            #True, 10.0, 0.000001, self.max_iterations, num_unconverged)
+            #Best so far^
         gpu_jones.buffer = array_jones.data
+        jones = gpu_jones.get()
+        for i in range(max(jones.shape)):
+            try:
+                jones[0, :, i, :] = np.linalg.inv(jones[0, :, i, :])
+            except:
+                pass
+        gpu_jones.set(jones)
         self.out_gulp_size = jones.nbytes
         out_jones_generator = self.iterate_ring_write(output_rings[1])
         out_jones = out_jones_generator.next()

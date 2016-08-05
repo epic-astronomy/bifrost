@@ -247,8 +247,10 @@ class FakeeVisBlock(TransformBlock):
             uvw_matrix[0, stand2, 0, stand1, 0] = row[4]-1j*row[5]
             uvw_matrix[0, stand2, 1, stand1, 1] = row[4]-1j*row[5]
 
-        jones = 5*np.random.rand(
-            1, 2, N_STANDS, 2).astype(np.complex64)
+        jones = ((0.5+0.5j)*np.random.rand(
+            1, 2, N_STANDS, 2)).astype(np.complex64)+0.25+0.25j
+        jones[0, 0, :, 1] = np.zeros(N_STANDS).astype(np.complex64)
+        jones[0, 1, :, 0] = np.zeros(N_STANDS).astype(np.complex64)
         if self.disturb:
             print "This sentence should occur only once."
             uvw_matrix = disturb_visibilities(uvw_matrix, jones)
@@ -293,20 +295,22 @@ def generate_image_from_file(data_file, uv_coords_file, image_file):
     image.imsave(image_file, dirty_image, cmap='gray')
 
 blocks = []
-jones = 1*np.ones(shape=[
-    1, 2, N_STANDS, 2]).astype(np.complex64)
+jones = 0.5*((1+1j)*np.ones(shape=[
+    1, 2, N_STANDS, 2])).astype(np.complex64)
+jones[0, 0, :, 1] = np.zeros(N_STANDS).astype(np.complex64)
+jones[0, 1, :, 0] = np.zeros(N_STANDS).astype(np.complex64)
 flags = 2*np.ones(shape=[
     1, N_STANDS]).astype(np.int8)
 blocks.append((FakeeVisBlock("mona_uvw.dat", N_STANDS), [], ['perfect', 'uv_coords']))
 blocks.append((FakeeVisBlock("mona_uvw.dat", N_STANDS, disturb=True), [], ['uncalibrated', 'junk_uv_coords']))
 blocks.append((TestingBlock(jones), [], ['jones_in']))
-blocks.append((GainSolveBlock(flags, max_iterations=2000), ['uncalibrated', 'perfect', 'jones_in'], ['model_out', 'jones_out']))
+blocks.append((GainSolveBlock(flags, max_iterations=10000), ['uncalibrated', 'perfect', 'jones_in'], ['model_out', 'jones_out']))
 blocks.append((WriteAsciiBlock('model.txt'), ['perfect'], []))
 blocks.append((WriteAsciiBlock('uncalibrated.txt'), ['uncalibrated'], []))
 blocks.append((WriteAsciiBlock('calibrated.txt'), ['model_out'], []))
 blocks.append((WriteAsciiBlock('uv_coords.txt'), ['uv_coords'], []))
 Pipeline(blocks).main()
-generate_image_from_file('model.txt', 'uv_coords.txt', 'model.png')
+#generate_image_from_file('model.txt', 'uv_coords.txt', 'model.png')
 generate_image_from_file('uncalibrated.txt', 'uv_coords.txt', 'uncalibrated.png')
 generate_image_from_file('calibrated.txt', 'uv_coords.txt', 'calibrated.png')
 
