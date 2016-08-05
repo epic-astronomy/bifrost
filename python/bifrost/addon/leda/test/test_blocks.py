@@ -26,9 +26,9 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import unittest
-from blocks import DadaReadBlock
 import bifrost
-from bifrost.block import *
+from bifrost.block import WriteAsciiBlock, Pipeline
+from bifrost.addon.leda.blocks import DadaReadBlock, NewDadaReadBlock
 
 class TestDadaBlock(unittest.TestCase):
     """Test the ability of the Dada block to read
