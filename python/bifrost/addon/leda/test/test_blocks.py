@@ -27,6 +27,8 @@
 
 import unittest
 import bifrost
+import os
+import numpy as np
 from bifrost.block import WriteAsciiBlock, Pipeline
 from bifrost.addon.leda.blocks import DadaReadBlock, NewDadaReadBlock
 
@@ -63,15 +65,10 @@ class TestNewDadaReadBlock(unittest.TestCase):
         """Reads in a dada file, and logs in ascii
             file."""
         logfile = '.log.txt'
+        dadafile = '/data1/hg/dada_plot/2016-02-03-22_37_50_0001287429875776.dada'
         self.blocks = []
-        self.blocks.append(
-            (NewDadaReadBlock(
-                "/data1/mcranmer/data/real/leda/2016_xaa.dada"),
-            [], [0]))
+        self.blocks.append((NewDadaReadBlock(dadafile), [], [0]))
         self.blocks.append((WriteAsciiBlock(logfile), [0], []))
         Pipeline(self.blocks).main() 
-        test_bytes = open(logfile, 'r').read(500).split(' ')
-        self.assertAlmostEqual(np.float(test_bytes[0]), 3908.5, 3)
-
-if __name__ == "__main__":
-    unittest.main()
+        dumpsize = os.path.getsize(logfile)
+        self.assertGreater(dumpsize, 100)
