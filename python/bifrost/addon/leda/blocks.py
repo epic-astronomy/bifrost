@@ -113,9 +113,10 @@ class DadaReadBlock(SourceBlock):
 
 class NewDadaReadBlock(SourceBlock):
     """Read a dada file in with frequency channels in ringlets."""
-    def __init__(self, filename):
+    def __init__(self, filename, output_chans):
         super(NewDadaReadBlock, self).__init__()
         self.filename = filename
+        self.output_chans = output_chans
     def _cast_to_type(self, string):
         try: return int(string)
         except ValueError: pass
@@ -162,28 +163,32 @@ class NewDadaReadBlock(SourceBlock):
         frame_secs = int(navg / df + 0.5)
         time_offset = float(file_settings['OBS_OFFSET']) / (tot_framesize*8) * frame_secs
         sizeofcomplex64 = 8
-        self.gulp_size = full_framesize*sizeofcomplex64
+        self.gulp_size = full_framesize*sizeofcomplex64*len(self.output_chans)/nchan
         self.output_header = json.dumps({
             'nbit':64, 
             'dtype':str(np.complex64), 
             'shape':[1, nbaseline, npol, npol]})
-        for span in self.iterate_ring_write(output_ring):
-            print "Grabbing data."
+        for i, span in enumerate(self.iterate_ring_write(output_ring)):
+            if i >= ntime:
+                print "Reached end of data chunk"
+                break
+            print "Grabbing data. iteration ", i
             if True:
                 full_data = np.fromfile(
-                    self.filename, 
+                    f, 
                     dtype=np.complex64, 
                     count=full_framesize)
                 outrig_data = np.fromfile(
-                    self.filename, 
+                    f,
                     dtype=np.complex64, 
                     count=outrig_framesize)
                 try:
-                    full_data = full_data.reshape((nchan,nbaseline,npol,npol))
+                    full_data = full_data.reshape(
+                        (nchan,nbaseline,npol,npol))
+                    select_channel_data = full_data[self.output_chans, :, :, :]
+                    span.data_view(np.complex64)[0][:] = select_channel_data.ravel()
+                    print "Ring has been written."
                 except:
                     print "Cancel data read", full_data.nbytes, full_framesize*8, self.gulp_size
                     exit()
-                span.data_view(np.complex64)[0][:] = full_data.ravel()
-            print "Ring has been written."
-            break
         f.close()

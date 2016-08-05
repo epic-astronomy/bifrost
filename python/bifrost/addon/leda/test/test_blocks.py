@@ -61,14 +61,16 @@ class TestDadaBlock(unittest.TestCase):
 class TestNewDadaReadBlock(unittest.TestCase):
     """Test the ability of the Dada block to read
         in data that is compatible with other blocks."""
-    def test_read_and_write(self):
-        """Reads in a dada file, and logs in ascii
+    def setUp(self):
+        """Reads in one channel of a dada file, and logs in ascii
             file."""
-        logfile = '.log.txt'
+        self.logfile = '.log.txt'
         dadafile = '/data1/hg/dada_plot/2016-02-03-22_37_50_0001287429875776.dada'
         self.blocks = []
-        self.blocks.append((NewDadaReadBlock(dadafile), [], [0]))
-        self.blocks.append((WriteAsciiBlock(logfile), [0], []))
+        self.blocks.append((NewDadaReadBlock(dadafile, output_chans=[42]), [], [0]))
+        self.blocks.append((WriteAsciiBlock(self.ogfile), [0], []))
         Pipeline(self.blocks).main() 
-        dumpsize = os.path.getsize(logfile)
+    def test_read_and_write(self):
+        """Make sure some data is being written"""
+        dumpsize = os.path.getsize(self.logfile)
         self.assertGreater(dumpsize, 100)
