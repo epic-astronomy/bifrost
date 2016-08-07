@@ -1,5 +1,3 @@
-#!/usr/bin/env python
-
 # Copyright (c) 2016, The Bifrost Authors. All rights reserved.
 # Copyright (c) 2016, NVIDIA CORPORATION. All rights reserved.
 #
@@ -27,12 +25,3 @@
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-from setuptools import setup, find_packages
-
-setup(name='Bifrost',
-      version='0.6',
-      description='Pipeline processing framework',
-      author='Ben Barsdell',
-      author_email='benbarsdell@gmail.com',
-      url='',
-      packages=find_packages())

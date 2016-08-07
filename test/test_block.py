@@ -39,6 +39,19 @@ from bifrost.block import IFFTBlock, FFTBlock, Pipeline, FakeVisBlock
 from bifrost.block import NearestNeighborGriddingBlock, IFFT2Block
 from bifrost.block import GainSolveBlock
 
+class TestIterateRingWrite(unittest.TestCase):
+    """Test the iterate_ring_write function of SourceBlocks/TransformBlocks"""
+    def test_throughput(self):
+        """Read in data with a small throughput size. Expect all to go through."""
+        blocks = []
+        blocks.append((
+            SigprocReadBlock(
+                '/data1/mcranmer/data/fake/1chan8bitNoDM.fil', gulp_nframe=4096),
+            [], [0]))
+        blocks.append((WriteAsciiBlock('.log.txt'), [0], []))
+        Pipeline(blocks).main()
+        log_data = np.loadtxt('.log.txt')
+        self.assertEqual(log_data.size, 12800)
 class TestTestingBlock(unittest.TestCase):
     """Test the TestingBlock for basic functionality"""
     def setUp(self):
@@ -474,7 +487,7 @@ class TestGainSolveBlock(unittest.TestCase):
         blocks.append((
             GainSolveBlock(flags=flags), 
             ['data', 'model', 'jones_in'], 
-            ['jones_out']))
+            ['calibrated_data', 'jones_out']))
         blocks.append((WriteAsciiBlock('.log.txt'), ['jones_out'], []))
         Pipeline(blocks).main()
         out_jones = np.loadtxt('.log.txt').astype(np.float32).view(np.complex64)
