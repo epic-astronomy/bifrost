@@ -30,14 +30,25 @@ This file contains blocks specific to LEDA-OVRO.
 """
 
 import os
-import bandfiles
-import bifrost
 import json
 import numpy as np
-from bifrost import block
+import bifrost
+from bifrost.addon.leda import bandfiles
 from bifrost.block import SourceBlock
 
 DADA_HEADER_SIZE = 4096
+
+def cast_string_to_number(string):
+    """Attempt to convert a string to integer or float"""
+    try:
+        return int(string)
+    except ValueError:
+        pass
+    try:
+        return float(string)
+    except ValueError:
+        pass
+    return string
 
 # Read a collection of DADA files and form an array of time series data over
 # many frequencies.
@@ -118,12 +129,6 @@ class NewDadaReadBlock(SourceBlock):
         self.filename = filename
         self.output_chans = output_chans
         self.time_steps = time_steps
-    def _cast_to_type(self, string):
-        try: return int(string)
-        except ValueError: pass
-        try: return float(string)
-        except ValueError: pass
-        return string
     def parse_dada_header(self, header_string):
         """Get settings out of the dada file's header"""
         header = {}
@@ -134,7 +139,7 @@ class NewDadaReadBlock(SourceBlock):
                 break
             key = key.strip()
             value = value.strip()
-            value = self._cast_to_type(value)
+            value = cast_string_to_number(value)
             header[key] = value
         return header
     def main(self, output_ring):
@@ -148,21 +153,21 @@ class NewDadaReadBlock(SourceBlock):
         nant   = file_settings['NSTATION']
         npol   = file_settings['NPOL']
         navg   = file_settings['NAVG']
-        bps    = file_settings['BYTES_PER_SECOND']
+        #bps    = file_settings['BYTES_PER_SECOND']
         df     = file_settings['BW']*1e6 / float(nchan)
-        cfreq  = file_settings['CFREQ']*1e6
-        utc_start = file_settings['UTC_START']
+        #cfreq  = file_settings['CFREQ']*1e6
+        #utc_start = file_settings['UTC_START']
         assert( file_settings['DATA_ORDER'] == "TIME_SUBSET_CHAN_TRIANGULAR_POL_POL_COMPLEX" )
-        freq0 = cfreq-nchan/2*df
-        freqs = np.linspace(freq0, freq0+(nchan-1)*df, nchan)
+        #freq0 = cfreq-nchan/2*df
+        #freqs = np.linspace(freq0, freq0+(nchan-1)*df, nchan)
         nbaseline = nant*(nant+1)//2
         noutrig_per_full = int(navg / df + 0.5)
         full_framesize   = nchan*nbaseline*npol*npol
         outrig_framesize = noutrig_per_full*nchan*outrig_nbaseline*npol*npol
         tot_framesize    = (full_framesize + outrig_framesize)
         ntime = float(filesize) / (tot_framesize*8)
-        frame_secs = int(navg / df + 0.5)
-        time_offset = float(file_settings['OBS_OFFSET']) / (tot_framesize*8) * frame_secs
+        #frame_secs = int(navg / df + 0.5)
+        #time_offset = float(file_settings['OBS_OFFSET']) / (tot_framesize*8) * frame_secs
         sizeofcomplex64 = 8
         self.gulp_size = full_framesize*sizeofcomplex64*len(self.output_chans)/nchan
         self.output_header = json.dumps({
@@ -176,7 +181,7 @@ class NewDadaReadBlock(SourceBlock):
                     f, 
                     dtype=np.complex64, 
                     count=full_framesize)
-                outrig_data = np.fromfile(
+                np.fromfile(
                     f,
                     dtype=np.complex64, 
                     count=outrig_framesize)
