@@ -47,6 +47,9 @@ def load_telescope(filename):
     dispersions = inputs[:,:,6]*1e-9
     return telescope, ant_coords, delays, dispersions
 
+#LEDA stand flags:
+bad_stands = [ 0,56,57,58,59,60,61,62,63,72,74,75,76,77,78,82,83,84,85,86,87,91,92,93,104,120,121,122,123,124,125,126,127,128,145,148,157,161,164,168,184,185,186,187,188,189,190,191,197,220,224,225,238,239,240,241,242,243,244,245,246,247,248,249,250,251,252,253,254,255 ]
+
 class TestDadaBlock(unittest.TestCase):
     """Test the ability of the Dada block to read
         in data that is compatible with other blocks."""
@@ -82,7 +85,7 @@ class TestNewDadaReadBlock(unittest.TestCase):
         self.logfile = '.log.txt'
         dadafile = '/data1/hg/dada_plot/2016-02-03-22_37_50_0001287429875776.dada'
         self.blocks = []
-        self.blocks.append((NewDadaReadBlock(dadafile, output_chans=[42], time_steps=1), [], [0]))
+        self.blocks.append((NewDadaReadBlock(dadafile, output_chans=[100], time_steps=1), [], [0]))
         self.blocks.append((WriteAsciiBlock(self.logfile), [0], []))
         Pipeline(self.blocks).main() 
     def test_read_and_write(self):
@@ -99,9 +102,10 @@ class TestNewDadaReadBlock(unittest.TestCase):
         redundant_visibilities = np.zeros(shape=[n_stations, n_stations]).astype(np.complex64)
         for i in range(n_stations):
             for j in range(i+1):
-                baseline_index = i*(i+1)//2 + j
-                redundant_visibilities[i, j] = baseline_visibilities[baseline_index]
-                redundant_visibilities[j, i] = np.conj(baseline_visibilities[baseline_index])
+                if i not in bad_stands and j not in bad_stands:
+                    baseline_index = i*(i+1)//2 + j
+                    redundant_visibilities[i, j] = baseline_visibilities[baseline_index]
+                    redundant_visibilities[j, i] = np.conj(baseline_visibilities[baseline_index])
         antenna_coordinates = load_telescope("/data1/mcranmer/data/real/leda/lwa_ovro.telescope.json")[1]
         identity_matrix = np.ones((n_stations, n_stations, 3), dtype=np.float32)
         baselines_xyz = (identity_matrix*antenna_coordinates)-(identity_matrix*antenna_coordinates).transpose((1, 0, 2))
@@ -115,7 +119,7 @@ class TestNewDadaReadBlock(unittest.TestCase):
         out_data[2::4] = real_visibilities
         out_data[3::4] = imaginary_visibilities 
         blocks = []
-        gridding_shape = (512, 512)
+        gridding_shape = (200, 200)
         blocks.append((TestingBlock(out_data), [], [0]))
         blocks.append((NearestNeighborGriddingBlock(gridding_shape), [0], [1]))
         blocks.append((WriteAsciiBlock('.log.txt'), [1], []))
