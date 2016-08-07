@@ -37,6 +37,7 @@ from bifrost.addon.leda import bandfiles
 from bifrost.block import SourceBlock
 
 DADA_HEADER_SIZE = 4096
+LEDA_OUTRIGGERS = [252, 253, 254, 255, 256]
 
 def cast_string_to_number(string):
     """Attempt to convert a string to integer or float"""
@@ -122,16 +123,19 @@ class DadaReadBlock(SourceBlock):
                                 with osequence.reserve(ring_span_size) as wspan:
                                     wspan.data[0][:] = power.view(dtype=np.uint8).ravel()
 
-class NewDadaReadBlock(SourceBlock):
-    """Read a dada file in with frequency channels in ringlets."""
+class DadaFileRead(object):
+    """File object for reading in a dada file"""
     def __init__(self, filename, output_chans, time_steps):
         super(NewDadaReadBlock, self).__init__()
         self.filename = filename
+        self.file_object = open(filename, 'rb')
+        self.dada_header = {}
         self.output_chans = output_chans
         self.time_steps = time_steps
-    def parse_dada_header(self, header_string):
+    def parse_dada_header(self):
         """Get settings out of the dada file's header"""
-        header = {}
+        header_string = self.file_object.read(DADA_HEADER_SIZE)
+        self.dada_header = {}
         for line in header_string.split('\n'):
             try:
                 key, value = line.split(None, 1)
@@ -140,15 +144,15 @@ class NewDadaReadBlock(SourceBlock):
             key = key.strip()
             value = value.strip()
             value = cast_string_to_number(value)
-            header[key] = value
-        return header
-    def main(self, output_ring):
+            self.dada_header[key] = value
+    def read(self):
+        """Read in the entirety of the dada file
+        @param[in] output_chans The frequency channels to output
+        @param[in] time_steps The number of time samples to output"""
 	filesize = os.path.getsize(self.filename) - DADA_HEADER_SIZE
-        f = open(self.filename, 'rb')
-	outrig_ids = [252, 253, 254, 255, 256]
-	outrig_nbaseline = sum(outrig_ids) # TODO: This only works because the outriggers are the last antennas in the array
-        file_settings = self.parse_dada_header(
-            f.read(DADA_HEADER_SIZE))
+        self.parse_dada_header()
+	outrig_nbaseline = sum(LEDA_OUTRIGGERS) # TODO: This only works because the outriggers are the last antennas in the array
+        file_settings = self.parse_dada_header(f.read(DADA_HEADER_SIZE))
         nchan  = file_settings['NCHAN']
         nant   = file_settings['NSTATION']
         npol   = file_settings['NPOL']
@@ -169,6 +173,15 @@ class NewDadaReadBlock(SourceBlock):
         #frame_secs = int(navg / df + 0.5)
         #time_offset = float(file_settings['OBS_OFFSET']) / (tot_framesize*8) * frame_secs
         sizeofcomplex64 = 8
+
+class NewDadaReadBlock(DadaFileRead, SourceBlock):
+    """Read a dada file in with frequency channels in ringlets."""
+    def __init__(self, filename, output_chans, time_steps):
+        super(NewDadaReadBlock, self).__init__(
+            output_chans=output_chans,
+            time_steps=time_steps,
+            filename=filename)
+    def main(self, output_ring):
         self.gulp_size = full_framesize*sizeofcomplex64*len(self.output_chans)/nchan
         self.output_header = json.dumps({
             'nbit':64, 
