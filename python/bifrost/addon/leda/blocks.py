@@ -31,6 +31,7 @@ This file contains blocks specific to LEDA-OVRO.
 
 import os
 import json
+import itertools
 import numpy as np
 import bifrost
 from bifrost.addon.leda import bandfiles
@@ -38,6 +39,7 @@ from bifrost.block import SourceBlock
 
 DADA_HEADER_SIZE = 4096
 LEDA_OUTRIGGERS = [252, 253, 254, 255, 256]
+LEDA_NSTATIONS = 256
 
 def cast_string_to_number(string):
     """Attempt to convert a string to integer or float"""
@@ -124,14 +126,18 @@ class DadaReadBlock(SourceBlock):
                                     wspan.data[0][:] = power.view(dtype=np.uint8).ravel()
 
 class DadaFileRead(object):
-    """File object for reading in a dada file"""
+    """File object for reading in a dada file
+    @param[in] output_chans The frequency channels to output
+    @param[in] time_steps The number of time samples to output"""
     def __init__(self, filename, output_chans, time_steps):
-        super(NewDadaReadBlock, self).__init__()
+        super(DadaFileRead, self).__init__()
         self.filename = filename
         self.file_object = open(filename, 'rb')
         self.dada_header = {}
         self.output_chans = output_chans
         self.time_steps = time_steps
+        self.framesize = {'full': 0, 'outrigger': 0}
+        self.shape = []
     def parse_dada_header(self):
         """Get settings out of the dada file's header"""
         header_string = self.file_object.read(DADA_HEADER_SIZE)
@@ -145,34 +151,52 @@ class DadaFileRead(object):
             value = value.strip()
             value = cast_string_to_number(value)
             self.dada_header[key] = value
-    def read(self):
-        """Read in the entirety of the dada file
-        @param[in] output_chans The frequency channels to output
-        @param[in] time_steps The number of time samples to output"""
-	filesize = os.path.getsize(self.filename) - DADA_HEADER_SIZE
-        self.parse_dada_header()
-	outrig_nbaseline = sum(LEDA_OUTRIGGERS) # TODO: This only works because the outriggers are the last antennas in the array
-        file_settings = self.parse_dada_header(f.read(DADA_HEADER_SIZE))
-        nchan  = file_settings['NCHAN']
-        nant   = file_settings['NSTATION']
-        npol   = file_settings['NPOL']
-        navg   = file_settings['NAVG']
-        #bps    = file_settings['BYTES_PER_SECOND']
-        df     = file_settings['BW']*1e6 / float(nchan)
-        #cfreq  = file_settings['CFREQ']*1e6
-        #utc_start = file_settings['UTC_START']
-        assert( file_settings['DATA_ORDER'] == "TIME_SUBSET_CHAN_TRIANGULAR_POL_POL_COMPLEX" )
+    def interpret_header(self):
+        """Generate settings based on the dada's header"""
+	outrig_nbaseline = sum([LEDA_NSTATIONS-x for x in range(len(LEDA_OUTRIGGERS))])
+        assert( outrig_nbaseline == sum(LEDA_OUTRIGGERS))
+        nchan  = self.dada_header['NCHAN']
+        npol   = self.dada_header['NPOL']
+        navg   = self.dada_header['NAVG']
+        #bps    = self.dada_header['BYTES_PER_SECOND']
+        df     = self.dada_header['BW']*1e6 / float(nchan)
+        #cfreq  = self.dada_header['CFREQ']*1e6
+        #utc_start = self.dada_header['UTC_START']
+        assert( self.dada_header['DATA_ORDER'] == "TIME_SUBSET_CHAN_TRIANGULAR_POL_POL_COMPLEX" )
         #freq0 = cfreq-nchan/2*df
         #freqs = np.linspace(freq0, freq0+(nchan-1)*df, nchan)
-        nbaseline = nant*(nant+1)//2
+        nbaseline = LEDA_NSTATIONS*(LEDA_NSTATIONS+1)//2
         noutrig_per_full = int(navg / df + 0.5)
-        full_framesize   = nchan*nbaseline*npol*npol
-        outrig_framesize = noutrig_per_full*nchan*outrig_nbaseline*npol*npol
-        tot_framesize    = (full_framesize + outrig_framesize)
-        ntime = float(filesize) / (tot_framesize*8)
+        tot_framesize    = self.framesize['full'] + self.framesize['outrigger']
         #frame_secs = int(navg / df + 0.5)
-        #time_offset = float(file_settings['OBS_OFFSET']) / (tot_framesize*8) * frame_secs
-        sizeofcomplex64 = 8
+        #time_offset = float(self.dada_header['OBS_OFFSET']) / (tot_framesize*8) * frame_secs
+        self.framesize['full'] = nchan*nbaseline*npol*npol
+        self.framesize['outrigger'] = noutrig_per_full*nchan*outrig_nbaseline*npol*npol
+        self.shape = (nchan, nbaseline, npol, npol)
+    def dada_read(self):
+        """Read in the entirety of the dada file"""
+	filesize = os.path.getsize(self.filename) - DADA_HEADER_SIZE
+        tot_framesize = self.framesize['full'] + self.framesize['outrigger']
+        ntime = float(filesize)/(tot_framesize*8)
+        for i in range(self.time_steps):
+            if i >= ntime:
+                print "Stopping read of Dada file."
+                break
+            full_data = np.fromfile(
+                self.file_object, 
+                dtype=np.complex64, 
+                count=self.framesize['full'])
+            outrig_data = np.fromfile(
+                self.file_object, 
+                dtype=np.complex64, 
+                count=self.framesize['outrigger'])
+            try:
+                full_data = full_data.reshape(self.shape)
+                select_channel_data = full_data[self.output_chans, :, :, :]
+                yield select_channel_data
+            except:
+                print "Cancel data read", full_data.nbytes, full_framesize*8, self.gulp_size
+                exit()
 
 class NewDadaReadBlock(DadaFileRead, SourceBlock):
     """Read a dada file in with frequency channels in ringlets."""
@@ -182,33 +206,15 @@ class NewDadaReadBlock(DadaFileRead, SourceBlock):
             time_steps=time_steps,
             filename=filename)
     def main(self, output_ring):
-        self.gulp_size = full_framesize*sizeofcomplex64*len(self.output_chans)/nchan
+        self.parse_dada_header()
+        self.interpret_header()
+        sizeofcomplex64 = 8
+        self.gulp_size = self.framesize['full']*sizeofcomplex64*len(self.output_chans)/self.dada_header['NCHAN']
+        output_shape = [len(self.output_chans), self.shape[1], self.shape[2], self.shape[3]]
         self.output_header = json.dumps({
             'nbit':64, 
             'dtype':str(np.complex64), 
-            'shape':[len(self.output_chans), nbaseline, npol, npol]})
-        for i, span in enumerate(self.iterate_ring_write(output_ring)):
-            print "Grabbing data. iteration ", i
-            if True:
-                full_data = np.fromfile(
-                    f, 
-                    dtype=np.complex64, 
-                    count=full_framesize)
-                np.fromfile(
-                    f,
-                    dtype=np.complex64, 
-                    count=outrig_framesize)
-                try:
-                    full_data = full_data.reshape(
-                        (nchan,nbaseline,npol,npol))
-                    print nchan, nbaseline, npol
-                    select_channel_data = full_data[self.output_chans, :, :, :]
-                    span.data_view(np.complex64)[0][:] = select_channel_data.ravel()
-                    print "Ring has been written."
-                except:
-                    print "Cancel data read", full_data.nbytes, full_framesize*8, self.gulp_size
-                    exit()
-            if i+1 >= ntime or i+1 >= self.time_steps:
-                print "Stopping read of Dada file."
-                break
-        f.close()
+            'shape':output_shape})
+        for data, output_span in itertools.izip(self.dada_read(), self.iterate_ring_write(output_ring)):
+            output_span.data_view(np.complex64)[0][:] = data.ravel()
+        self.file_object.close()
