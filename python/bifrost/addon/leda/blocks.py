@@ -153,21 +153,19 @@ class DadaFileRead(object):
             self.dada_header[key] = value
     def interpret_header(self):
         """Generate settings based on the dada's header"""
-	outrig_nbaseline = sum([LEDA_NSTATIONS-x for x in range(len(LEDA_OUTRIGGERS))])
-        assert( outrig_nbaseline == sum(LEDA_OUTRIGGERS))
-        nchan  = self.dada_header['NCHAN']
-        npol   = self.dada_header['NPOL']
-        navg   = self.dada_header['NAVG']
-        #bps    = self.dada_header['BYTES_PER_SECOND']
-        df     = self.dada_header['BW']*1e6 / float(nchan)
-        #cfreq  = self.dada_header['CFREQ']*1e6
+        outrig_nbaseline = sum([LEDA_NSTATIONS-x for x in range(len(LEDA_OUTRIGGERS))])
+        nchan = self.dada_header['NCHAN']
+        npol = self.dada_header['NPOL']
+        navg = self.dada_header['NAVG']
+        #bps = self.dada_header['BYTES_PER_SECOND']
+        frequency_channel_width = self.dada_header['BW']*1e6 / float(nchan)
+        #cfreq = self.dada_header['CFREQ']*1e6
         #utc_start = self.dada_header['UTC_START']
-        assert( self.dada_header['DATA_ORDER'] == "TIME_SUBSET_CHAN_TRIANGULAR_POL_POL_COMPLEX" )
+        assert self.dada_header['DATA_ORDER'] == "TIME_SUBSET_CHAN_TRIANGULAR_POL_POL_COMPLEX"
         #freq0 = cfreq-nchan/2*df
         #freqs = np.linspace(freq0, freq0+(nchan-1)*df, nchan)
         nbaseline = LEDA_NSTATIONS*(LEDA_NSTATIONS+1)//2
-        noutrig_per_full = int(navg / df + 0.5)
-        tot_framesize    = self.framesize['full'] + self.framesize['outrigger']
+        noutrig_per_full = int(navg/frequency_channel_width + 0.5)
         #frame_secs = int(navg / df + 0.5)
         #time_offset = float(self.dada_header['OBS_OFFSET']) / (tot_framesize*8) * frame_secs
         self.framesize['full'] = nchan*nbaseline*npol*npol
@@ -175,7 +173,7 @@ class DadaFileRead(object):
         self.shape = (nchan, nbaseline, npol, npol)
     def dada_read(self):
         """Read in the entirety of the dada file"""
-	filesize = os.path.getsize(self.filename) - DADA_HEADER_SIZE
+        filesize = os.path.getsize(self.filename) - DADA_HEADER_SIZE
         tot_framesize = self.framesize['full'] + self.framesize['outrigger']
         ntime = float(filesize)/(tot_framesize*8)
         for i in range(self.time_steps):
@@ -183,38 +181,48 @@ class DadaFileRead(object):
                 print "Stopping read of Dada file."
                 break
             full_data = np.fromfile(
-                self.file_object, 
-                dtype=np.complex64, 
+                self.file_object,
+                dtype=np.complex64,
                 count=self.framesize['full'])
-            outrig_data = np.fromfile(
-                self.file_object, 
-                dtype=np.complex64, 
+            # Outrigger data is not used:
+            np.fromfile(
+                self.file_object,
+                dtype=np.complex64,
                 count=self.framesize['outrigger'])
             try:
                 full_data = full_data.reshape(self.shape)
                 select_channel_data = full_data[self.output_chans, :, :, :]
                 yield select_channel_data
-            except:
-                print "Cancel data read", full_data.nbytes, full_framesize*8, self.gulp_size
-                exit()
+            except ValueError:
+                print "Bad data reshape, possibly due to end of file"
+                break
 
 class NewDadaReadBlock(DadaFileRead, SourceBlock):
     """Read a dada file in with frequency channels in ringlets."""
     def __init__(self, filename, output_chans, time_steps):
+        """@param[in] filename The dada file.
+        @param[in] output_chans The frequency channels to output
+        @param[in] time_steps The number of time samples to output"""
         super(NewDadaReadBlock, self).__init__(
             output_chans=output_chans,
             time_steps=time_steps,
             filename=filename)
     def main(self, output_ring):
+        """Put dada file data onto output_ring
+        @param[out] output_ring Ring to contain outgoing data"""
         self.parse_dada_header()
         self.interpret_header()
         sizeofcomplex64 = 8
-        self.gulp_size = self.framesize['full']*sizeofcomplex64*len(self.output_chans)/self.dada_header['NCHAN']
+        output_chan_data_size = \
+            (self.framesize['full']*len(self.output_chans))/self.dada_header['NCHAN']
+        self.gulp_size = sizeofcomplex64*output_chan_data_size
         output_shape = [len(self.output_chans), self.shape[1], self.shape[2], self.shape[3]]
         self.output_header = json.dumps({
-            'nbit':64, 
-            'dtype':str(np.complex64), 
+            'nbit':64,
+            'dtype':str(np.complex64),
             'shape':output_shape})
-        for data, output_span in itertools.izip(self.dada_read(), self.iterate_ring_write(output_ring)):
+        for data, output_span in itertools.izip(
+                self.dada_read(),
+                self.iterate_ring_write(output_ring)):
             output_span.data_view(np.complex64)[0][:] = data.ravel()
         self.file_object.close()
