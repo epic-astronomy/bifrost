@@ -156,17 +156,10 @@ class DadaFileRead(object):
         nchan = self.dada_header['NCHAN']
         npol = self.dada_header['NPOL']
         navg = self.dada_header['NAVG']
-        #bps = self.dada_header['BYTES_PER_SECOND']
         frequency_channel_width = self.dada_header['BW']*1e6 / float(nchan)
-        #cfreq = self.dada_header['CFREQ']*1e6
-        #utc_start = self.dada_header['UTC_START']
         assert self.dada_header['DATA_ORDER'] == "TIME_SUBSET_CHAN_TRIANGULAR_POL_POL_COMPLEX"
-        #freq0 = cfreq-nchan/2*df
-        #freqs = np.linspace(freq0, freq0+(nchan-1)*df, nchan)
         nbaseline = LEDA_NSTATIONS*(LEDA_NSTATIONS+1)//2
         noutrig_per_full = int(navg/frequency_channel_width + 0.5)
-        #frame_secs = int(navg / df + 0.5)
-        #time_offset = float(self.dada_header['OBS_OFFSET']) / (tot_framesize*8) * frame_secs
         self.framesize['full'] = nchan*nbaseline*npol*npol
         self.framesize['outrigger'] = noutrig_per_full*nchan*outrig_nbaseline*npol*npol
         self.shape = (nchan, nbaseline, npol, npol)
