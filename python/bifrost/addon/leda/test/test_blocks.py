@@ -31,7 +31,7 @@ import json
 import os
 import numpy as np
 from bifrost.block import WriteAsciiBlock, Pipeline, TestingBlock, NearestNeighborGriddingBlock
-from bifrost.addon.leda.blocks import DadaReadBlock, NewDadaReadBlock
+from bifrost.addon.leda.blocks import DadaReadBlock, NewDadaReadBlock, CableDelayBlock
 
 def load_telescope(filename):
     with open(filename, 'r') as telescope_file:
@@ -130,3 +130,20 @@ class TestNewDadaReadBlock(unittest.TestCase):
         brightness = np.abs(np.fft.fftshift(np.fft.ifft2(np.fft.ifftshift(model))))
         # Should be many nonzero elements in the image
         self.assertGreater(brightness[brightness > 1e-30].size, 100)
+class TestCableDelayBlock(unittest.TestCase):
+    """Test a block which adds cable delays to visibilities"""
+    def test_throughput(self):
+        """Make sure viz going in is the same size as output"""
+        self.logfile = '.log.txt'
+        dadafile = '/data2/hg/interfits/lconverter/WholeSkyL64_47.004_d20150203_utc181702_test/2015-04-08-20_15_03_0001133593833216.dada'
+        n_stations = 256
+        n_pol = 2
+        self.blocks = []
+        self.blocks.append((NewDadaReadBlock(dadafile, output_chans=[100], time_steps=1), [], [0]))
+        self.blocks.append((
+            CableDelayBlock(frequencies, delays, dispersions),
+            {'in': 0, 'out': 1}))
+        self.blocks.append((WriteAsciiBlock(self.logfile), [1], []))
+        Pipeline(self.blocks).main() 
+        visibilities = np.loadtxt(self.logfile, dtype=np.float32).view(np.complex64)
+        self.assertEqual(visibilities.size, n_pol**2*n_stations**2)
