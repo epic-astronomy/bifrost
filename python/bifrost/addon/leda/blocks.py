@@ -189,6 +189,16 @@ class DadaFileRead(object):
                 print "Bad data reshape, possibly due to end of file"
                 break
 
+def build_baseline_ants(nant):
+	nbaseline = nant*(nant+1)/2
+	baseline_ants = np.empty((nbaseline,2), dtype=np.int32)
+	for i in xrange(nant):
+		for j in xrange(i+1):
+			b = i*(i+1)/2 + j
+			baseline_ants[b,0] = i
+			baseline_ants[b,1] = j
+	return baseline_ants
+
 class NewDadaReadBlock(DadaFileRead, SourceBlock):
     """Read a dada file in with frequency channels in ringlets."""
     def __init__(self, filename, output_chans, time_steps):
@@ -204,17 +214,29 @@ class NewDadaReadBlock(DadaFileRead, SourceBlock):
         @param[out] output_ring Ring to contain outgoing data"""
         self.parse_dada_header()
         self.interpret_header()
+        nchan = self.dada_header['NCHAN']
+        npol = self.dada_header['NPOL']
+        nstand = LEDA_NSTATIONS
+        output_shape = [
+            len(self.output_chans),
+            nstand,
+            nstand,
+            npol,
+            npol]
         sizeofcomplex64 = 8
-        output_chan_data_size = \
-            (self.framesize['full']*len(self.output_chans))/self.dada_header['NCHAN']
-        self.gulp_size = sizeofcomplex64*output_chan_data_size
-        output_shape = [len(self.output_chans), self.shape[1], self.shape[2], self.shape[3]]
+        self.gulp_size = np.product(output_shape)*sizeofcomplex64
         self.output_header = json.dumps({
             'nbit':64,
             'dtype':str(np.complex64),
             'shape':output_shape})
-        for data, output_span in itertools.izip(
+        for dadafile_data, output_span in itertools.izip(
                 self.dada_read(),
                 self.iterate_ring_write(output_ring)):
+            data = np.empty(output_shape, dtype=np.complex64)
+            baseline_ants = build_baseline_ants(nstand)
+            ants_i = baseline_ants[:,0]
+            ants_j = baseline_ants[:,1]
+            data[:,ants_i,ants_j,:,:] = dadafile_data
+            data[:,ants_j,ants_i,:,:] = dadafile_data.conj()
             output_span.data_view(np.complex64)[0][:] = data.ravel()
         self.file_object.close()

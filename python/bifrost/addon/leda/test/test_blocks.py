@@ -109,9 +109,10 @@ class TestNewDadaReadBlock(unittest.TestCase):
         baselines_xyz = (identity_matrix*antenna_coordinates)-(identity_matrix*antenna_coordinates).transpose((1, 0, 2))
         baselines_u = baselines_xyz[:, :, 0].reshape(-1)
         baselines_v = baselines_xyz[:, :, 1].reshape(-1)
-        real_visibilities = visibilities.reshape(-1).view(np.float32)[0::2]
-        imaginary_visibilities = visibilities.reshape(-1).view(np.float32)[1::2]
-        out_data = np.zeros(shape=[redundant_visibilities.size*4]).astype(np.float32)
+        assert visibilities.dtype == np.complex64
+        real_visibilities = visibilities.ravel().view(np.float32)[0::2]
+        imaginary_visibilities = visibilities.ravel().view(np.float32)[1::2]
+        out_data = np.zeros(shape=[visibilities.size*4]).astype(np.float32)
         out_data[0::4] = baselines_u
         out_data[1::4] = baselines_v
         out_data[2::4] = real_visibilities
