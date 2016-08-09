@@ -83,7 +83,7 @@ class TestNewDadaReadBlock(unittest.TestCase):
         """Reads in one channel of a dada file, and logs in ascii
             file."""
         self.logfile = '.log.txt'
-        dadafile = '/data1/hg/dada_plot/2016-02-03-22_37_50_0001287429875776.dada'
+        dadafile = '/data2/hg/interfits/lconverter/WholeSkyL64_47.004_d20150203_utc181702_test/2015-04-08-20_15_03_0001133593833216.dada'
         self.blocks = []
         self.blocks.append((NewDadaReadBlock(dadafile, output_chans=[100], time_steps=1), [], [0]))
         self.blocks.append((WriteAsciiBlock(self.logfile), [0], []))
@@ -119,7 +119,7 @@ class TestNewDadaReadBlock(unittest.TestCase):
         out_data[2::4] = real_visibilities
         out_data[3::4] = imaginary_visibilities 
         blocks = []
-        gridding_shape = (200, 200)
+        gridding_shape = (256, 256)
         blocks.append((TestingBlock(out_data), [], [0]))
         blocks.append((NearestNeighborGriddingBlock(gridding_shape), [0], [1]))
         blocks.append((WriteAsciiBlock('.log.txt'), [1], []))
@@ -131,6 +131,5 @@ class TestNewDadaReadBlock(unittest.TestCase):
         brightness = np.abs(np.fft.fftshift(np.fft.ifft2(np.fft.ifftshift(model))))
         # Should be many nonzero elements in the image
         self.assertGreater(brightness[brightness > 1e-30].size, 100)
-        # Should be some bright sources
         from matplotlib.image import imsave
         imsave('sky.png', brightness, cmap='gray')
