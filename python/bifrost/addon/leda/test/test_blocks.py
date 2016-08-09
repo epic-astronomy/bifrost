@@ -132,21 +132,33 @@ class TestNewDadaReadBlock(unittest.TestCase):
         self.assertGreater(brightness[brightness > 1e-30].size, 100)
 class TestCableDelayBlock(unittest.TestCase):
     """Test a block which adds cable delays to visibilities"""
-    def test_throughput(self):
-        """Make sure viz going in is the same size as output"""
-        self.logfile = '.log.txt'
+    def setUp(self):
+        """Set up a file output with and without cable delays"""
+        self.logfile_cable_delay = '.log_cables.txt'
+        self.logfile_no_cable_delay = '.log_no_cables.txt'
         dadafile = '/data2/hg/interfits/lconverter/WholeSkyL64_47.004_d20150203_utc181702_test/2015-04-08-20_15_03_0001133593833216.dada'
         coordinates, delays, dispersions = load_telescope("/data1/mcranmer/data/real/leda/lwa_ovro.telescope.json")[1:]
         frequencies = (47.004 - 2.616/2) + np.arange(start=0, stop=2.616, step=2.616/109)
         output_channels = [100]
-        n_stations = 256
-        n_pol = 2
         self.blocks = []
-        self.blocks.append((NewDadaReadBlock(dadafile, output_chans=output_channels , time_steps=1), [], [0]))
+        self.blocks.append((
+            NewDadaReadBlock(dadafile, output_chans=output_channels , time_steps=1), 
+            [], 
+            [0]))
         self.blocks.append((
             CableDelayBlock(frequencies[output_channels], delays, dispersions),
             {'in': 0, 'out': 1}))
-        self.blocks.append((WriteAsciiBlock(self.logfile), [1], []))
+        self.blocks.append((WriteAsciiBlock(self.logfile_cable_delay), [1], []))
+        self.blocks.append((WriteAsciiBlock(self.logfile_no_cable_delay), [0], []))
         Pipeline(self.blocks).main() 
-        visibilities = np.loadtxt(self.logfile, dtype=np.float32).view(np.complex64)
-        self.assertEqual(visibilities.size, n_pol**2*n_stations**2)
+        self.cable_delay_visibilities = np.loadtxt(
+            self.logfile_cable_delay, 
+            dtype=np.float32).view(np.complex64)
+        self.no_cable_delay_visibilities = np.loadtxt(
+            self.logfile_no_cable_delay, 
+            dtype=np.float32).view(np.complex64)
+    def test_throughput(self):
+        """Make sure some data is going through"""
+        n_stations = 256
+        n_pol = 2
+        self.assertEqual(self.cable_delay_visibilities.size, n_pol**2*n_stations**2)
