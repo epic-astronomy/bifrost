@@ -92,27 +92,25 @@ class TestNewDadaReadBlock(unittest.TestCase):
         """Make sure some data is being written"""
         dumpsize = os.path.getsize(self.logfile)
         self.assertGreater(dumpsize, 100)
-    def test_imaging(self):
-        """Try to grid and image the data"""
+    def test_output_size(self):
+        """Make sure dada read block is putting out full matrix"""
         baseline_visibilities = np.loadtxt(self.logfile, dtype=np.float32).view(np.complex64)
         n_stations = 256
-        n_baselines = n_stations*(n_stations+1)//2
-        baseline_visibilities = baseline_visibilities.reshape(
-            (n_baselines, 2, 2))[:, 0, 0]
-        redundant_visibilities = np.zeros(shape=[n_stations, n_stations]).astype(np.complex64)
-        for i in range(n_stations):
-            for j in range(i+1):
-                if i not in bad_stands and j not in bad_stands:
-                    baseline_index = i*(i+1)//2 + j
-                    redundant_visibilities[i, j] = baseline_visibilities[baseline_index]
-                    redundant_visibilities[j, i] = np.conj(baseline_visibilities[baseline_index])
+        n_pol = 2
+        self.assertEqual(baseline_visibilities.size, n_pol**2*n_stations**2)
+    def test_imaging(self):
+        """Try to grid and image the data"""
+        n_stations = 256
+        n_pol = 2
+        visibilities = np.loadtxt(self.logfile, dtype=np.float32).view(np.complex64)
+        visibilities = visibilities.reshape((n_stations, n_stations, n_pol, n_pol))[:, :, 0, 0]
         antenna_coordinates = load_telescope("/data1/mcranmer/data/real/leda/lwa_ovro.telescope.json")[1]
         identity_matrix = np.ones((n_stations, n_stations, 3), dtype=np.float32)
         baselines_xyz = (identity_matrix*antenna_coordinates)-(identity_matrix*antenna_coordinates).transpose((1, 0, 2))
         baselines_u = baselines_xyz[:, :, 0].reshape(-1)
         baselines_v = baselines_xyz[:, :, 1].reshape(-1)
-        real_visibilities = redundant_visibilities.reshape(-1).view(np.float32)[0::2]
-        imaginary_visibilities = redundant_visibilities.reshape(-1).view(np.float32)[1::2]
+        real_visibilities = visibilities.reshape(-1).view(np.float32)[0::2]
+        imaginary_visibilities = visibilities.reshape(-1).view(np.float32)[1::2]
         out_data = np.zeros(shape=[redundant_visibilities.size*4]).astype(np.float32)
         out_data[0::4] = baselines_u
         out_data[1::4] = baselines_v
