@@ -35,7 +35,7 @@ import itertools
 import numpy as np
 import bifrost
 from bifrost.addon.leda import bandfiles
-from bifrost.block import SourceBlock
+from bifrost.block import SourceBlock, MultiTransformBlock
 
 DADA_HEADER_SIZE = 4096
 LEDA_OUTRIGGERS = [252, 253, 254, 255, 256]
@@ -240,3 +240,21 @@ class NewDadaReadBlock(DadaFileRead, SourceBlock):
             data[:,ants_j,ants_i,:,:] = dadafile_data.conj()
             output_span.data_view(np.complex64)[0][:] = data.ravel()
         self.file_object.close()
+
+class CableDelayBlock(MultiTransformBlock):
+    """Apply cable delays to a visibility matrix"""
+    ring_names = {
+        'in': "Visibilities WITHOUT cable delays added",
+        'out': "Visibilities WITH cable delays added"}
+    def __init__(self, *args):
+        super(CableDelayBlock, self).__init__()
+    def load_settings(self):
+        """Gulp data appropriately to the size of the shape"""
+        sizeofcomplex64 = 8
+        self.gulp_size['in'] = np.product(self.header['in']['shape'])*sizeofcomplex64
+        self.header['out'] = self.header['in']
+        self.gulp_size['out'] = self.gulp_size['in']
+    def main(self):
+        """Apply the cable delays to the output matrix"""
+        for inspan, outspan in self.izip(self.read('in'), self.write('out')):
+            outspan[:] = inspan

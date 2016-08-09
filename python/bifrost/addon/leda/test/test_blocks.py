@@ -136,12 +136,15 @@ class TestCableDelayBlock(unittest.TestCase):
         """Make sure viz going in is the same size as output"""
         self.logfile = '.log.txt'
         dadafile = '/data2/hg/interfits/lconverter/WholeSkyL64_47.004_d20150203_utc181702_test/2015-04-08-20_15_03_0001133593833216.dada'
+        coordinates, delays, dispersions = load_telescope("/data1/mcranmer/data/real/leda/lwa_ovro.telescope.json")[1:]
+        frequencies = (47.004 - 2.616/2) + np.arange(start=0, stop=2.616, step=2.616/109)
+        output_channels = [100]
         n_stations = 256
         n_pol = 2
         self.blocks = []
-        self.blocks.append((NewDadaReadBlock(dadafile, output_chans=[100], time_steps=1), [], [0]))
+        self.blocks.append((NewDadaReadBlock(dadafile, output_chans=output_channels , time_steps=1), [], [0]))
         self.blocks.append((
-            CableDelayBlock(frequencies, delays, dispersions),
+            CableDelayBlock(frequencies[output_channels], delays, dispersions),
             {'in': 0, 'out': 1}))
         self.blocks.append((WriteAsciiBlock(self.logfile), [1], []))
         Pipeline(self.blocks).main() 

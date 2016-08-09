@@ -540,6 +540,7 @@ class WriteAsciiBlock(SinkBlock):
             else:
                 data_accumulate = unpacked_data.ravel()
         x = data_accumulate.reshape((1, -1))
+        text_file = open(self.filename, 'w')
         if self.dtype == np.complex64:
             np.savetxt(text_file, x.view(np.float32))
         else:
