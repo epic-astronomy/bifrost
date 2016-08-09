@@ -119,7 +119,7 @@ class TestNewDadaReadBlock(unittest.TestCase):
         out_data[2::4] = real_visibilities
         out_data[3::4] = imaginary_visibilities 
         blocks = []
-        gridding_shape = (200, 200)
+        gridding_shape = (256, 256)
         blocks.append((TestingBlock(out_data), [], [0]))
         blocks.append((NearestNeighborGriddingBlock(gridding_shape), [0], [1]))
         blocks.append((WriteAsciiBlock('.log.txt'), [1], []))
@@ -131,8 +131,5 @@ class TestNewDadaReadBlock(unittest.TestCase):
         brightness = np.abs(np.fft.fftshift(np.fft.ifft2(np.fft.ifftshift(model))))
         # Should be many nonzero elements in the image
         self.assertGreater(brightness[brightness > 1e-30].size, 100)
-        # Should be some bright sources
-        import matplotlib.pyplot as plt
-        plt.imshow(brightness, interpolation='nearest')
-        plt.colorbar()
-        plt.savefig("sky.png")
+        from matplotlib.image import imsave
+        imsave('sky.png', brightness, cmap='gray')
