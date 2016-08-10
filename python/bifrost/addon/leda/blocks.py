@@ -33,6 +33,10 @@ import os
 import json
 import itertools
 import numpy as np
+import matplotlib
+## Use a graphical backend which supports threading
+matplotlib.use('Agg')
+from matplotlib import pyplot as plt
 import bifrost
 from bifrost.addon.leda import bandfiles
 from bifrost.block import SourceBlock, MultiTransformBlock
@@ -367,9 +371,12 @@ class SlicingBlock(MultiTransformBlock):
         'out': """The sliced array. The number of dimensions might be different
             from the incoming array."""}
     def __init__(self, indices):
+        """@param[in] indices Numpy slices (e.g., produced with np.s_[1, 2]).
+            This get used on input data."""
         super(SlicingBlock, self).__init__()
         self.indices = indices
     def load_settings(self):
+        """Calculate the outgoing slice size"""
         self.gulp_size['in'] = int(np.product(self.header['in']['shape']))*self.header['in']['nbit']//8
         output_settings = np.array([np.zeros(self.header['in']['shape'], dtype=np.int8)[self.indices]])
         self.gulp_size['out'] = output_settings.nbytes*self.header['in']['nbit']//8
@@ -382,3 +389,23 @@ class SlicingBlock(MultiTransformBlock):
         for in_span, out_span in self.izip(self.read('in'), self.write('out')):
             shaped_data = in_span.reshape(self.header['in']['shape'])[self.indices]
             out_span[:] = shaped_data.ravel()
+
+class ImagingBlock(MultiTransformBlock):
+    ring_names = {
+        'in': """Data to be imaged. Each input span will
+            generate an image under the same name"""}
+    def __init__(self, filename, reduction=None, log=False):
+        super(ImagingBlock, self).__init__()
+        self.filename = filename
+        self.reduction = reduction
+        self.log = log
+    def load_settings(self):
+        self.gulp_size['in'] = int(np.product(self.header['in']['shape']))*self.header['in']['nbit']//8
+    def main(self):
+        for in_span in self.read('in'):
+            data_to_plot = np.copy(in_span).reshape(self.header['in']['shape'])
+            if self.reduction is not None:
+                data_to_plot = self.reduction(data_to_plot)
+            plt.imshow(data_to_plot, interpolation='nearest')
+            plt.colorbar()
+            plt.savefig(self.filename)

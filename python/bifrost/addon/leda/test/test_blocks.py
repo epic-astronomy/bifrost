@@ -33,7 +33,7 @@ import numpy as np
 from bifrost.block import WriteAsciiBlock, Pipeline, TestingBlock, NearestNeighborGriddingBlock
 from bifrost.addon.leda.blocks import DadaReadBlock, NewDadaReadBlock, CableDelayBlock
 from bifrost.addon.leda.blocks import UVCoordinateBlock, BaselineSelectorBlock
-from bifrost.addon.leda.blocks import SlicingBlock
+from bifrost.addon.leda.blocks import SlicingBlock, ImagingBlock
 
 def load_telescope(filename):
     with open(filename, 'r') as telescope_file:
@@ -229,7 +229,10 @@ class TestImagingBlock(unittest.TestCase):
             NewDadaReadBlock(dadafile, output_chans=[100], time_steps=1),
             {'out': 'visibilities'}))
         blocks.append((
-            BaselineSelectorBlock(minimum_baseline = median_baseline),
+            UVCoordinateBlock("/data1/mcranmer/data/real/leda/lwa_ovro.telescope.json"), 
+            {'out': 'uv_coords'}))
+        blocks.append((
+            BaselineSelectorBlock(minimum_baseline=median_baseline),
             {'in_vis': 'visibilities', 'in_uv': 'uv_coords', 'out_vis': 'flagged_visibilities'}
             ))
         blocks.append((
@@ -241,9 +244,9 @@ class TestImagingBlock(unittest.TestCase):
             ['grid']))
         blocks.append((
             ImagingBlock(filename='my_sky.png', reduction=np.abs, log=True),
-            ['gridded_visibilities'],
-            []))
+            {'in': 'grid'}))
         open('my_sky.png', 'w').close()
+        print "GOING TO CALL PIPELINE"
         Pipeline(blocks).main()
         image_size = os.path.getsize(self.logfile_visibilities)
         self.assertGreater(image_size, 1000)
