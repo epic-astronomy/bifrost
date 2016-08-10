@@ -214,3 +214,32 @@ class TestBaselineSelectorBlock(unittest.TestCase):
         self.assertLess(np.sum([np.abs(visibilities[0, i, i, 0, 0]) for i in range(256)]), 1e-5)
         self.assertGreater(visibilities[np.abs(visibilities)<1e-5].size, visibilities.size*0.45)
         self.assertLess(visibilities[np.abs(visibilities)<1e-5].size, visibilities.size*0.75)
+class TestImagingBlock(unittest.TestCase):
+    """Test the ability of a block to produce an image of visibility data"""
+    def test_imaging_pipeline(self):
+        """Have an entire imaging pipeline into a png file within Bifrost"""
+        blocks = []
+        dadafile = '/data2/hg/interfits/lconverter/WholeSkyL64_47.004_d20150203_utc181702_test/2015-04-08-20_15_03_0001133593833216.dada'
+        median_baseline = np.median(np.abs(baselines_xyz[:, :, 0] + 1j*baselines_xyz[:, :, 1]))
+        blocks.append((
+            NewDadaReadBlock(dadafile, output_chans=[100], time_steps=1),
+            {'out': 'visibilities'}))
+        blocks.append((
+            BaselineSelectorBlock(minimum_baseline = median_baseline),
+            {'in_vis': 'visibilities', 'in_uv': 'uv_coords', 'out_vis': 'flagged_visibilities'}
+            ))
+        blocks.append(
+            (SlicingBlock(np.s_[0, :, :, 0, 0]),
+            {'in': 'flagged_visibilities', 'out': 'scalar_visibilities'})
+        blocks.append((
+            NearestNeighborGriddingBlock((256, 256)),
+            ['scalar_visibilities'],
+            ['grid']))
+        blocks.append((
+            ImagingBlock(filename='my_sky.png', reduction=np.abs, log=True),
+            ['gridded_visibilities'],
+            []))
+        open('my_sky.png', 'w').close()
+        Pipeline(blocks).main()
+        image_size = os.path.getsize(self.logfile_visibilities)
+        self.assertGreater(image_size, 1000)
