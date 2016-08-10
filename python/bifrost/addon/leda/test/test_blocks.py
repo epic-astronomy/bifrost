@@ -189,25 +189,28 @@ class TestUVCoordinateBlock(unittest.TestCase):
 class TestBaselineSelectorBlock(unittest.TestCase):
     """Test the ability of a block to select only the longest baselines (by setting visibilities to zero)"""
     def test_visibilites_zero(self):
-        """Test that about 50% of the baselines are set to zero when the median is selected.
-            Perform this with short and with long baselines"""
+        """Test that the correct baselines are set to zero when the median is selected.
+            Perform this with only a minimum baseline"""
         blocks = []
         dadafile = '/data2/hg/interfits/lconverter/WholeSkyL64_47.004_d20150203_utc181702_test/2015-04-08-20_15_03_0001133593833216.dada'
         antenna_coordinates = load_telescope("/data1/mcranmer/data/real/leda/lwa_ovro.telescope.json")[1]
-        identity_matrix = np.ones((self.n_stations, self.n_stations, 3), dtype=np.float32)
+        identity_matrix = np.ones((256, 256, 3), dtype=np.float32)
         baselines_xyz = (identity_matrix*antenna_coordinates)-(identity_matrix*antenna_coordinates).transpose((1, 0, 2))
-        median_baseline = np.median(np.abs(baselines_xyz))
+        median_baseline = np.median(np.abs(baselines_xyz[:, :, 0] + 1j*baselines_xyz[:, :, 1]))
         blocks.append((
-            NewDadaReadBlock(dadafile, output_chans=output_channels , time_steps=1),
+            NewDadaReadBlock(dadafile, output_chans=[100], time_steps=1),
             {'out': 'visibilities'}))
         blocks.append((
             UVCoordinateBlock("/data1/mcranmer/data/real/leda/lwa_ovro.telescope.json"), 
             {'out': 'uv_coords'}))
         blocks.append((
             BaselineSelectorBlock(minimum_baseline = median_baseline),
-            {'in_vis': 'visibilities', 'in_uv': 'uv_coords', 'out': 'flagged_visibilities'}
+            {'in_vis': 'visibilities', 'in_uv': 'uv_coords', 'out_vis': 'flagged_visibilities'}
             ))
         blocks.append((WriteAsciiBlock('.log.txt'), ['flagged_visibilities'], []))
         Pipeline(blocks).main()
         visibilities = np.loadtxt('.log.txt', dtype=np.float32).view(np.complex64)
-        self.assertGreater(visibilities[np.abs(visibilities)<1e-5].size, visibilities.size*0.4)
+        visibilities = visibilities.reshape((1, 256, 256, 2, 2))
+        self.assertLess(np.sum([np.abs(visibilities[0, i, i, 0, 0]) for i in range(256)]), 1e-5)
+        self.assertGreater(visibilities[np.abs(visibilities)<1e-5].size, visibilities.size*0.45)
+        self.assertLess(visibilities[np.abs(visibilities)<1e-5].size, visibilities.size*0.75)

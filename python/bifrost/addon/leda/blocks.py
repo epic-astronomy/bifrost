@@ -314,3 +314,47 @@ class UVCoordinateBlock(MultiTransformBlock):
             out_span = out_span[0]
             out_span[:] = baselines_uv.astype(np.float32).ravel()
             break
+
+class BaselineSelectorBlock(MultiTransformBlock):
+    """Read in visibilities and UV coordinates, and flag visibilities if
+        they do not satisfy the baseline requirements."""
+    ring_names = {
+        'in_vis': """The input visibilities, in the shape
+            [frequencies, nstand, nstand, npol, npol]""",
+        'in_uv': """The input uv coords, in the shape
+            [nstand, nstand, 2]""",
+        'out_vis': """The output visibilities, in the shape
+            [frequencies, nstand, nstand, npol, npol]. Flagged
+            visibilities are zero."""}
+    def __init__(self, minimum_baseline=0):
+        """@param[in] minimum_baseline The minimum baseline in uv space"""
+        super(BaselineSelectorBlock, self).__init__()
+        self.minimum_baseline = minimum_baseline
+    def load_settings(self):
+        """Update read settings based on inputted header"""
+        if 'in_uv' in self.header:
+            self.gulp_size['in_uv'] = np.product(self.header['in_uv']['shape'])*8
+        if 'in_vis' in self.header:
+            self.gulp_size['in_vis'] = np.product(self.header['in_vis']['shape'])*8
+            self.gulp_size['out_vis'] = self.gulp_size['in_vis']
+            self.header['out_vis'] = self.header['in_vis']
+    def calculate_flag_matrix(self, uv_coordinates):
+        """Calculate the flags based on the entered minimum baseline"""
+        baselines = np.abs(uv_coordinates[:, :, 0]+1j*uv_coordinates[:, :, 1])
+        flag_matrix = baselines>self.minimum_baseline
+        print baselines, flag_matrix
+        return flag_matrix.astype(np.int8)
+    def main(self):
+        """Read in the uv coordinates, and use it to flag the data.
+            (i.e., to set the visibilities to zero if they have a badly sized baseline"""
+        uv_coordinate_generator = self.read('in_uv')
+        uv_coordinates = uv_coordinate_generator.next()[0]
+        uv_coordinates = uv_coordinates.reshape(
+            self.header['in_uv']['shape'])
+        flag_matrix = self.calculate_flag_matrix(uv_coordinates)
+        for in_vis, out_vis in self.izip(self.read('in_vis'), self.write('out_vis')):
+            visibilities = np.copy(in_vis.view(np.complex64).reshape([1, 256, 256, 2, 2]))
+            for i in range(256):
+                for j in range(256):
+                    visibilities[0, i, j, :, :] *= flag_matrix[i, j]
+            out_vis[:] = visibilities.ravel().view(np.float32)
