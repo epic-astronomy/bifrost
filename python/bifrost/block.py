@@ -486,6 +486,7 @@ class IFFT2Block(TransformBlock):
         output_header = {}
         output_header['nbit'] = 64
         output_header['dtype'] = str(np.complex64)
+        output_header['shape'] = self.frame_shape
         self.output_header = json.dumps(output_header)
     def main(self, input_rings, output_rings):
         """
@@ -949,7 +950,8 @@ class NearestNeighborGriddingBlock(TransformBlock):
         self.output_header = json.dumps(
             {'dtype':str(np.complex64),
              'nbit':64,
-             'frame_shape': self.shape})
+             'frame_shape': self.shape,
+             'shape': self.shape})
         out_span_generator = self.iterate_ring_write(output_rings[0])
         out_span = out_span_generator.next()
         out_span.data_view(np.complex64)[0][:] = grid.ravel()
