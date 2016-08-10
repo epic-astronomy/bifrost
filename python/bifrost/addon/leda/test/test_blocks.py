@@ -222,25 +222,14 @@ class TestImagingBlock(unittest.TestCase):
         """Have an entire imaging pipeline into a png file within Bifrost"""
         blocks = []
         dadafile = '/data2/hg/interfits/lconverter/WholeSkyL64_47.004_d20150203_utc181702_test/2015-04-08-20_15_03_0001133593833216.dada'
-        antenna_coordinates = load_telescope("/data1/mcranmer/data/real/leda/lwa_ovro.telescope.json")[1]
-        identity_matrix = np.ones((256, 256, 3), dtype=np.float32)
-        baselines_xyz = (identity_matrix*antenna_coordinates)-(identity_matrix*antenna_coordinates).transpose((1, 0, 2))
-        median_baseline = np.median(np.abs(baselines_xyz[:, :, 0] + 1j*baselines_xyz[:, :, 1]))
         blocks.append((
             NewDadaReadBlock(dadafile, output_chans=[100], time_steps=1),
             {'out': 'visibilities'}))
         blocks.append((
-            UVCoordinateBlock("/data1/mcranmer/data/real/leda/lwa_ovro.telescope.json"), 
-            {'out': 'uv_coords'}))
-        blocks.append((
-            BaselineSelectorBlock(minimum_baseline=median_baseline),
-            {'in_vis': 'visibilities', 'in_uv': 'uv_coords', 'out_vis': 'flagged_visibilities'}
-            ))
-        blocks.append((
             SlicingBlock(np.s_[0, :, :, 0, 0]),
-            {'in': 'flagged_visibilities', 'out': 'scalar_visibilities'}))
+            {'in': 'visibilities', 'out': 'scalar_visibilities'}))
         blocks.append((
-            NearestNeighborGriddingBlock((1024, 1024)),
+            NearestNeighborGriddingBlock((256, 256)),
             ['scalar_visibilities'],
             ['grid']))
         blocks.append((
@@ -251,7 +240,6 @@ class TestImagingBlock(unittest.TestCase):
             ImagingBlock(filename='my_sky.png', reduction=np.abs, log=True),
             {'in': 'ifftd'}))
         open('my_sky.png', 'w').close()
-        print "GOING TO CALL PIPELINE"
         Pipeline(blocks).main()
         image_size = os.path.getsize('my_sky.png')
         self.assertGreater(image_size, 1000)
