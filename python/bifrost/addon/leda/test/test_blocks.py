@@ -190,9 +190,8 @@ class TestUVCoordinateBlock(unittest.TestCase):
         np.testing.assert_almost_equal(baselines_xyz[:, :, 0:2].ravel(), baselines_from_file)
 class TestBaselineSelectorBlock(unittest.TestCase):
     """Test the ability of a block to select only the longest baselines (by setting visibilities to zero)"""
-    def test_visibilites_zero(self):
-        """Test that the correct baselines are set to zero when the median is selected.
-            Perform this with only a minimum baseline"""
+    def setUp(self):
+        """Create a simple test pipeline for the baseline selector"""
         blocks = []
         dadafile = '/data2/hg/interfits/lconverter/WholeSkyL64_47.004_d20150203_utc181702_test/2015-04-08-20_15_03_0001133593833216.dada'
         antenna_coordinates = load_telescope("/data1/mcranmer/data/real/leda/lwa_ovro.telescope.json")[1]
@@ -206,12 +205,26 @@ class TestBaselineSelectorBlock(unittest.TestCase):
             UVCoordinateBlock("/data1/mcranmer/data/real/leda/lwa_ovro.telescope.json"), 
             {'out': 'uv_coords'}))
         blocks.append((
-            BaselineSelectorBlock(minimum_baseline = median_baseline),
+            BaselineSelectorBlock(minimum_baseline=0),
+            {'in_vis': 'visibilities', 'in_uv': 'uv_coords', 'out_vis': 'unflagged_visibilities'}
+            ))
+        blocks.append((
+            BaselineSelectorBlock(minimum_baseline=median_baseline),
             {'in_vis': 'visibilities', 'in_uv': 'uv_coords', 'out_vis': 'flagged_visibilities'}
             ))
-        blocks.append((WriteAsciiBlock('.log.txt'), ['flagged_visibilities'], []))
+        blocks.append((WriteAsciiBlock('.log_flag.txt'), ['flagged_visibilities'], []))
+        blocks.append((WriteAsciiBlock('.log.txt'), ['visibilities'], []))
+        blocks.append((WriteAsciiBlock('.log_unflag.txt'), ['unflagged_visibilities'], []))
         Pipeline(blocks).main()
+    def test_no_change(self):
+        """Test minimum zero baseline produces equal visibilities"""
         visibilities = np.loadtxt('.log.txt', dtype=np.float32).view(np.complex64)
+        flagged_visibilities = np.loadtxt('.log_unflag.txt', dtype=np.float32).view(np.complex64)
+        np.testing.assert_almost_equal(flagged_visibilities, flagged_visibilities)
+    def test_visibilites_zero(self):
+        """Test that the correct baselines are set to zero when the median is selected.
+            Perform this with only a minimum baseline"""
+        visibilities = np.loadtxt('.log_flag.txt', dtype=np.float32).view(np.complex64)
         visibilities = visibilities.reshape((1, 256, 256, 2, 2))
         self.assertLess(np.sum([np.abs(visibilities[0, i, i, 0, 0]) for i in range(256)]), 1e-5)
         self.assertGreater(visibilities[np.abs(visibilities)<1e-5].size, visibilities.size*0.45)
