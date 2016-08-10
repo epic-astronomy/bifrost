@@ -370,13 +370,15 @@ class SlicingBlock(MultiTransformBlock):
         super(SlicingBlock, self).__init__()
         self.indices = indices
     def load_settings(self):
-        self.gulp_size['in'] = np.product(self.header['in']['shape'])*self.header['in']['nbit']/8
-        output_shape = np.zeros(self.header['in']['shape'], dtype=np.int8)[self.indices].shape
-        self.gulp_size['out'] = np.product(output_shape)*self.header['in']['nbit']/8
-        self.header['out'] = self.header['in']
-        self.header['out']['shape'] = output_shape
+        self.gulp_size['in'] = int(np.product(self.header['in']['shape']))*self.header['in']['nbit']//8
+        output_settings = np.array([np.zeros(self.header['in']['shape'], dtype=np.int8)[self.indices]])
+        self.gulp_size['out'] = output_settings.nbytes*self.header['in']['nbit']//8
+        self.header['out'] = self.header['in'].copy()
+        if len(output_settings.shape) > 1:
+            self.header['out']['shape'] = output_settings.shape[1:]
+        else:
+            self.header['out']['shape'] = [1, 1]
     def main(self):
         for in_span, out_span in self.izip(self.read('in'), self.write('out')):
-            print self.gulp_size
             shaped_data = in_span.reshape(self.header['in']['shape'])[self.indices]
             out_span[:] = shaped_data.ravel()

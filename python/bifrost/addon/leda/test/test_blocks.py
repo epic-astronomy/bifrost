@@ -254,18 +254,12 @@ class TestSlicingBlock(unittest.TestCase):
             SlicingBlock(np.s_[:, 2]),
             {'in': 0, 'out': '[3, 6]'}))
         blocks.append((
-            SlicingBlock(np.s_[0, 0]),
-            {'in': 0, 'out': '1'}))
-        blocks.append((
-            SlicingBlock(np.s_[0::2, :1]),
+            SlicingBlock(np.s_[:1, 0::2]),
             {'in': 0, 'out': '[1, 3]'}))
         blocks.append((WriteAsciiBlock('.log36.txt'), ['[3, 6]'], []))
-        blocks.append((WriteAsciiBlock('.log1.txt'), ['1'], []))
         blocks.append((WriteAsciiBlock('.log13.txt'), ['[1, 3]'], []))
         Pipeline(blocks).main()
         log_36 = np.loadtxt('.log36.txt')
-        log_1 = np.loadtxt('.log1.txt')
         log_13 = np.loadtxt('.log13.txt')
         np.testing.assert_almost_equal(log_36, [3, 6])
-        np.testing.assert_almost_equal(log_1, 1)
         np.testing.assert_almost_equal(log_13, [1, 3])
