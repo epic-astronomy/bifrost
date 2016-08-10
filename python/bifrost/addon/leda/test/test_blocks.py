@@ -221,6 +221,9 @@ class TestImagingBlock(unittest.TestCase):
         """Have an entire imaging pipeline into a png file within Bifrost"""
         blocks = []
         dadafile = '/data2/hg/interfits/lconverter/WholeSkyL64_47.004_d20150203_utc181702_test/2015-04-08-20_15_03_0001133593833216.dada'
+        antenna_coordinates = load_telescope("/data1/mcranmer/data/real/leda/lwa_ovro.telescope.json")[1]
+        identity_matrix = np.ones((256, 256, 3), dtype=np.float32)
+        baselines_xyz = (identity_matrix*antenna_coordinates)-(identity_matrix*antenna_coordinates).transpose((1, 0, 2))
         median_baseline = np.median(np.abs(baselines_xyz[:, :, 0] + 1j*baselines_xyz[:, :, 1]))
         blocks.append((
             NewDadaReadBlock(dadafile, output_chans=[100], time_steps=1),
