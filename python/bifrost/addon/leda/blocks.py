@@ -202,9 +202,8 @@ def build_baseline_ants(nant):
 class NewDadaReadBlock(DadaFileRead, MultiTransformBlock):
     """Read a dada file in with frequency channels in ringlets."""
     ring_names = {
-        'out_vis': """Visibilities outputted as a complex matrix. 
-            Shape is [frequencies, nstand, nstand, npol, npol].""",
-        'out_uv': "uv coordinates of all of the stands. Shape is [nstand, nstand, npol]"}
+        'out': """Visibilities outputted as a complex matrix. 
+            Shape is [frequencies, nstand, nstand, npol, npol]."""}
     def __init__(self, filename, output_chans, time_steps):
         """@param[in] filename The dada file.
         @param[in] output_chans The frequency channels to output
@@ -228,20 +227,14 @@ class NewDadaReadBlock(DadaFileRead, MultiTransformBlock):
             npol,
             npol]
         sizeofcomplex64 = 8
-        sizeoffloat32 = 4
-        self.gulp_size['out_vis'] = np.product(output_shape)*sizeofcomplex64
-        self.gulp_size['out_uv'] = nstand*nstand*npol*sizeoffloat32
-        self.header['out_vis'] = {
+        self.gulp_size['out'] = np.product(output_shape)*sizeofcomplex64
+        self.header['out'] = {
             'nbit':64,
             'dtype':str(np.complex64),
             'shape':output_shape}
-        self.header['out_uv'] = {
-            'nbit':32,
-            'dtype':str(np.float32),
-            'shape':[nstand, nstand, 2]}
-        for dadafile_data, vis_span, uv_span in self.izip(
+        for dadafile_data, vis_span in self.izip(
                 self.dada_read(),
-                self.write('out_vis', 'out_uv')):
+                self.write('out')):
             data = np.empty(output_shape, dtype=np.complex64)
             baseline_ants = build_baseline_ants(nstand)
             ants_i = baseline_ants[:,0]
@@ -249,5 +242,17 @@ class NewDadaReadBlock(DadaFileRead, MultiTransformBlock):
             data[:,ants_i,ants_j,:,:] = dadafile_data
             data[:,ants_j,ants_i,:,:] = dadafile_data.conj()
             vis_span[:] = data.view(np.float32).ravel()
-            uv_span[:] = np.zeros((nstand, nstand, npol), dtype=np.float32).ravel()
         self.file_object.close()
+class UVCoordinateBlock(MultiTransformBlock):
+    ring_names = {
+        'out': "uv coordinates of all of the stands. Shape is [nstand, nstand, npol]"}
+    def __init__(self, filename):
+        """@param[in] filename The json file containing telescope specifications."""
+        super(UVCoordinateBlock, self).__init__()
+    def main(self):
+        self.header['out_uv'] = {
+            'nbit':32,
+            'dtype':str(np.float32),
+            'shape':[nstand, nstand, 2]}
+        self.gulp_size['out'] = nstand**2*2
+
