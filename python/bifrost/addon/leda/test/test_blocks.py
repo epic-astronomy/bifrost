@@ -130,3 +130,6 @@ class TestNewDadaReadBlock(unittest.TestCase):
         brightness = np.abs(np.fft.fftshift(np.fft.ifft2(np.fft.ifftshift(model))))
         # Should be many nonzero elements in the image
         self.assertGreater(brightness[brightness > 1e-30].size, 100)
+class TestUVCoordinateBlock(unittest.TestCase):
+    """Test the ability of a block to output UV coordinates"""
+    def test_output_size(self):
