@@ -33,6 +33,9 @@ import copy
 from bifrost import affinity
 from bifrost.block import *
 from bifrost.ring import Ring
+from bifrost.addon.leda.blocks import DadaReadBlock, NewDadaReadBlock, CableDelayBlock
+from bifrost.addon.leda.blocks import UVCoordinateBlock, BaselineSelectorBlock
+from bifrost.addon.leda.blocks import SlicingBlock, ImagingBlock
 
 FFT_SIZE = 512
 N_STANDS = 250
@@ -40,6 +43,20 @@ N_STANDS = 250
 N_BASELINE = N_STANDS*(N_STANDS+1)//2
 UV_SPAN_SIZE = N_BASELINE*6*4      # all the baselines then 6 floats - stand numbers, U and V, and Re/Im visibility
 GRID_SPAN_SIZE = FFT_SIZE**2
+
+def load_telescope(filename):
+    with open(filename, 'r') as telescope_file:
+        telescope = json.load(telescope_file)
+    coords_local = np.array(telescope['coords']['local']['__data__'], dtype=np.float32)
+    # Reshape into ant,column
+    coords_local = coords_local.reshape(coords_local.size/4,4)
+    ant_coords = coords_local[:,1:]
+    inputs = np.array(telescope['inputs']['__data__'], dtype=np.float32)
+    # Reshape into ant,pol,column
+    inputs      = inputs.reshape(inputs.size/7/2,2,7)
+    delays      = inputs[:,:,5]*1e-9
+    dispersions = inputs[:,:,6]*1e-9
+    return telescope, ant_coords, delays, dispersions
 
 class FakeCalBlock(TransformBlock):
     """This block does simulated calibration by creating visibilities and fitting them to a model."""
@@ -295,6 +312,39 @@ def generate_image_from_file(data_file, uv_coords_file, image_file):
     image.imsave(image_file, dirty_image, cmap='gray')
 
 blocks = []
+dadafile = '/data2/hg/interfits/lconverter/WholeSkyL64_47.004_d20150203_utc181702_test/2015-04-08-20_15_03_0001133593833216.dada'
+antenna_coordinates = load_telescope("/data1/mcranmer/data/real/leda/lwa_ovro.telescope.json")[1]
+identity_matrix = np.ones((256, 256, 3), dtype=np.float32)
+baselines_xyz = (identity_matrix*antenna_coordinates)-(identity_matrix*antenna_coordinates).transpose((1, 0, 2))
+median_baseline = np.median(np.abs(baselines_xyz[:, :, 0] + 1j*baselines_xyz[:, :, 1]))/2
+blocks.append((
+    NewDadaReadBlock(dadafile, output_chans=[100], time_steps=1),
+    {'out': 'visibilities'}))
+blocks.append((
+    UVCoordinateBlock("/data1/mcranmer/data/real/leda/lwa_ovro.telescope.json"), 
+    {'out': 'uv_coords'}))
+blocks.append((
+    BaselineSelectorBlock(minimum_baseline=0.),
+    {'in_vis': 'visibilities', 'in_uv': 'uv_coords', 'out_vis': 'flagged_visibilities'}
+    ))
+blocks.append((
+    SlicingBlock(np.s_[0, :, :, 0, 0]),
+    {'in': 'visibilities', 'out': 'scalar_visibilities'}))
+blocks.append((
+    NearestNeighborGriddingBlock((1024, 1024)),
+    ['scalar_visibilities'],
+    ['grid']))
+blocks.append((
+    IFFT2Block(),
+    ['grid'],
+    ['ifftd']))
+blocks.append((
+    ImagingBlock(filename='my_sky.png', reduction=np.abs, log=True),
+    {'in': 'ifftd'}))
+Pipeline(blocks).main()
+
+"""
+blocks = []
 jones = 0.5*((1+1j)*np.ones(shape=[
     1, 2, N_STANDS, 2])).astype(np.complex64)
 jones[0, 0, :, 1] = np.zeros(N_STANDS).astype(np.complex64)
@@ -313,6 +363,7 @@ Pipeline(blocks).main()
 #generate_image_from_file('model.txt', 'uv_coords.txt', 'model.png')
 generate_image_from_file('uncalibrated.txt', 'uv_coords.txt', 'uncalibrated.png')
 generate_image_from_file('calibrated.txt', 'uv_coords.txt', 'calibrated.png')
+"""
 
 """
 visibilities = np.array([np.linalg.det(
