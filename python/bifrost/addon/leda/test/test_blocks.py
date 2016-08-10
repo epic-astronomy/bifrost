@@ -31,6 +31,7 @@ import json
 import os
 import numpy as np
 from bifrost.block import WriteAsciiBlock, Pipeline, TestingBlock, NearestNeighborGriddingBlock
+from bifrost.block import IFFT2Block
 from bifrost.addon.leda.blocks import DadaReadBlock, NewDadaReadBlock, CableDelayBlock
 from bifrost.addon.leda.blocks import UVCoordinateBlock, BaselineSelectorBlock
 from bifrost.addon.leda.blocks import SlicingBlock, ImagingBlock
@@ -239,16 +240,20 @@ class TestImagingBlock(unittest.TestCase):
             SlicingBlock(np.s_[0, :, :, 0, 0]),
             {'in': 'flagged_visibilities', 'out': 'scalar_visibilities'}))
         blocks.append((
-            NearestNeighborGriddingBlock((256, 256)),
+            NearestNeighborGriddingBlock((1024, 1024)),
             ['scalar_visibilities'],
             ['grid']))
         blocks.append((
+            IFFT2Block(),
+            ['grid'],
+            ['ifftd']))
+        blocks.append((
             ImagingBlock(filename='my_sky.png', reduction=np.abs, log=True),
-            {'in': 'grid'}))
+            {'in': 'ifftd'}))
         open('my_sky.png', 'w').close()
         print "GOING TO CALL PIPELINE"
         Pipeline(blocks).main()
-        image_size = os.path.getsize(self.logfile_visibilities)
+        image_size = os.path.getsize('my_sky.png')
         self.assertGreater(image_size, 1000)
 class TestSlicingBlock(unittest.TestCase):
     """Make sure the slicing block performs as it should"""

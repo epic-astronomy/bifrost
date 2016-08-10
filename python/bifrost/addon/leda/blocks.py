@@ -346,7 +346,6 @@ class BaselineSelectorBlock(MultiTransformBlock):
         """Calculate the flags based on the entered minimum baseline"""
         baselines = np.abs(uv_coordinates[:, :, 0]+1j*uv_coordinates[:, :, 1])
         flag_matrix = baselines>self.minimum_baseline
-        print baselines, flag_matrix
         return flag_matrix.astype(np.int8)
     def main(self):
         """Read in the uv coordinates, and use it to flag the data.
@@ -381,14 +380,15 @@ class SlicingBlock(MultiTransformBlock):
         output_settings = np.array([np.zeros(self.header['in']['shape'], dtype=np.int8)[self.indices]])
         self.gulp_size['out'] = output_settings.nbytes*self.header['in']['nbit']//8
         self.header['out'] = self.header['in'].copy()
+        self.dtype = np.dtype(self.header['in']['dtype'].split()[1].split(".")[1].split("'")[0]).type
         if len(output_settings.shape) > 1:
             self.header['out']['shape'] = output_settings.shape[1:]
         else:
             self.header['out']['shape'] = [1, 1]
     def main(self):
         for in_span, out_span in self.izip(self.read('in'), self.write('out')):
-            shaped_data = in_span.reshape(self.header['in']['shape'])[self.indices]
-            out_span[:] = shaped_data.ravel()
+            shaped_data = in_span.view(self.dtype).reshape(self.header['in']['shape'])[self.indices]
+            out_span.view(np.complex64)[:] = shaped_data.ravel()
 
 class ImagingBlock(MultiTransformBlock):
     ring_names = {
@@ -401,11 +401,12 @@ class ImagingBlock(MultiTransformBlock):
         self.log = log
     def load_settings(self):
         self.gulp_size['in'] = int(np.product(self.header['in']['shape']))*self.header['in']['nbit']//8
+        self.dtype = np.dtype(self.header['in']['dtype'].split()[1].split(".")[1].split("'")[0]).type
     def main(self):
         for in_span in self.read('in'):
-            data_to_plot = np.copy(in_span).reshape(self.header['in']['shape'])
-            if self.reduction is not None:
+            data_to_plot = np.copy(in_span[0].view(self.dtype)).reshape(self.header['in']['shape'])
+            if callable(self.reduction):
                 data_to_plot = self.reduction(data_to_plot)
-            plt.imshow(data_to_plot, interpolation='nearest')
+            plt.imshow(data_to_plot, cmap='gray', interpolation='nearest')
             plt.colorbar()
             plt.savefig(self.filename)
