@@ -32,6 +32,7 @@ import os
 import numpy as np
 from bifrost.block import WriteAsciiBlock, Pipeline, TestingBlock, NearestNeighborGriddingBlock
 from bifrost.addon.leda.blocks import DadaReadBlock, NewDadaReadBlock, CableDelayBlock
+from bifrost.addon.leda.blocks import UVCoordinateBlock
 
 def load_telescope(filename):
     with open(filename, 'r') as telescope_file:
@@ -82,30 +83,29 @@ class TestNewDadaReadBlock(unittest.TestCase):
     def setUp(self):
         """Reads in one channel of a dada file, and logs in ascii
             file."""
-        self.logfile = '.log.txt'
+        self.logfile_visibilities = '.log_vis.txt'
         dadafile = '/data2/hg/interfits/lconverter/WholeSkyL64_47.004_d20150203_utc181702_test/2015-04-08-20_15_03_0001133593833216.dada'
+        self.n_stations = 256
+        self.n_pol = 2
         self.blocks = []
-        self.blocks.append((NewDadaReadBlock(dadafile, output_chans=[100], time_steps=1), [], [0]))
-        self.blocks.append((WriteAsciiBlock(self.logfile), [0], []))
+        self.blocks.append((NewDadaReadBlock(dadafile, output_chans=[100], time_steps=1), 
+            {'out': 0}))
+        self.blocks.append((WriteAsciiBlock(self.logfile_visibilities ), [0], []))
         Pipeline(self.blocks).main() 
     def test_read_and_write(self):
         """Make sure some data is being written"""
-        dumpsize = os.path.getsize(self.logfile)
+        dumpsize = os.path.getsize(self.logfile_visibilities)
         self.assertGreater(dumpsize, 100)
     def test_output_size(self):
         """Make sure dada read block is putting out full matrix"""
-        baseline_visibilities = np.loadtxt(self.logfile, dtype=np.float32).view(np.complex64)
-        n_stations = 256
-        n_pol = 2
-        self.assertEqual(baseline_visibilities.size, n_pol**2*n_stations**2)
+        baseline_visibilities = np.loadtxt(self.logfile_visibilities, dtype=np.float32).view(np.complex64)
+        self.assertEqual(baseline_visibilities.size, self.n_pol**2*self.n_stations**2)
     def test_imaging(self):
         """Try to grid and image the data"""
-        n_stations = 256
-        n_pol = 2
-        visibilities = np.loadtxt(self.logfile, dtype=np.float32).view(np.complex64)
-        visibilities = visibilities.reshape((n_stations, n_stations, n_pol, n_pol))[:, :, 0, 0]
+        visibilities = np.loadtxt(self.logfile_visibilities, dtype=np.float32).view(np.complex64)
+        visibilities = visibilities.reshape((self.n_stations, self.n_stations, self.n_pol, self.n_pol))[:, :, 0, 0]
         antenna_coordinates = load_telescope("/data1/mcranmer/data/real/leda/lwa_ovro.telescope.json")[1]
-        identity_matrix = np.ones((n_stations, n_stations, 3), dtype=np.float32)
+        identity_matrix = np.ones((self.n_stations, self.n_stations, 3), dtype=np.float32)
         baselines_xyz = (identity_matrix*antenna_coordinates)-(identity_matrix*antenna_coordinates).transpose((1, 0, 2))
         baselines_u = baselines_xyz[:, :, 0].reshape(-1)
         baselines_v = baselines_xyz[:, :, 1].reshape(-1)
@@ -170,3 +170,20 @@ class TestCableDelayBlock(unittest.TestCase):
             np.sum(np.abs(self.cable_delay_visibilities.imag - \
                 self.no_cable_delay_visibilities.imag)),
             self.n_stations**2)
+class TestUVCoordinateBlock(unittest.TestCase):
+    """Test the ability of a block to output UV coordinates"""
+    def setUp(self):
+        self.logfile_uv_coordinates = '.log_uv.txt'
+        self.n_stations = 256
+        self.blocks = []
+        self.blocks.append((UVCoordinateBlock("/data1/mcranmer/data/real/leda/lwa_ovro.telescope.json"), 
+            {'out': 0}))
+        self.blocks.append((WriteAsciiBlock(self.logfile_uv_coordinates), [0], []))
+        Pipeline(self.blocks).main()
+    def test_output_coordinates(self):
+        """Make sure dada read block is putting out correct uv coordinates"""
+        antenna_coordinates = load_telescope("/data1/mcranmer/data/real/leda/lwa_ovro.telescope.json")[1]
+        identity_matrix = np.ones((self.n_stations, self.n_stations, 3), dtype=np.float32)
+        baselines_xyz = (identity_matrix*antenna_coordinates)-(identity_matrix*antenna_coordinates).transpose((1, 0, 2))
+        baselines_from_file = np.loadtxt(self.logfile_uv_coordinates, dtype=np.float32)
+        np.testing.assert_almost_equal(baselines_xyz[:, :, 0:2].ravel(), baselines_from_file)

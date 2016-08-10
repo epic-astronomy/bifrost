@@ -200,8 +200,11 @@ def build_baseline_ants(nant):
 			baseline_ants[b,1] = j
 	return baseline_ants
 
-class NewDadaReadBlock(DadaFileRead, SourceBlock):
+class NewDadaReadBlock(DadaFileRead, MultiTransformBlock):
     """Read a dada file in with frequency channels in ringlets."""
+    ring_names = {
+        'out': """Visibilities outputted as a complex matrix. 
+            Shape is [frequencies, nstand, nstand, npol, npol]."""}
     def __init__(self, filename, output_chans, time_steps):
         """@param[in] filename The dada file.
         @param[in] output_chans The frequency channels to output
@@ -210,7 +213,7 @@ class NewDadaReadBlock(DadaFileRead, SourceBlock):
             output_chans=output_chans,
             time_steps=time_steps,
             filename=filename)
-    def main(self, output_ring):
+    def main(self):
         """Put dada file data onto output_ring
         @param[out] output_ring Ring to contain outgoing data"""
         self.parse_dada_header()
@@ -225,23 +228,22 @@ class NewDadaReadBlock(DadaFileRead, SourceBlock):
             npol,
             npol]
         sizeofcomplex64 = 8
-        self.gulp_size = np.product(output_shape)*sizeofcomplex64
-        self.output_header = json.dumps({
+        self.gulp_size['out'] = np.product(output_shape)*sizeofcomplex64
+        self.header['out'] = {
             'nbit':64,
             'dtype':str(np.complex64),
-            'shape':output_shape})
-        for dadafile_data, output_span in itertools.izip(
+            'shape':output_shape}
+        for dadafile_data, vis_span in self.izip(
                 self.dada_read(),
-                self.iterate_ring_write(output_ring)):
+                self.write('out')):
             data = np.empty(output_shape, dtype=np.complex64)
             baseline_ants = build_baseline_ants(nstand)
             ants_i = baseline_ants[:,0]
             ants_j = baseline_ants[:,1]
             data[:,ants_i,ants_j,:,:] = dadafile_data
             data[:,ants_j,ants_i,:,:] = dadafile_data.conj()
-            output_span.data_view(np.complex64)[0][:] = data.ravel()
+            vis_span[:] = data.view(np.float32).ravel()
         self.file_object.close()
-
 class CableDelayBlock(MultiTransformBlock):
     """Apply cable delays to a visibility matrix"""
     ring_names = {
@@ -279,3 +281,36 @@ class CableDelayBlock(MultiTransformBlock):
                     visibilities[0, i, j, 1, 1] *= self.cable_delay_matrix[i, 1]
                     visibilities[0, i, j, 1, 1] *= self.cable_delay_matrix[j, 1].conj()
             outspan[:] = visibilities.ravel().view(np.float32)[:]
+class UVCoordinateBlock(MultiTransformBlock):
+    """Read the UV coordinates in from a telescope json file, and put them into a ring"""
+    ring_names = {
+        'out': "uv coordinates of all of the stands. Shape is [nstand, nstand, 2]"}
+    def __init__(self, filename):
+        """@param[in] filename The json file containing telescope specifications."""
+        super(UVCoordinateBlock, self).__init__()
+        self.filename = filename
+    def load_telescope_uv(self):
+        """Load the json file, and assemble the uv coordinates"""
+        with open(self.filename, 'r') as telescope_file:
+            telescope = json.load(telescope_file)
+        coords_local = np.array(telescope['coords']['local']['__data__'], dtype=np.float32)
+        coords_local = coords_local.reshape(coords_local.size/4,4)
+        antenna_coordinates = coords_local[:,1:]
+        nstand = antenna_coordinates.shape[0]
+        identity_matrix = np.ones((nstand, nstand, 3), dtype=np.float32)
+        baselines_xyz = (identity_matrix*antenna_coordinates)-(identity_matrix*antenna_coordinates).transpose((1, 0, 2))
+        baselines_uv = baselines_xyz[:, :, 0:2]
+        return baselines_uv
+    def main(self):
+        """Assemble the coordinates, and put them out as a single span on a ring"""
+        baselines_uv = self.load_telescope_uv()
+        nstand = baselines_uv.shape[0]
+        self.header['out'] = {
+            'nbit':32,
+            'dtype':str(np.float32),
+            'shape':[nstand, nstand, 2]}
+        self.gulp_size['out'] = nstand**2*2*4
+        for out_span in self.izip(self.write('out')):
+            out_span = out_span[0]
+            out_span[:] = baselines_uv.astype(np.float32).ravel()
+            break

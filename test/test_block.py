@@ -37,7 +37,8 @@ from bifrost.block import TestingBlock, WriteAsciiBlock, WriteHeaderBlock
 from bifrost.block import SigprocReadBlock, CopyBlock, KurtosisBlock, FoldBlock
 from bifrost.block import IFFTBlock, FFTBlock, Pipeline, FakeVisBlock
 from bifrost.block import NearestNeighborGriddingBlock, IFFT2Block
-from bifrost.block import GainSolveBlock, SplitterBlock
+from bifrost.block import GainSolveBlock, SplitterBlock, MultiAddBlock
+from bifrost.block import SplitterBlock
 
 class TestIterateRingWrite(unittest.TestCase):
     """Test the iterate_ring_write function of SourceBlocks/TransformBlocks"""
