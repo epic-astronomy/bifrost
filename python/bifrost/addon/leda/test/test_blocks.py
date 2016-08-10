@@ -88,7 +88,8 @@ class TestNewDadaReadBlock(unittest.TestCase):
         self.n_stations = 256
         self.n_pol = 2
         self.blocks = []
-        self.blocks.append((NewDadaReadBlock(dadafile, output_chans=[100], time_steps=1), [], [0, 1]))
+        self.blocks.append((NewDadaReadBlock(dadafile, output_chans=[100], time_steps=1), 
+            {'out_vis': 0, 'out_uv': 1}))
         self.blocks.append((WriteAsciiBlock(self.logfile_visibilities ), [0], []))
         self.blocks.append((WriteAsciiBlock(self.logfile_uv_coordinates), [1], []))
         Pipeline(self.blocks).main() 
