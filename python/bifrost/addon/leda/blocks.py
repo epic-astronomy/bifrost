@@ -271,7 +271,6 @@ class CableDelayBlock(MultiTransformBlock):
     def main(self):
         """Apply the cable delays to the output matrix"""
         for inspan, outspan in self.izip(self.read('in'), self.write('out')):
-            #print inspan.view(np.complex64).shape, np.product(self.header['in']['shape'])
             visibilities = np.copy(inspan.view(np.complex64).reshape(self.header['in']['shape']))
             for i in range(self.header['in']['shape'][1]):
                 for j in range(self.header['in']['shape'][1]):
@@ -279,10 +278,4 @@ class CableDelayBlock(MultiTransformBlock):
                     visibilities[0, i, j, 0, 0] *= self.cable_delay_matrix[j, 0].conj()
                     visibilities[0, i, j, 1, 1] *= self.cable_delay_matrix[i, 1]
                     visibilities[0, i, j, 1, 1] *= self.cable_delay_matrix[j, 1].conj()
-            """
-            visibilities[...,0,0] *= self.cable_delay_matrix[:,None,:,0].conj()
-            visibilities[...,1,1] *= self.cable_delay_matrix[:,None,:,1].conj()
-            visibilities[...,0,0] *= self.cable_delay_matrix[:,:,None,0]
-            visibilities[...,1,1] *= self.cable_delay_matrix[:,:,None,1]
-            """
             outspan[:] = visibilities.ravel().view(np.float32)[:]
