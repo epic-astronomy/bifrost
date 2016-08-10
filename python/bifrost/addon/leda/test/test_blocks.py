@@ -32,7 +32,7 @@ import os
 import numpy as np
 from bifrost.block import WriteAsciiBlock, Pipeline, TestingBlock, NearestNeighborGriddingBlock
 from bifrost.addon.leda.blocks import DadaReadBlock, NewDadaReadBlock, CableDelayBlock
-from bifrost.addon.leda.blocks import UVCoordinateBlock
+from bifrost.addon.leda.blocks import UVCoordinateBlock, BaselineSelectorBlock
 
 def load_telescope(filename):
     with open(filename, 'r') as telescope_file:
@@ -186,3 +186,28 @@ class TestUVCoordinateBlock(unittest.TestCase):
         baselines_xyz = (identity_matrix*antenna_coordinates)-(identity_matrix*antenna_coordinates).transpose((1, 0, 2))
         baselines_from_file = np.loadtxt(self.logfile_uv_coordinates, dtype=np.float32)
         np.testing.assert_almost_equal(baselines_xyz[:, :, 0:2].ravel(), baselines_from_file)
+class TestBaselineSelectorBlock(unittest.TestCase):
+    """Test the ability of a block to select only the longest baselines (by setting visibilities to zero)"""
+    def test_visibilites_zero(self):
+        """Test that about 50% of the baselines are set to zero when the median is selected.
+            Perform this with short and with long baselines"""
+        blocks = []
+        dadafile = '/data2/hg/interfits/lconverter/WholeSkyL64_47.004_d20150203_utc181702_test/2015-04-08-20_15_03_0001133593833216.dada'
+        antenna_coordinates = load_telescope("/data1/mcranmer/data/real/leda/lwa_ovro.telescope.json")[1]
+        identity_matrix = np.ones((self.n_stations, self.n_stations, 3), dtype=np.float32)
+        baselines_xyz = (identity_matrix*antenna_coordinates)-(identity_matrix*antenna_coordinates).transpose((1, 0, 2))
+        median_baseline = np.median(np.abs(baselines_xyz))
+        blocks.append((
+            NewDadaReadBlock(dadafile, output_chans=output_channels , time_steps=1),
+            {'out': 'visibilities'}))
+        blocks.append((
+            UVCoordinateBlock("/data1/mcranmer/data/real/leda/lwa_ovro.telescope.json"), 
+            {'out': 'uv_coords'}))
+        blocks.append((
+            BaselineSelectorBlock(minimum_baseline = median_baseline),
+            {'in_vis': 'visibilities', 'in_uv': 'uv_coords', 'out': 'flagged_visibilities'}
+            ))
+        blocks.append((WriteAsciiBlock('.log.txt'), ['flagged_visibilities'], []))
+        Pipeline(blocks).main()
+        visibilities = np.loadtxt('.log.txt', dtype=np.float32).view(np.complex64)
+        self.assertGreater(visibilities[np.abs(visibilities)<1e-5].size, visibilities.size*0.4)
