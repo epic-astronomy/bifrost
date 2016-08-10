@@ -35,7 +35,7 @@ import itertools
 import numpy as np
 import bifrost
 from bifrost.addon.leda import bandfiles
-from bifrost.block import SourceBlock
+from bifrost.block import SourceBlock, MultiTransformBlock
 
 DADA_HEADER_SIZE = 4096
 LEDA_OUTRIGGERS = [252, 253, 254, 255, 256]
@@ -199,8 +199,12 @@ def build_baseline_ants(nant):
 			baseline_ants[b,1] = j
 	return baseline_ants
 
-class NewDadaReadBlock(DadaFileRead, SourceBlock):
+class NewDadaReadBlock(DadaFileRead, MultiTransformBlock):
     """Read a dada file in with frequency channels in ringlets."""
+    ring_names = {
+        'out_vis': """Visibilities outputted as a complex matrix. 
+            Shape is [frequencies, nstands, nstands, npol, npol].""",
+        'out_uv': "uv coordinates of all of the stands"}
     def __init__(self, filename, output_chans, time_steps):
         """@param[in] filename The dada file.
         @param[in] output_chans The frequency channels to output
@@ -209,7 +213,7 @@ class NewDadaReadBlock(DadaFileRead, SourceBlock):
             output_chans=output_chans,
             time_steps=time_steps,
             filename=filename)
-    def main(self, output_ring):
+    def main(self):
         """Put dada file data onto output_ring
         @param[out] output_ring Ring to contain outgoing data"""
         self.parse_dada_header()
@@ -224,19 +228,26 @@ class NewDadaReadBlock(DadaFileRead, SourceBlock):
             npol,
             npol]
         sizeofcomplex64 = 8
-        self.gulp_size = np.product(output_shape)*sizeofcomplex64
-        self.output_header = json.dumps({
+        sizeoffloat32 = 4
+        self.gulp_size['out_vis'] = np.product(output_shape)*sizeofcomplex64
+        self.gulp_size['out_uv'] = nstand*nstand*sizeoffloat32
+        self.header['out_vis'] = json.dumps({
             'nbit':64,
             'dtype':str(np.complex64),
             'shape':output_shape})
-        for dadafile_data, output_span in itertools.izip(
+        self.header['out_uv'] = json.dumps({
+            'nbit':32,
+            'dtype':str(np.float32),
+            'shape':[nstand, nstand]})
+        for dadafile_data, vis_span, uv_span in itertools.izip(
                 self.dada_read(),
-                self.iterate_ring_write(output_ring)):
+                self.write('out_vis', 'out_uv')):
             data = np.empty(output_shape, dtype=np.complex64)
             baseline_ants = build_baseline_ants(nstand)
             ants_i = baseline_ants[:,0]
             ants_j = baseline_ants[:,1]
             data[:,ants_i,ants_j,:,:] = dadafile_data
             data[:,ants_j,ants_i,:,:] = dadafile_data.conj()
-            output_span.data_view(np.complex64)[0][:] = data.ravel()
+            vis_span.view(np.complex64)[:] = data.ravel()
+            uv_span[:] = np.zeros((nstand, nstand), dtype=np.float32).ravel()
         self.file_object.close()
