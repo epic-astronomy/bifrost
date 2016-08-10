@@ -31,7 +31,7 @@ import json
 import os
 import numpy as np
 from bifrost.block import WriteAsciiBlock, Pipeline, TestingBlock, NearestNeighborGriddingBlock
-from bifrost.addon.leda.blocks import DadaReadBlock, NewDadaReadBlock
+from bifrost.addon.leda.blocks import DadaReadBlock, NewDadaReadBlock, UVCoordinateBlock
 
 def load_telescope(filename):
     with open(filename, 'r') as telescope_file:
