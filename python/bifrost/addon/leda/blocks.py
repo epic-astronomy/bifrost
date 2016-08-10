@@ -358,3 +358,25 @@ class BaselineSelectorBlock(MultiTransformBlock):
                 for j in range(256):
                     visibilities[0, i, j, :, :] *= flag_matrix[i, j]
             out_vis[:] = visibilities.ravel().view(np.float32)
+
+class SlicingBlock(MultiTransformBlock):
+    """Slice incoming data arrays with numpy indices"""
+    ring_names = {
+        'in': """The array to slice. Number of dimensions should be the same 
+            as the slice""",
+        'out': """The sliced array. The number of dimensions might be different
+            from the incoming array."""}
+    def __init__(self, indices):
+        super(SlicingBlock, self).__init__()
+        self.indices = indices
+    def load_settings(self):
+        self.gulp_size['in'] = np.product(self.header['in']['shape'])*self.header['in']['nbit']/8
+        output_shape = np.zeros(self.header['in']['shape'], dtype=np.int8)[self.indices].shape
+        self.gulp_size['out'] = np.product(output_shape)*self.header['in']['nbit']/8
+        self.header['out'] = self.header['in']
+        self.header['out']['shape'] = output_shape
+    def main(self):
+        for in_span, out_span in self.izip(self.read('in'), self.write('out')):
+            print self.gulp_size
+            shaped_data = in_span.reshape(self.header['in']['shape'])[self.indices]
+            out_span[:] = shaped_data.ravel()

@@ -262,6 +262,7 @@ class TestSlicingBlock(unittest.TestCase):
         blocks.append((WriteAsciiBlock('.log36.txt'), ['[3, 6]'], []))
         blocks.append((WriteAsciiBlock('.log1.txt'), ['1'], []))
         blocks.append((WriteAsciiBlock('.log13.txt'), ['[1, 3]'], []))
+        Pipeline(blocks).main()
         log_36 = np.loadtxt('.log36.txt')
         log_1 = np.loadtxt('.log1.txt')
         log_13 = np.loadtxt('.log13.txt')
