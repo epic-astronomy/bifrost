@@ -244,25 +244,29 @@ class NewDadaReadBlock(DadaFileRead, MultiTransformBlock):
             vis_span[:] = data.view(np.float32).ravel()
         self.file_object.close()
 class UVCoordinateBlock(MultiTransformBlock):
+    """Read the UV coordinates in from a telescope json file, and put them into a ring"""
     ring_names = {
-        'out': "uv coordinates of all of the stands. Shape is [nstand, nstand, npol]"}
+        'out': "uv coordinates of all of the stands. Shape is [nstand, nstand, 2]"}
     def __init__(self, filename):
         """@param[in] filename The json file containing telescope specifications."""
         super(UVCoordinateBlock, self).__init__()
         self.filename = filename
-    def load_telescope(self):
+    def load_telescope_uv(self):
+        """Load the json file, and assemble the uv coordinates"""
         with open(self.filename, 'r') as telescope_file:
             telescope = json.load(telescope_file)
         coords_local = np.array(telescope['coords']['local']['__data__'], dtype=np.float32)
         coords_local = coords_local.reshape(coords_local.size/4,4)
-        ant_coords = coords_local[:,1:]
-        return ant_coords
-    def main(self):
-        antenna_coordinates = self.load_telescope()
+        antenna_coordinates = coords_local[:,1:]
         nstand = antenna_coordinates.shape[0]
         identity_matrix = np.ones((nstand, nstand, 3), dtype=np.float32)
         baselines_xyz = (identity_matrix*antenna_coordinates)-(identity_matrix*antenna_coordinates).transpose((1, 0, 2))
         baselines_uv = baselines_xyz[:, :, 0:2]
+        return baselines_uv
+    def main(self):
+        """Assemble the coordinates, and put them out as a single span on a ring"""
+        baselines_uv = self.load_telescope_uv()
+        nstand = baselines_uv.shape[0]
         self.header['out'] = {
             'nbit':32,
             'dtype':str(np.float32),
