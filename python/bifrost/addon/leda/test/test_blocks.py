@@ -138,7 +138,7 @@ class TestCableDelayBlock(unittest.TestCase):
         self.logfile_no_cable_delay = '.log_no_cables.txt'
         dadafile = '/data2/hg/interfits/lconverter/WholeSkyL64_47.004_d20150203_utc181702_test/2015-04-08-20_15_03_0001133593833216.dada'
         coordinates, delays, dispersions = load_telescope("/data1/mcranmer/data/real/leda/lwa_ovro.telescope.json")[1:]
-        frequencies = (47.004 - 2.616/2) + np.arange(start=0, stop=2.616, step=2.616/109)
+        frequencies = 10e5*(47.004-2.616/2) + np.arange(start=0, stop=2.616, step=2.616/109)
         self.n_stations = 256
         self.n_pol = 2
         output_channels = [100]
@@ -165,7 +165,8 @@ class TestCableDelayBlock(unittest.TestCase):
             self.cable_delay_visibilities.size,
             self.n_pol**2*self.n_stations**2)
     def test_phase_of_data_changing(self):
-        """Test that cable delays are being applied"""
+        """Test that some sort of complex operation is being applied"""
         self.assertGreater(
-            np.sum(self.cable_delay_visibilities.imag - self.no_cable_delay_visibilities.imag),
+            np.sum(np.abs(self.cable_delay_visibilities.imag - \
+                self.no_cable_delay_visibilities.imag)),
             self.n_stations**2)

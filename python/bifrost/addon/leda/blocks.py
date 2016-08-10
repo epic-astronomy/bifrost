@@ -40,6 +40,7 @@ from bifrost.block import SourceBlock, MultiTransformBlock
 DADA_HEADER_SIZE = 4096
 LEDA_OUTRIGGERS = [252, 253, 254, 255, 256]
 LEDA_NSTATIONS = 256
+SPEED_OF_LIGHT = 299792458.
 
 def cast_string_to_number(string):
     """Attempt to convert a string to integer or float"""
@@ -246,10 +247,23 @@ class CableDelayBlock(MultiTransformBlock):
     ring_names = {
         'in': "Visibilities WITHOUT cable delays added",
         'out': "Visibilities WITH cable delays added"}
-    def __init__(self, *args):
+    def __init__(self, frequencies, delays, dispersions):
+        """@param[in] frequencies Frequencies of data in (Hz)
+        @param[in] delays Delays for each antenna (s)
+        @param[in] dispersions Dispersion for each antenna (?)"""
         super(CableDelayBlock, self).__init__()
+        self.cable_delay_matrix = self.calculate_cable_delay_matrix(
+            frequencies,
+            delays,
+            dispersions)
+    def calculate_cable_delay_matrix(self, frequencies, delays, dispersions):
+        """Calculate the cable delays,
+            then build a matrix to apply to the visibilities"""
+        cable_delays = (delays+dispersions)/np.sqrt(frequencies)*SPEED_OF_LIGHT*0.82
+        cable_delay_weights = np.exp(1j*2*np.pi*cable_delays/SPEED_OF_LIGHT*frequencies)
+        return cable_delay_weights.astype(np.complex64)
     def load_settings(self):
-        """Gulp data appropriately to the size of the shape"""
+        """Gulp data appropriately to the shape of the input"""
         sizeofcomplex64 = 8
         self.gulp_size['in'] = np.product(self.header['in']['shape'])*sizeofcomplex64
         self.header['out'] = self.header['in']
@@ -257,4 +271,18 @@ class CableDelayBlock(MultiTransformBlock):
     def main(self):
         """Apply the cable delays to the output matrix"""
         for inspan, outspan in self.izip(self.read('in'), self.write('out')):
-            outspan[:] = inspan
+            #print inspan.view(np.complex64).shape, np.product(self.header['in']['shape'])
+            visibilities = np.copy(inspan.view(np.complex64).reshape(self.header['in']['shape']))
+            for i in range(self.header['in']['shape'][1]):
+                for j in range(self.header['in']['shape'][1]):
+                    visibilities[0, i, j, 0, 0] *= self.cable_delay_matrix[i, 0]
+                    visibilities[0, i, j, 0, 0] *= self.cable_delay_matrix[j, 0].conj()
+                    visibilities[0, i, j, 1, 1] *= self.cable_delay_matrix[i, 1]
+                    visibilities[0, i, j, 1, 1] *= self.cable_delay_matrix[j, 1].conj()
+            """
+            visibilities[...,0,0] *= self.cable_delay_matrix[:,None,:,0].conj()
+            visibilities[...,1,1] *= self.cable_delay_matrix[:,None,:,1].conj()
+            visibilities[...,0,0] *= self.cable_delay_matrix[:,:,None,0]
+            visibilities[...,1,1] *= self.cable_delay_matrix[:,:,None,1]
+            """
+            outspan[:] = visibilities.ravel().view(np.float32)[:]
