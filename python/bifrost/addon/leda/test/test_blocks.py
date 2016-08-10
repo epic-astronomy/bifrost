@@ -145,8 +145,7 @@ class TestCableDelayBlock(unittest.TestCase):
         self.blocks = []
         self.blocks.append((
             NewDadaReadBlock(dadafile, output_chans=output_channels , time_steps=1),
-            [],
-            [0]))
+            {'out': 0}))
         self.blocks.append((
             CableDelayBlock(frequencies[output_channels], delays, dispersions),
             {'in': 0, 'out': 1}))
