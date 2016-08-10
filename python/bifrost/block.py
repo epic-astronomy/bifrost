@@ -964,6 +964,7 @@ class GainSolveBlock(TransformBlock):
         self.shapes = []
         self.max_iterations = max_iterations
     def load_settings(self, input_header):
+        print json.loads(input_header.tostring())
         self.shapes.append(json.loads(input_header.tostring())['shape'])
         self.gulp_size = np.product(self.shapes[-1])*8
         self.output_header = input_header
@@ -971,8 +972,15 @@ class GainSolveBlock(TransformBlock):
         data_span_generator = self.iterate_ring_read(input_rings[0])
         model_span_generator = self.iterate_ring_read(input_rings[1])
         jones_span_generator = self.iterate_ring_read(input_rings[2])
-        data = data_span_generator.next()
-        data = data.data_view(np.complex64).reshape(self.shapes[0])
+        datatwo = data_span_generator.next()
+        datatwo = datatwo.data_view(np.complex64).reshape((1, 256, 256, 2, 2))
+        #data = data.data_view(np.complex64).reshape(self.shapes[0])
+        #[nchan,nstand^,npol^,nstand,npol]
+        data = np.zeros(shape=[1, 256, 2, 256, 2], dtype=np.complex64)
+        for i in range(256):
+            for j in range(256):
+                data[0, i, 0, j, 0] = datatwo[0, i, j, 0, 0]
+                data[0, i, 1, j, 1] = datatwo[0, i, j, 1, 1]
         model = model_span_generator.next()
         model = model.data_view(np.complex64).reshape(self.shapes[1])
         jones = jones_span_generator.next()

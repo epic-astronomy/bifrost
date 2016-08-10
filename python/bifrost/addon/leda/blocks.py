@@ -345,7 +345,7 @@ class BaselineSelectorBlock(MultiTransformBlock):
     def calculate_flag_matrix(self, uv_coordinates):
         """Calculate the flags based on the entered minimum baseline"""
         baselines = np.abs(uv_coordinates[:, :, 0]+1j*uv_coordinates[:, :, 1])
-        flag_matrix = baselines>self.minimum_baseline
+        flag_matrix = baselines >= self.minimum_baseline
         return flag_matrix.astype(np.int8)
     def main(self):
         """Read in the uv coordinates, and use it to flag the data.

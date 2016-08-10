@@ -30,12 +30,14 @@ import bifrost
 import threading
 import v_p_matrices
 import copy
+import ephem
 from bifrost import affinity
 from bifrost.block import *
 from bifrost.ring import Ring
 from bifrost.addon.leda.blocks import DadaReadBlock, NewDadaReadBlock, CableDelayBlock
 from bifrost.addon.leda.blocks import UVCoordinateBlock, BaselineSelectorBlock
 from bifrost.addon.leda.blocks import SlicingBlock, ImagingBlock
+from bifrost.addon.leda.model_block import ScalarSkyModelBlock
 
 FFT_SIZE = 512
 N_STANDS = 250
@@ -313,10 +315,58 @@ def generate_image_from_file(data_file, uv_coords_file, image_file):
 
 blocks = []
 dadafile = '/data2/hg/interfits/lconverter/WholeSkyL64_47.004_d20150203_utc181702_test/2015-04-08-20_15_03_0001133593833216.dada'
-antenna_coordinates = load_telescope("/data1/mcranmer/data/real/leda/lwa_ovro.telescope.json")[1]
+telescope, coords, delays, dispersions = load_telescope("/data1/mcranmer/data/real/leda/lwa_ovro.telescope.json")
+ovro = ephem.Observer()
+ovro.lat = '37.239782'
+ovro.lon = '-118.281679'
+ovro.elevation = 1184.134
+ovro.date = '2015/04/08 20:15:03.0001133593833216'
+from itertools import islice
+sources = {}
+with open('/data1/mcranmer/data/real/vlssr_catalog.txt', 'r') as file_in:
+    iterator = 0
+    for line in file_in:
+        iterator += 1
+        if iterator == 17:
+            break
+    iterator = 0
+    number_sources = 1000
+    for line in file_in:
+        iterator += 1
+        if iterator > number_sources:
+            break
+        if line[0].isspace():
+            continue
+        source_string = line[:-1]
+        ra = line[:2]+':'+line[3:5]+':'+line[6:11]
+        ra = ra.replace(" ", "")
+        dec = line[12:15]+':'+line[16:18]+':'+line[19:23]
+        dec = dec.replace(" ", "")
+        flux = float(line[29:36].replace(" ",""))
+        sources[str(iterator)] = {
+            'ra': ra, 'dec': dec,
+            'flux': flux, 'frequency': 58e6, 
+            'spectral index': -0.2046}
+frequencies = [40e6]
 identity_matrix = np.ones((256, 256, 3), dtype=np.float32)
-baselines_xyz = (identity_matrix*antenna_coordinates)-(identity_matrix*antenna_coordinates).transpose((1, 0, 2))
-median_baseline = np.median(np.abs(baselines_xyz[:, :, 0] + 1j*baselines_xyz[:, :, 1]))/2
+baselines_xyz = (identity_matrix*coords)-(identity_matrix*coords).transpose((1, 0, 2))
+median_baseline = np.median(np.abs(baselines_xyz[:, :, 0] + 1j*baselines_xyz[:, :, 1]))
+flags = np.zeros(shape=[1, 256]).astype(np.int8) 
+jones = np.ones(shape=[1, 2, 256, 2]).astype(np.complex64)+1j*np.ones(shape=[1, 2, 256, 2]).astype(np.complex64)
+subblocks = []
+subblocks.append((ScalarSkyModelBlock(ovro, coords, frequencies, sources), [], ['test_model']))
+subblocks.append((WriteAsciiBlock('.log.txt'), ['test_model'], []))
+Pipeline(subblocks).main()
+allvis = np.loadtxt('.log.txt', dtype=np.float32)
+test_vis = (allvis[2::4]+1j*allvis[3::4]).astype(np.complex64).reshape((256, 256))
+model_visibilities = np.zeros(shape=[1, 256, 2, 256, 2]).astype(np.complex64)
+model_visibilities[0, :, 0, :, 0] = test_vis[:, :]
+model_visibilities[0, :, 1, :, 1] = test_vis[:, :]
+#[nchan,nstand^,npol^,nstand,npol]
+
+
+blocks.append((TestingBlock(jones), [], ['jones_in']))
+blocks.append((TestingBlock(model_visibilities), [], ['model']))
 blocks.append((
     NewDadaReadBlock(dadafile, output_chans=[100], time_steps=1),
     {'out': 'visibilities'}))
@@ -324,15 +374,19 @@ blocks.append((
     UVCoordinateBlock("/data1/mcranmer/data/real/leda/lwa_ovro.telescope.json"), 
     {'out': 'uv_coords'}))
 blocks.append((
-    BaselineSelectorBlock(minimum_baseline=0.),
+    BaselineSelectorBlock(minimum_baseline=0),
     {'in_vis': 'visibilities', 'in_uv': 'uv_coords', 'out_vis': 'flagged_visibilities'}
     ))
 blocks.append((
-    SlicingBlock(np.s_[0, :, :, 0, 0]),
-    {'in': 'visibilities', 'out': 'scalar_visibilities'}))
+    GainSolveBlock(flags=flags), 
+    ['visibilities', 'model', 'jones_in'], 
+    ['calibrated_data', 'jones_out']))
 blocks.append((
-    NearestNeighborGriddingBlock((1024, 1024)),
-    ['scalar_visibilities'],
+    SlicingBlock(np.s_[:, 0, :, 0]),
+    {'in': 'calibrated_data', 'out': 'scalar_visibilities'}))
+blocks.append((
+    NearestNeighborGriddingBlock((1025, 1025)),
+    ['calibrated_data'],
     ['grid']))
 blocks.append((
     IFFT2Block(),
@@ -345,6 +399,7 @@ Pipeline(blocks).main()
 
 """
 blocks = []
+
 jones = 0.5*((1+1j)*np.ones(shape=[
     1, 2, N_STANDS, 2])).astype(np.complex64)
 jones[0, 0, :, 1] = np.zeros(N_STANDS).astype(np.complex64)
