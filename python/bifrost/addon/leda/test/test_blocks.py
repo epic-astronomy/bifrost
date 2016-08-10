@@ -33,6 +33,7 @@ import numpy as np
 from bifrost.block import WriteAsciiBlock, Pipeline, TestingBlock, NearestNeighborGriddingBlock
 from bifrost.addon.leda.blocks import DadaReadBlock, NewDadaReadBlock, CableDelayBlock
 from bifrost.addon.leda.blocks import UVCoordinateBlock, BaselineSelectorBlock
+from bifrost.addon.leda.blocks import SlicingBlock
 
 def load_telescope(filename):
     with open(filename, 'r') as telescope_file:
@@ -228,9 +229,9 @@ class TestImagingBlock(unittest.TestCase):
             BaselineSelectorBlock(minimum_baseline = median_baseline),
             {'in_vis': 'visibilities', 'in_uv': 'uv_coords', 'out_vis': 'flagged_visibilities'}
             ))
-        blocks.append(
-            (SlicingBlock(np.s_[0, :, :, 0, 0]),
-            {'in': 'flagged_visibilities', 'out': 'scalar_visibilities'})
+        blocks.append((
+            SlicingBlock(np.s_[0, :, :, 0, 0]),
+            {'in': 'flagged_visibilities', 'out': 'scalar_visibilities'}))
         blocks.append((
             NearestNeighborGriddingBlock((256, 256)),
             ['scalar_visibilities'],
@@ -243,3 +244,27 @@ class TestImagingBlock(unittest.TestCase):
         Pipeline(blocks).main()
         image_size = os.path.getsize(self.logfile_visibilities)
         self.assertGreater(image_size, 1000)
+class TestSlicingBlock(unittest.TestCase):
+    """Make sure the slicing block performs as it should"""
+    def test_simple_slice(self):
+        """Put through a known array, and check output matches correctly"""
+        blocks = []
+        blocks.append((TestingBlock([[1, 2, 3], [4, 5, 6]]), [], [0]))
+        blocks.append((
+            SlicingBlock(np.s_[:, 2]),
+            {'in': 0, 'out': '[3, 6]'}))
+        blocks.append((
+            SlicingBlock(np.s_[0, 0]),
+            {'in': 0, 'out': '1'}))
+        blocks.append((
+            SlicingBlock(np.s_[0::2, :1]),
+            {'in': 0, 'out': '[1, 3]'}))
+        blocks.append((WriteAsciiBlock('.log36.txt'), ['[3, 6]'], []))
+        blocks.append((WriteAsciiBlock('.log1.txt'), ['1'], []))
+        blocks.append((WriteAsciiBlock('.log13.txt'), ['[1, 3]'], []))
+        log_36 = np.loadtxt('.log36.txt')
+        log_1 = np.loadtxt('.log1.txt')
+        log_13 = np.loadtxt('.log13.txt')
+        np.testing.assert_almost_equal(log_36, [3, 6])
+        np.testing.assert_almost_equal(log_1, 1)
+        np.testing.assert_almost_equal(log_13, [1, 3])
