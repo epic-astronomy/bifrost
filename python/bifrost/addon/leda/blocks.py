@@ -204,7 +204,7 @@ class NewDadaReadBlock(DadaFileRead, MultiTransformBlock):
     ring_names = {
         'out_vis': """Visibilities outputted as a complex matrix. 
             Shape is [frequencies, nstand, nstand, npol, npol].""",
-        'out_uv': "uv coordinates of all of the stands. Shape is [nstand, nstand]"}
+        'out_uv': "uv coordinates of all of the stands. Shape is [nstand, nstand, npol]"}
     def __init__(self, filename, output_chans, time_steps):
         """@param[in] filename The dada file.
         @param[in] output_chans The frequency channels to output
@@ -230,7 +230,7 @@ class NewDadaReadBlock(DadaFileRead, MultiTransformBlock):
         sizeofcomplex64 = 8
         sizeoffloat32 = 4
         self.gulp_size['out_vis'] = np.product(output_shape)*sizeofcomplex64
-        self.gulp_size['out_uv'] = nstand*nstand*sizeoffloat32
+        self.gulp_size['out_uv'] = nstand*nstand*npol*sizeoffloat32
         self.header['out_vis'] = {
             'nbit':64,
             'dtype':str(np.complex64),
@@ -238,7 +238,7 @@ class NewDadaReadBlock(DadaFileRead, MultiTransformBlock):
         self.header['out_uv'] = {
             'nbit':32,
             'dtype':str(np.float32),
-            'shape':[nstand, nstand]}
+            'shape':[nstand, nstand, 2]}
         for dadafile_data, vis_span, uv_span in self.izip(
                 self.dada_read(),
                 self.write('out_vis', 'out_uv')):
@@ -249,5 +249,5 @@ class NewDadaReadBlock(DadaFileRead, MultiTransformBlock):
             data[:,ants_i,ants_j,:,:] = dadafile_data
             data[:,ants_j,ants_i,:,:] = dadafile_data.conj()
             vis_span[:] = data.view(np.float32).ravel()
-            uv_span[:] = np.zeros((nstand, nstand), dtype=np.float32).ravel()
+            uv_span[:] = np.zeros((nstand, nstand, npol), dtype=np.float32).ravel()
         self.file_object.close()
