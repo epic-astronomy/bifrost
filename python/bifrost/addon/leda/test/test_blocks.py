@@ -133,10 +133,11 @@ class TestUVCoordinateBlock(unittest.TestCase):
     """Test the ability of a block to output UV coordinates"""
     def setUp(self):
         self.logfile_uv_coordinates = '.log_uv.txt'
+        self.n_stations = 256
         self.blocks = []
         self.blocks.append((UVCoordinateBlock("/data1/mcranmer/data/real/leda/lwa_ovro.telescope.json"), 
             {'out': 0}))
-        self.blocks.append((WriteAsciiBlock(self.logfile_uv_coordinates), [1], []))
+        self.blocks.append((WriteAsciiBlock(self.logfile_uv_coordinates), [0], []))
         Pipeline(self.blocks).main()
     def test_output_coordinates(self):
         """Make sure dada read block is putting out correct uv coordinates"""

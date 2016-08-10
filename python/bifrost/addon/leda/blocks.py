@@ -249,10 +249,26 @@ class UVCoordinateBlock(MultiTransformBlock):
     def __init__(self, filename):
         """@param[in] filename The json file containing telescope specifications."""
         super(UVCoordinateBlock, self).__init__()
+        self.filename = filename
+    def load_telescope(self):
+        with open(self.filename, 'r') as telescope_file:
+            telescope = json.load(telescope_file)
+        coords_local = np.array(telescope['coords']['local']['__data__'], dtype=np.float32)
+        coords_local = coords_local.reshape(coords_local.size/4,4)
+        ant_coords = coords_local[:,1:]
+        return ant_coords
     def main(self):
-        self.header['out_uv'] = {
+        antenna_coordinates = self.load_telescope()
+        nstand = antenna_coordinates.shape[0]
+        identity_matrix = np.ones((nstand, nstand, 3), dtype=np.float32)
+        baselines_xyz = (identity_matrix*antenna_coordinates)-(identity_matrix*antenna_coordinates).transpose((1, 0, 2))
+        baselines_uv = baselines_xyz[:, :, 0:2]
+        self.header['out'] = {
             'nbit':32,
             'dtype':str(np.float32),
             'shape':[nstand, nstand, 2]}
-        self.gulp_size['out'] = nstand**2*2
-
+        self.gulp_size['out'] = nstand**2*2*4
+        for out_span in self.izip(self.write('out')):
+            out_span = out_span[0]
+            out_span[:] = baselines_uv.astype(np.float32).ravel()
+            break
