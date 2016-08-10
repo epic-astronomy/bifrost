@@ -203,8 +203,8 @@ class NewDadaReadBlock(DadaFileRead, MultiTransformBlock):
     """Read a dada file in with frequency channels in ringlets."""
     ring_names = {
         'out_vis': """Visibilities outputted as a complex matrix. 
-            Shape is [frequencies, nstands, nstands, npol, npol].""",
-        'out_uv': "uv coordinates of all of the stands"}
+            Shape is [frequencies, nstand, nstand, npol, npol].""",
+        'out_uv': "uv coordinates of all of the stands. Shape is [nstand, nstand]"}
     def __init__(self, filename, output_chans, time_steps):
         """@param[in] filename The dada file.
         @param[in] output_chans The frequency channels to output
@@ -231,15 +231,15 @@ class NewDadaReadBlock(DadaFileRead, MultiTransformBlock):
         sizeoffloat32 = 4
         self.gulp_size['out_vis'] = np.product(output_shape)*sizeofcomplex64
         self.gulp_size['out_uv'] = nstand*nstand*sizeoffloat32
-        self.header['out_vis'] = json.dumps({
+        self.header['out_vis'] = {
             'nbit':64,
             'dtype':str(np.complex64),
-            'shape':output_shape})
-        self.header['out_uv'] = json.dumps({
+            'shape':output_shape}
+        self.header['out_uv'] = {
             'nbit':32,
             'dtype':str(np.float32),
-            'shape':[nstand, nstand]})
-        for dadafile_data, vis_span, uv_span in itertools.izip(
+            'shape':[nstand, nstand]}
+        for dadafile_data, vis_span, uv_span in self.izip(
                 self.dada_read(),
                 self.write('out_vis', 'out_uv')):
             data = np.empty(output_shape, dtype=np.complex64)
@@ -248,6 +248,6 @@ class NewDadaReadBlock(DadaFileRead, MultiTransformBlock):
             ants_j = baseline_ants[:,1]
             data[:,ants_i,ants_j,:,:] = dadafile_data
             data[:,ants_j,ants_i,:,:] = dadafile_data.conj()
-            vis_span.view(np.complex64)[:] = data.ravel()
+            vis_span[:] = data.view(np.float32).ravel()
             uv_span[:] = np.zeros((nstand, nstand), dtype=np.float32).ravel()
         self.file_object.close()

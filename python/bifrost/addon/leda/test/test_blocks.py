@@ -83,7 +83,7 @@ class TestNewDadaReadBlock(unittest.TestCase):
         """Reads in one channel of a dada file, and logs in ascii
             file."""
         self.logfile_visibilities = '.log_vis.txt'
-        self.logfile_uv_coordinates = '.log_vis.txt'
+        self.logfile_uv_coordinates = '.log_uv.txt'
         dadafile = '/data2/hg/interfits/lconverter/WholeSkyL64_47.004_d20150203_utc181702_test/2015-04-08-20_15_03_0001133593833216.dada'
         self.n_stations = 256
         self.n_pol = 2
@@ -104,7 +104,7 @@ class TestNewDadaReadBlock(unittest.TestCase):
     def test_output_coordinates(self):
         """Make sure dada read block is putting out correct uv coordinates"""
         antenna_coordinates = load_telescope("/data1/mcranmer/data/real/leda/lwa_ovro.telescope.json")[1]
-        identity_matrix = np.ones((n_stations, n_stations, 3), dtype=np.float32)
+        identity_matrix = np.ones((self.n_stations, self.n_stations, 3), dtype=np.float32)
         baselines_xyz = (identity_matrix*antenna_coordinates)-(identity_matrix*antenna_coordinates).transpose((1, 0, 2))
         baselines_from_file = np.loadtxt(self.logfile_uv_coordinates, dtype=np.float32)
         np.testing.assert_almost_equal(baselines_xyz[:, :, 0:2].ravel(), baselines_from_file)
