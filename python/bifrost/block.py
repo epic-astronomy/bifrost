@@ -1010,10 +1010,7 @@ class GainSolveBlock(TransformBlock):
         gpu_jones.buffer = array_jones.data
         jones = gpu_jones.get()
         for i in range(max(jones.shape)):
-            try:
-                jones[0, :, i, :] = np.linalg.inv(jones[0, :, i, :])
-            except:
-                pass
+            jones[0, :, i, :] = np.linalg.inv(jones[0, :, i, :])
         gpu_jones.set(jones)
         self.out_gulp_size = jones.nbytes
         out_jones_generator = self.iterate_ring_write(output_rings[1])
@@ -1033,15 +1030,16 @@ BFstatus bfApplyGainsArray(BFconstarray X, // Observed data. [nchan,nstand^,npol
             gpu_jones.as_BFconstarray(100),
             array_image,
             gpu_flags.as_BFarray(100))
-        gpu_output_image.buffer = array_image.data
-        resultant_image = gpu_output_image.get()
+        gpu_output_image2 = GPUArray(data.shape, np.complex64)
+        gpu_output_image2.buffer = array_image.data
+        resultant_image = gpu_output_image2.get()
         self.out_gulp_size = resultant_image.nbytes
         output_header = json.loads(self.output_header.tostring())
         output_header['shape'] = list(resultant_image.shape)
         self.output_header = json.dumps(output_header)
         out_model_generator = self.iterate_ring_write(output_rings[0])
         out_model = out_model_generator.next()
-        out_model.data_view(np.complex64)[0][:] = gpu_output_image.get().ravel()
+        out_model.data_view(np.complex64)[0][:] = gpu_output_image2.get().ravel()
 class DStackBlock(MultiTransformBlock):
     """Block which performs numpy's dstack operation on rings"""
     ring_names = {
@@ -1093,8 +1091,6 @@ class ReductionBlock(MultiTransformBlock):
         for inspan, outspan in self.izip(
                 self.read('in'),
                 self.write('out')):
-            import time
-            time.sleep(5)
             print "reduction block sees:", self.header
             if self.header['in']['dtype'] == str(np.complex64):
                 inspan = inspan.view(np.complex64)
