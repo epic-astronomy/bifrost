@@ -428,3 +428,20 @@ class TestDStackBlock(unittest.TestCase):
         Pipeline(blocks).main()
         log_data = np.loadtxt('.log.txt')
         np.testing.assert_almost_equal(log_data, [1, 2])
+    def test_multi_array_throughput(self):
+        """Send two 2D arrays through, and make sure they come out properly"""
+        array_1 = np.arange(10).reshape((2, 5))
+        array_2 = 3*np.arange(10).reshape((2, 5))
+        desired_output = np.dstack((
+            array_1,
+            array_2)).ravel()
+        blocks = []
+        blocks.append([TestingBlock(array_1), [], [0]])
+        blocks.append([TestingBlock(array_2), [], [1]])
+        blocks.append([
+            DStackBlock(),
+            {'in_1': 0, 'in_2': 1, 'out': 2}])
+        blocks.append([WriteAsciiBlock('.log.txt', gulp_size=80), [2], []])
+        Pipeline(blocks).main()
+        log_data = np.loadtxt('.log.txt')
+        np.testing.assert_almost_equal(log_data, desired_output)
