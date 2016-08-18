@@ -460,3 +460,15 @@ class TestReductionBlock(unittest.TestCase):
         Pipeline(blocks).main()
         log_data = np.loadtxt('.log.txt')
         np.testing.assert_almost_equal(log_data, [1])
+    def test_complex_to_real(self):
+        """Apply a function which outputs only the real components"""
+        output_header = {'dtype': str(np.float32), 'nbit': 32}
+        blocks = []
+        blocks.append([TestingBlock([2j+5]), [], [0]])
+        blocks.append([
+            ReductionBlock(np.real, output_header=output_header),
+            {'in': 0, 'out':1}])
+        blocks.append([WriteAsciiBlock('.log.txt', gulp_size=4), [1], []])
+        Pipeline(blocks).main()
+        log_data = np.loadtxt('.log.txt')
+        np.testing.assert_almost_equal(log_data, [5])
