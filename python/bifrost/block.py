@@ -1085,7 +1085,6 @@ class ReductionBlock(MultiTransformBlock):
         for param in self.header['in']:
             if param not in self.header['out']:
                 self.header['out'][param] = self.header['in'][param]
-        self.header['out'] = dict(self.header['in'])
         self.gulp_size['in'] = np.product(self.header['in']['shape'])*self.header['in']['nbit']//8
         self.gulp_size['out'] = np.product(self.header['out']['shape'])*self.header['out']['nbit']//8
     def main(self):
@@ -1093,4 +1092,8 @@ class ReductionBlock(MultiTransformBlock):
         for inspan, outspan in self.izip(
                 self.read('in'),
                 self.write('out')):
-            outspan[:] = self.reduction(inspan)[:]
+            if self.header['in']['dtype'] == str(np.complex64):
+                inspan = inspan.view(np.complex64)
+            if self.header['out']['dtype'] == str(np.complex64):
+                outspan = outspan.view(np.complex64)
+            outspan[:] = self.reduction(inspan)[:].astype(np.float32)
