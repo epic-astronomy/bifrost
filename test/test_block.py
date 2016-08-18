@@ -414,3 +414,17 @@ class TestSplitterBlock(unittest.TestCase):
         self.assertEqual(first_log.size, 1)
         self.assertEqual(second_log.size, 1)
         np.testing.assert_almost_equal(first_log+1, second_log)
+class TestDStackBlock(unittest.TestCase):
+    """Test a block which stacks two incoming streams into one outgoing ring"""
+    def test_simple_throughput(self):
+        """Send two arrays through, and make sure they come out as one"""
+        blocks = []
+        blocks.append([TestingBlock([1]), [], [0]])
+        blocks.append([TestingBlock([2]), [], [1]])
+        blocks.append([
+            DStackBlock(),
+            {'in_1': 0, 'in_2': 1, 'out': 2}])
+        blocks.append([WriteAsciiBlock('.log.txt'), [2], []])
+        Pipeline(blocks).main()
+        log_data = np.loadtxt('.log1.txt')
+        np.testing.assert_almost_equal(log_data, [1, 2])
