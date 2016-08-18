@@ -386,7 +386,7 @@ blocks.append((
     {'in': 'calibrated_data', 'out': 'scalar_visibilities'}))
 blocks.append((
     NearestNeighborGriddingBlock((1025, 1025)),
-    ['calibrated_data'],
+    ['scalar_visibilities'],
     ['grid']))
 blocks.append((
     IFFT2Block(),
