@@ -414,3 +414,16 @@ class TestSplitterBlock(unittest.TestCase):
         self.assertEqual(first_log.size, 1)
         self.assertEqual(second_log.size, 1)
         np.testing.assert_almost_equal(first_log+1, second_log)
+class TestReductionBlock(unittest.TestCase):
+    """Test a block which applies a function passed to it to the incoming array"""
+    def test_unity_function(self):
+        """Apply a function which returns its arguments"""
+        def identity(argument):
+            return argument
+        blocks = []
+        blocks.append([TestingBlock([1]), [], [0]])
+        blocks.append([ReductionBlock(identity), [0], [1]])
+        blocks.append([WriteAsciiBlock('.log.txt', gulp_size=4), [1], []])
+        Pipeline(blocks).main()
+        log_data = np.loadtxt('.log.txt')
+        np.testing.assert_almost_equal(log_data, [1])
