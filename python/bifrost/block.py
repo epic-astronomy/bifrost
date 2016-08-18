@@ -1039,3 +1039,32 @@ BFstatus bfApplyGainsArray(BFconstarray X, // Observed data. [nchan,nstand^,npol
         out_model_generator = self.iterate_ring_write(output_rings[0])
         out_model = out_model_generator.next()
         out_model.data_view(np.complex64)[0][:] = gpu_output_image.get().ravel()
+
+class DStackBlock(MultiTransformBlock):
+    """Block which performs numpy's dstack operation on rings"""
+    ring_names = {
+        'in_1': "Ring containing the arrays which are stacked first",
+        'in_2': "Ring containing the arrays which are stacked second",
+        'out': "Outgoing ring containing the stacked array"}
+    def __init__(self):
+        super(DStackBlock, self).__init__()
+    def load_settings(self):
+        """Calculate incoming/outgoing shapes and gulp sizes"""
+        assert self.header['in_1']['shape'] == self.header['in_2']['shape']
+        assert self.header['in_1']['dtype'] == self.header['in_2']['dtype']
+        self.header['out'] = dict(self.header['in_1'])
+        self.gulp_size['in_1'] = np.product(self.header['in_1']['shape'])*self.header['in_1']['nbit']//8
+        self.gulp_size['in_2'] = self.gulp_size['in_1']
+        outgoing_shape = list(self.header['in_1']['shape'])
+        # Add an extra dimension
+        outgoing_shape.append(2)
+        self.header['out']['shape'] = outgoing_shape
+        self.gulp_size['out'] = self.gulp_size['in_1']*2
+    def main(self):
+        """Perform the numpy dstack operation"""
+        for inspan1, inspan2, outspan in self.izip(
+                self.read('in_1', 'in_2'),
+                self.write('out')):
+            outspan[:] = np.dstack((
+                    inspan1.reshape(self.header['in_1']['shape']),
+                    inspan2.reshape(self.header['in_2']['shape']))).ravel()[:]

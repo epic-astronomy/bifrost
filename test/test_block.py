@@ -38,7 +38,7 @@ from bifrost.block import SigprocReadBlock, CopyBlock, KurtosisBlock, FoldBlock
 from bifrost.block import IFFTBlock, FFTBlock, Pipeline, FakeVisBlock
 from bifrost.block import NearestNeighborGriddingBlock, IFFT2Block
 from bifrost.block import GainSolveBlock, SplitterBlock, MultiAddBlock
-from bifrost.block import SplitterBlock
+from bifrost.block import SplitterBlock, DStackBlock
 
 class TestIterateRingWrite(unittest.TestCase):
     """Test the iterate_ring_write function of SourceBlocks/TransformBlocks"""
@@ -584,3 +584,34 @@ class TestSplitterBlock(unittest.TestCase):
         self.assertEqual(first_log.size, 1)
         self.assertEqual(second_log.size, 1)
         np.testing.assert_almost_equal(first_log+1, second_log)
+class TestDStackBlock(unittest.TestCase):
+    """Test a block which stacks two incoming streams into one outgoing ring"""
+    def test_simple_throughput(self):
+        """Send two arrays through, and make sure they come out as one"""
+        blocks = []
+        blocks.append([TestingBlock([1]), [], [0]])
+        blocks.append([TestingBlock([2]), [], [1]])
+        blocks.append([
+            DStackBlock(),
+            {'in_1': 0, 'in_2': 1, 'out': 2}])
+        blocks.append([WriteAsciiBlock('.log.txt', gulp_size=8), [2], []])
+        Pipeline(blocks).main()
+        log_data = np.loadtxt('.log.txt')
+        np.testing.assert_almost_equal(log_data, [1, 2])
+    def test_multi_array_throughput(self):
+        """Send two 2D arrays through, and make sure they come out properly"""
+        array_1 = np.arange(10).reshape((2, 5))
+        array_2 = 3*np.arange(10).reshape((2, 5))
+        desired_output = np.dstack((
+            array_1,
+            array_2)).ravel()
+        blocks = []
+        blocks.append([TestingBlock(array_1), [], [0]])
+        blocks.append([TestingBlock(array_2), [], [1]])
+        blocks.append([
+            DStackBlock(),
+            {'in_1': 0, 'in_2': 1, 'out': 2}])
+        blocks.append([WriteAsciiBlock('.log.txt', gulp_size=80), [2], []])
+        Pipeline(blocks).main()
+        log_data = np.loadtxt('.log.txt')
+        np.testing.assert_almost_equal(log_data, desired_output)
