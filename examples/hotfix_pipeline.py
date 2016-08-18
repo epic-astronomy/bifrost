@@ -382,7 +382,7 @@ blocks.append((
     ['visibilities', 'model', 'jones_in'], 
     ['calibrated_data', 'jones_out']))
 blocks.append((
-    SlicingBlock(np.s_[:, 0, :, 0]),
+    SlicingBlock(np.s_[0, :, 0, :, 0]),
     {'in': 'calibrated_data', 'out': 'scalar_vis'}))
 blocks.append((
     ReductionBlock(np.real, output_header={
@@ -390,25 +390,34 @@ blocks.append((
         'nbit': 32}),
     {'in': 'scalar_vis', 'out': 'real_vis'}))
 blocks.append((
-    ReductionBlock(np.imag, output_header={
+   ReductionBlock(np.imag, output_header={
         'dtype': str(np.float32),
         'nbit': 32}),
     {'in': 'scalar_vis', 'out': 'imag_vis'}))
 blocks.append((
     DStackBlock(),
-    {'in_1': 'real_vis', 'in_2': 'imag_vis', 'out':'realimag_vis'}))
+    {'in_1': 'real_vis', 'in_2': 'imag_vis', 'out': 'realimag_vis'}))
 blocks.append((
     DStackBlock(),
-    {'in_1': 'realimage_vis', 'in_2': 'uv_coords', 'out':'formatted_vis'}))
+    {'in_1': 'realimag_vis', 'in_2': 'uv_coords', 'out': 'formatted_vis'}))
 def print_identity(argument):
     print argument
     return argument
 blocks.append((
-    ReductionBlock(print_identity),
-    {'in':'formatted_vis', 'out': 'trash1'}))
+    WriteAsciiBlock('log1.txt'), ['realimag_vis'], []))
 blocks.append((
-    NearestNeighborGriddingBlock((1025, 1025)),
-    ['formatted_vis'],
+    WriteAsciiBlock('log2.txt'), ['uv_coords'], []))
+Pipeline(blocks).main()
+log_vis = np.loadtxt('log1.txt').reshape((256, 256, 2)).astype(np.float32)
+log_uv = np.loadtxt('log2.txt').reshape((256, 256, 2)).astype(np.float32)
+my_vis = np.zeros(shape=[256, 256, 4]).astype(np.float32)
+my_vis[:, :, 0:2] = log_uv[:, :, :]
+my_vis[:, :, 2:4] = log_vis[:, :, :]
+blocks = []
+blocks.append((TestingBlock(my_vis), [], ['test_vis']))
+blocks.append((
+    NearestNeighborGriddingBlock((512, 512)),
+    ['test_vis'],
     ['grid']))
 blocks.append((
     IFFT2Block(),
