@@ -472,3 +472,16 @@ class TestReductionBlock(unittest.TestCase):
         Pipeline(blocks).main()
         log_data = np.loadtxt('.log.txt')
         np.testing.assert_almost_equal(log_data, [5])
+    def test_multiply_by_two(self):
+        """Apply a function which multiplies by two"""
+        def multiply_by_two(argument):
+            return 2*argument
+        blocks = []
+        blocks.append([TestingBlock([1]), [], [0]])
+        blocks.append([
+            ReductionBlock(multiply_by_two),
+            {'in': 0, 'out':1}])
+        blocks.append([WriteAsciiBlock('.log.txt', gulp_size=4), [1], []])
+        Pipeline(blocks).main()
+        log_data = np.loadtxt('.log.txt')
+        np.testing.assert_almost_equal(log_data, [2])
