@@ -849,6 +849,8 @@ class ReductionBlock(MultiTransformBlock):
         self.header['out'] = output_header
     def load_settings(self):
         """Calculate incoming/outgoing shapes and gulp sizes"""
+        # Only update header if passed output header does not contain
+        # parameters already
         for param in self.header['in']:
             if param not in self.header['out']:
                 self.header['out'][param] = self.header['in'][param]
@@ -856,8 +858,8 @@ class ReductionBlock(MultiTransformBlock):
         self.gulp_size['in'] = np.product(self.header['in']['shape'])*self.header['in']['nbit']//8
         self.gulp_size['out'] = np.product(self.header['out']['shape'])*self.header['out']['nbit']//8
     def main(self):
-        """Perform the numpy dstack operation"""
+        """Perform the reduction operation"""
         for inspan, outspan in self.izip(
                 self.read('in'),
                 self.write('out')):
-            outspan[:] = inspan[:]
+            outspan[:] = self.reduction(inspan)[:]
