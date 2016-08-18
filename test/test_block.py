@@ -39,6 +39,7 @@ from bifrost.block import IFFTBlock, FFTBlock, Pipeline, FakeVisBlock
 from bifrost.block import NearestNeighborGriddingBlock, IFFT2Block
 from bifrost.block import GainSolveBlock, SplitterBlock, MultiAddBlock
 from bifrost.block import SplitterBlock, DStackBlock
+from bifrost.block import SplitterBlock, ReductionBlock, DStackBlock
 
 class TestIterateRingWrite(unittest.TestCase):
     """Test the iterate_ring_write function of SourceBlocks/TransformBlocks"""
@@ -615,3 +616,43 @@ class TestDStackBlock(unittest.TestCase):
         Pipeline(blocks).main()
         log_data = np.loadtxt('.log.txt')
         np.testing.assert_almost_equal(log_data, desired_output)
+class TestReductionBlock(unittest.TestCase):
+    """Test a block which applies a function passed to it to the incoming array"""
+    def test_unity_function(self):
+        """Apply a function which returns its arguments"""
+        def identity(argument):
+            return argument
+        blocks = []
+        blocks.append([TestingBlock([1]), [], [0]])
+        blocks.append([
+            ReductionBlock(identity),
+            {'in': 0, 'out':1}])
+        blocks.append([WriteAsciiBlock('.log.txt', gulp_size=4), [1], []])
+        Pipeline(blocks).main()
+        log_data = np.loadtxt('.log.txt')
+        np.testing.assert_almost_equal(log_data, [1])
+    def test_complex_to_real(self):
+        """Apply a function which outputs only the real components"""
+        output_header = {'dtype': str(np.float32), 'nbit': 32}
+        blocks = []
+        blocks.append([TestingBlock([2j+5]), [], [0]])
+        blocks.append([
+            ReductionBlock(np.real, output_header=output_header),
+            {'in': 0, 'out':1}])
+        blocks.append([WriteAsciiBlock('.log.txt', gulp_size=4), [1], []])
+        Pipeline(blocks).main()
+        log_data = np.loadtxt('.log.txt')
+        np.testing.assert_almost_equal(log_data, [5])
+    def test_multiply_by_two(self):
+        """Apply a function which multiplies by two"""
+        def multiply_by_two(argument):
+            return 2*argument
+        blocks = []
+        blocks.append([TestingBlock([1]), [], [0]])
+        blocks.append([
+            ReductionBlock(multiply_by_two),
+            {'in': 0, 'out':1}])
+        blocks.append([WriteAsciiBlock('.log.txt', gulp_size=4), [1], []])
+        Pipeline(blocks).main()
+        log_data = np.loadtxt('.log.txt')
+        np.testing.assert_almost_equal(log_data, [2])

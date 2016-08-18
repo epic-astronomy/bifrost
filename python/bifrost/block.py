@@ -1068,3 +1068,29 @@ class DStackBlock(MultiTransformBlock):
             outspan[:] = np.dstack((
                     inspan1.reshape(self.header['in_1']['shape']),
                     inspan2.reshape(self.header['in_2']['shape']))).ravel()[:]
+
+class ReductionBlock(MultiTransformBlock):
+    """Block which performs a passed function on ring data"""
+    ring_names = {
+        'in': "Ring containing the arrays to be operated on",
+        'out': "Outgoing ring containing the modified input data"}
+    def __init__(self, reduction, output_header={}):
+        super(ReductionBlock, self).__init__()
+        self.reduction = reduction
+        self.header['out'] = output_header
+    def load_settings(self):
+        """Calculate incoming/outgoing shapes and gulp sizes"""
+        # Only update header if passed output header does not contain
+        # parameters already
+        for param in self.header['in']:
+            if param not in self.header['out']:
+                self.header['out'][param] = self.header['in'][param]
+        self.header['out'] = dict(self.header['in'])
+        self.gulp_size['in'] = np.product(self.header['in']['shape'])*self.header['in']['nbit']//8
+        self.gulp_size['out'] = np.product(self.header['out']['shape'])*self.header['out']['nbit']//8
+    def main(self):
+        """Perform the reduction operation"""
+        for inspan, outspan in self.izip(
+                self.read('in'),
+                self.write('out')):
+            outspan[:] = self.reduction(inspan)[:]
