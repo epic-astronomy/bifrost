@@ -323,6 +323,7 @@ ovro.elevation = 1184.134
 ovro.date = '2015/04/08 20:15:03.0001133593833216'
 from itertools import islice
 sources = {}
+"""
 with open('/data1/mcranmer/data/real/vlssr_catalog.txt', 'r') as file_in:
     iterator = 0
     for line in file_in:
@@ -330,33 +331,57 @@ with open('/data1/mcranmer/data/real/vlssr_catalog.txt', 'r') as file_in:
         if iterator == 17:
             break
     iterator = 0
-    number_sources = 1000
+    number_sources = 100000
+    total_flux = 1e-10
     for line in file_in:
         iterator += 1
         if iterator > number_sources:
-            break
+            #break
+            pass
         if line[0].isspace():
             continue
-        source_string = line[:-1]
-        ra = line[:2]+':'+line[3:5]+':'+line[6:11]
-        ra = ra.replace(" ", "")
-        dec = line[12:15]+':'+line[16:18]+':'+line[19:23]
-        dec = dec.replace(" ", "")
-        flux = float(line[29:36].replace(" ",""))
-        sources[str(iterator)] = {
-            'ra': ra, 'dec': dec,
-            'flux': flux, 'frequency': 58e6, 
-            'spectral index': -0.2046}
+        try:
+            flux = float(line[29:36].replace(" ",""))
+        except:
+            break
+        if flux > 1:
+            source_string = line[:-1]
+            ra = line[:2]+':'+line[3:5]+':'+line[6:11]
+            ra = ra.replace(" ", "")
+            dec = line[12:15]+':'+line[16:18]+':'+line[19:23]
+            dec = dec.replace(" ", "")
+            total_flux += flux
+            sources[str(iterator)] = {
+                'ra': ra, 'dec': dec,
+                'flux': flux, 'frequency': 58e6, 
+                'spectral index': -0.2046}
+                """
+"""
+sources['cyg'] = {
+    'ra':'19:59:28.4', 'dec':'+40:44:02.1', 
+    'flux': 10571.0, 'frequency': 58e6, 
+    'spectral index': -0.2046}
+"""
+"""
+sources['sun'] = {
+    'ephemeris': ephem.Sun(),
+    'flux': 250.0, 'frequency':20e6,
+    'spectral index':+1.9920}
+"""
 frequencies = [40e6]
 identity_matrix = np.ones((256, 256, 3), dtype=np.float32)
 baselines_xyz = (identity_matrix*coords)-(identity_matrix*coords).transpose((1, 0, 2))
 median_baseline = np.median(np.abs(baselines_xyz[:, :, 0] + 1j*baselines_xyz[:, :, 1]))
 flags = np.zeros(shape=[1, 256]).astype(np.int8) 
+for stand in [0,56,57,58,59,60,61,62,63,72,74,75,76,77,78,82,83,84,85,86,87,91,92,93,104,120,121,122,123,124,125,126,127,128,145,148,157,161,164,168,184,185,186,187,188,189,190,191,197,220,224,225,238,239,240,241,242,243,244,245,246,247,248,249,250,251,252,253,254,255]:
+    flags[0, stand] = 0
 jones = np.ones(shape=[1, 2, 256, 2]).astype(np.complex64)+1j*np.ones(shape=[1, 2, 256, 2]).astype(np.complex64)
+"""
 subblocks = []
 subblocks.append((ScalarSkyModelBlock(ovro, coords, frequencies, sources), [], ['test_model']))
 subblocks.append((WriteAsciiBlock('.log.txt'), ['test_model'], []))
 Pipeline(subblocks).main()
+"""
 allvis = np.loadtxt('.log.txt', dtype=np.float32)
 test_vis = (allvis[2::4]+1j*allvis[3::4]).astype(np.complex64).reshape((256, 256))
 model_visibilities = np.zeros(shape=[1, 256, 2, 256, 2]).astype(np.complex64)
@@ -374,11 +399,11 @@ blocks.append((
     UVCoordinateBlock("/data1/mcranmer/data/real/leda/lwa_ovro.telescope.json"), 
     {'out': 'uv_coords'}))
 blocks.append((
-    BaselineSelectorBlock(minimum_baseline=0),
+    BaselineSelectorBlock(minimum_baseline=median_baseline/100),
     {'in_vis': 'visibilities', 'in_uv': 'uv_coords', 'out_vis': 'flagged_visibilities'}
     ))
 blocks.append((
-    GainSolveBlock(flags=flags), 
+    GainSolveBlock(flags=flags, max_iterations=1000), 
     ['visibilities', 'model', 'jones_in'], 
     ['calibrated_data', 'jones_out']))
 blocks.append((
@@ -400,9 +425,6 @@ blocks.append((
 blocks.append((
     DStackBlock(),
     {'in_1': 'realimag_vis', 'in_2': 'uv_coords', 'out': 'formatted_vis'}))
-def print_identity(argument):
-    print argument
-    return argument
 blocks.append((
     WriteAsciiBlock('log1.txt'), ['realimag_vis'], []))
 blocks.append((
@@ -420,7 +442,7 @@ for bad_stand in bad_stands:
 blocks = []
 blocks.append((TestingBlock(my_vis), [], ['test_vis']))
 blocks.append((
-    NearestNeighborGriddingBlock((512, 512)),
+    NearestNeighborGriddingBlock((256, 256)),
     ['test_vis'],
     ['grid']))
 blocks.append((
@@ -428,7 +450,7 @@ blocks.append((
     ['grid'],
     ['ifftd']))
 blocks.append((
-    ImagingBlock(filename='my_sky.png', reduction=np.abs, log=True),
+    ImagingBlock(filename='sky.png', reduction=np.abs, log=True),
     {'in': 'ifftd'}))
 Pipeline(blocks).main()
 
