@@ -457,7 +457,9 @@ class TestReductionBlock(unittest.TestCase):
             return argument
         blocks = []
         blocks.append([TestingBlock([1]), [], [0]])
-        blocks.append([ReductionBlock(identity), [0], [1]])
+        blocks.append([
+            ReductionBlock(identity),
+            {'in': 0, 'out':1}])
         blocks.append([WriteAsciiBlock('.log.txt', gulp_size=4), [1], []])
         Pipeline(blocks).main()
         log_data = np.loadtxt('.log.txt')
