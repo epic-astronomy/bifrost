@@ -34,7 +34,7 @@ from bifrost.ring import Ring
 from bifrost.block import TestingBlock, WriteAsciiBlock, WriteHeaderBlock
 from bifrost.block import SigprocReadBlock, CopyBlock, KurtosisBlock, FoldBlock
 from bifrost.block import IFFTBlock, FFTBlock, Pipeline, MultiAddBlock
-from bifrost.block import SplitterBlock
+from bifrost.block import SplitterBlock, DStackBlock
 
 class TestIterateRingWrite(unittest.TestCase):
     """Test the iterate_ring_write function of SourceBlocks/TransformBlocks"""
@@ -424,7 +424,7 @@ class TestDStackBlock(unittest.TestCase):
         blocks.append([
             DStackBlock(),
             {'in_1': 0, 'in_2': 1, 'out': 2}])
-        blocks.append([WriteAsciiBlock('.log.txt'), [2], []])
+        blocks.append([WriteAsciiBlock('.log.txt', gulp_size=8), [2], []])
         Pipeline(blocks).main()
-        log_data = np.loadtxt('.log1.txt')
+        log_data = np.loadtxt('.log.txt')
         np.testing.assert_almost_equal(log_data, [1, 2])
