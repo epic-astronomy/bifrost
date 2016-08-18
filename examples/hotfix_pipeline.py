@@ -383,10 +383,32 @@ blocks.append((
     ['calibrated_data', 'jones_out']))
 blocks.append((
     SlicingBlock(np.s_[:, 0, :, 0]),
-    {'in': 'calibrated_data', 'out': 'scalar_visibilities'}))
+    {'in': 'calibrated_data', 'out': 'scalar_vis'}))
+blocks.append((
+    ReductionBlock(np.real, output_header={
+        'dtype': str(np.float32),
+        'nbit': 32}),
+    {'in': 'scalar_vis', 'out': 'real_vis'}))
+blocks.append((
+    ReductionBlock(np.imag, output_header={
+        'dtype': str(np.float32),
+        'nbit': 32}),
+    {'in': 'scalar_vis', 'out': 'imag_vis'}))
+blocks.append((
+    DStackBlock(),
+    {'in_1': 'real_vis', 'in_2': 'imag_vis', 'out':'realimag_vis'}))
+blocks.append((
+    DStackBlock(),
+    {'in_1': 'realimage_vis', 'in_2': 'uv_coords', 'out':'formatted_vis'}))
+def print_identity(argument):
+    print argument
+    return argument
+blocks.append((
+    ReductionBlock(print_identity),
+    {'in':'formatted_vis', 'out': 'trash1'}))
 blocks.append((
     NearestNeighborGriddingBlock((1025, 1025)),
-    ['scalar_visibilities'],
+    ['formatted_vis'],
     ['grid']))
 blocks.append((
     IFFT2Block(),
