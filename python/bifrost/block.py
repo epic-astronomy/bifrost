@@ -1036,10 +1036,12 @@ BFstatus bfApplyGainsArray(BFconstarray X, // Observed data. [nchan,nstand^,npol
         gpu_output_image.buffer = array_image.data
         resultant_image = gpu_output_image.get()
         self.out_gulp_size = resultant_image.nbytes
+        output_header = json.loads(self.output_header.tostring())
+        output_header['shape'] = list(resultant_image.shape)
+        self.output_header = json.dumps(output_header)
         out_model_generator = self.iterate_ring_write(output_rings[0])
         out_model = out_model_generator.next()
         out_model.data_view(np.complex64)[0][:] = gpu_output_image.get().ravel()
-
 class DStackBlock(MultiTransformBlock):
     """Block which performs numpy's dstack operation on rings"""
     ring_names = {
@@ -1068,7 +1070,6 @@ class DStackBlock(MultiTransformBlock):
             outspan[:] = np.dstack((
                     inspan1.reshape(self.header['in_1']['shape']),
                     inspan2.reshape(self.header['in_2']['shape']))).ravel()[:]
-
 class ReductionBlock(MultiTransformBlock):
     """Block which performs a passed function on ring data"""
     ring_names = {
@@ -1092,6 +1093,9 @@ class ReductionBlock(MultiTransformBlock):
         for inspan, outspan in self.izip(
                 self.read('in'),
                 self.write('out')):
+            import time
+            time.sleep(5)
+            print "reduction block sees:", self.header
             if self.header['in']['dtype'] == str(np.complex64):
                 inspan = inspan.view(np.complex64)
             if self.header['out']['dtype'] == str(np.complex64):
