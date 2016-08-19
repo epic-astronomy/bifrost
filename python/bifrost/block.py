@@ -973,7 +973,7 @@ class GainSolveBlock(TransformBlock):
         model_span_generator = self.iterate_ring_read(input_rings[1])
         jones_span_generator = self.iterate_ring_read(input_rings[2])
         datatwo = data_span_generator.next()
-        datatwo = datatwo.data_view(np.complex64).reshape((1, 256, 256, 2, 2))
+        datatwo = datatwo.data_view(np.complex64)[0].reshape((1, 256, 256, 2, 2))
         #data = data.data_view(np.complex64).reshape(self.shapes[0])
         #[nchan,nstand^,npol^,nstand,npol]
         data = np.zeros(shape=[1, 256, 2, 256, 2], dtype=np.complex64)
@@ -981,6 +981,8 @@ class GainSolveBlock(TransformBlock):
             for j in range(256):
                 data[0, i, 0, j, 0] = datatwo[0, i, j, 0, 0]
                 data[0, i, 1, j, 1] = datatwo[0, i, j, 1, 1]
+                data[0, i, 0, j, 1] = datatwo[0, i, j, 0, 1]
+                data[0, i, 1, j, 0] = datatwo[0, i, j, 1, 0]
         model = model_span_generator.next()
         model = model.data_view(np.complex64).reshape(self.shapes[1])
         jones = jones_span_generator.next()
@@ -1001,11 +1003,11 @@ class GainSolveBlock(TransformBlock):
         num = ctypes.c_int(1)
         num_unconverged = ctypes.cast(ctypes.addressof(num), num_unconverged_type)
         _bf.SolveGains(
-            gpu_data.as_BFconstarray(100), 
-            gpu_model.as_BFconstarray(100), 
+            gpu_data.as_BFconstarray(100),
+            gpu_model.as_BFconstarray(100),
             array_jones,
             gpu_flags.as_BFarray(100),
-            True, 10, 0.0000001, self.max_iterations, num_unconverged)
+            True, 1.0, 0.005, self.max_iterations, num_unconverged)
             #True, 10.0, 0.000001, self.max_iterations, num_unconverged)
             #Best so far^
         new_gpu_jones = GPUArray(gpu_jones.shape, np.complex64)
@@ -1014,8 +1016,14 @@ class GainSolveBlock(TransformBlock):
         jones = new_gpu_jones.get()
         jones_after = np.copy(jones)
         print jones_before-jones_after
+        singular = 0
         for i in range(jones.shape[2]):
-            jones[0, :, i, :] = np.linalg.inv(jones[0, :, i, :])
+            try:
+                jones[0, :, i, :] = np.linalg.inv(jones[0, :, i, :])
+            except:
+                singular += 1
+                jones[0, :, i, :] = 0#np.array([[1, 0], [0, 1]]).reshape((1, 2, 1, 2)).astype(np.complex64)[0, :, 0, :]
+        print singular, "singular matrices"
         gpu_jones.set(jones)
         self.out_gulp_size = jones.nbytes
         out_jones_generator = self.iterate_ring_write(output_rings[1])

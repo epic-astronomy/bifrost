@@ -403,22 +403,25 @@ blocks.append((
     {'in_vis': 'visibilities', 'in_uv': 'uv_coords', 'out_vis': 'flagged_visibilities'}
     ))
 blocks.append((
-    GainSolveBlock(flags=flags, max_iterations=1000), 
+    GainSolveBlock(flags=flags, max_iterations=5000), 
     ['visibilities', 'model', 'jones_in'],
     ['calibrated_data', 'jones_out']))
 blocks.append((
     SlicingBlock(np.s_[0, :, 0, :, 0]),
-    {'in': 'calibrated_data', 'out': 'scalar_vis'}))
+    {'in': 'calibrated_data', 'out': 'sliced_cal'}))
+blocks.append((
+    SlicingBlock(np.s_[0, :, :, 0, 0]),
+    {'in': 'visibilities', 'out': 'sliced_uncal'}))
 blocks.append((
     ReductionBlock(np.real, output_header={
         'dtype': str(np.float32),
         'nbit': 32}),
-    {'in': 'scalar_vis', 'out': 'real_vis'}))
+    {'in': 'sliced_cal', 'out': 'real_vis'}))
 blocks.append((
    ReductionBlock(np.imag, output_header={
         'dtype': str(np.float32),
         'nbit': 32}),
-    {'in': 'scalar_vis', 'out': 'imag_vis'}))
+    {'in': 'sliced_cal', 'out': 'imag_vis'}))
 blocks.append((
     DStackBlock(),
     {'in_1': 'real_vis', 'in_2': 'imag_vis', 'out': 'realimag_vis'}))
@@ -435,6 +438,7 @@ log_uv = np.loadtxt('log2.txt').reshape((256, 256, 2)).astype(np.float32)
 my_vis = np.zeros(shape=[256, 256, 4]).astype(np.float32)
 my_vis[:, :, 0:2] = log_uv[:, :, :]
 my_vis[:, :, 2:4] = log_vis[:, :, :]
+#bad_stands = []
 bad_stands = [ 0,56,57,58,59,60,61,62,63,72,74,75,76,77,78,82,83,84,85,86,87,91,92,93,104,120,121,122,123,124,125,126,127,128,145,148,157,161,164,168,184,185,186,187,188,189,190,191,197,220,224,225,238,239,240,241,242,243,244,245,246,247,248,249,250,251,252,253,254,255 ]
 for bad_stand in bad_stands:
     my_vis[bad_stand, :, 2:4] = 0
