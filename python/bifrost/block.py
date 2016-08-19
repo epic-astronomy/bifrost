@@ -985,6 +985,7 @@ class GainSolveBlock(TransformBlock):
         model = model.data_view(np.complex64).reshape(self.shapes[1])
         jones = jones_span_generator.next()
         jones = jones.data_view(np.complex64).reshape(self.shapes[2])
+        jones_before = np.copy(jones)
         assert model.shape == data.shape
         assert jones.shape[2] == model.shape[1]
         gpu_data = GPUArray(data.shape, np.complex64)
@@ -1004,12 +1005,16 @@ class GainSolveBlock(TransformBlock):
             gpu_model.as_BFconstarray(100), 
             array_jones,
             gpu_flags.as_BFarray(100),
-            True, 7.0, 0.000001, self.max_iterations, num_unconverged)
+            True, 10, 0.0000001, self.max_iterations, num_unconverged)
             #True, 10.0, 0.000001, self.max_iterations, num_unconverged)
             #Best so far^
-        gpu_jones.buffer = array_jones.data
-        jones = gpu_jones.get()
-        for i in range(max(jones.shape)):
+        new_gpu_jones = GPUArray(gpu_jones.shape, np.complex64)
+        new_gpu_jones.buffer = array_jones.data
+        jones = np.zeros(shape=new_gpu_jones.shape).astype(np.complex64)
+        jones = new_gpu_jones.get()
+        jones_after = np.copy(jones)
+        print jones_before-jones_after
+        for i in range(jones.shape[2]):
             jones[0, :, i, :] = np.linalg.inv(jones[0, :, i, :])
         gpu_jones.set(jones)
         self.out_gulp_size = jones.nbytes

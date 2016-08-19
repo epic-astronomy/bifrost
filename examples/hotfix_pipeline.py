@@ -372,17 +372,17 @@ frequencies = [40e6]
 identity_matrix = np.ones((256, 256, 3), dtype=np.float32)
 baselines_xyz = (identity_matrix*coords)-(identity_matrix*coords).transpose((1, 0, 2))
 median_baseline = np.median(np.abs(baselines_xyz[:, :, 0] + 1j*baselines_xyz[:, :, 1]))
-flags = np.zeros(shape=[1, 256]).astype(np.int8) 
-for stand in [0,56,57,58,59,60,61,62,63,72,74,75,76,77,78,82,83,84,85,86,87,91,92,93,104,120,121,122,123,124,125,126,127,128,145,148,157,161,164,168,184,185,186,187,188,189,190,191,197,220,224,225,238,239,240,241,242,243,244,245,246,247,248,249,250,251,252,253,254,255]:
-    flags[0, stand] = 0
+flags = np.ones(shape=[1, 256]).astype(np.int8)*2
 jones = np.ones(shape=[1, 2, 256, 2]).astype(np.complex64)+1j*np.ones(shape=[1, 2, 256, 2]).astype(np.complex64)
+jones[0, 0, :, 1] = 0.001+0.001j
+jones[0, 1, :, 0] = 0.001+0.001j
 """
 subblocks = []
 subblocks.append((ScalarSkyModelBlock(ovro, coords, frequencies, sources), [], ['test_model']))
 subblocks.append((WriteAsciiBlock('.log.txt'), ['test_model'], []))
 Pipeline(subblocks).main()
 """
-allvis = np.loadtxt('.log.txt', dtype=np.float32)
+allvis = np.loadtxt('model-log.txt', dtype=np.float32)
 test_vis = (allvis[2::4]+1j*allvis[3::4]).astype(np.complex64).reshape((256, 256))
 model_visibilities = np.zeros(shape=[1, 256, 2, 256, 2]).astype(np.complex64)
 model_visibilities[0, :, 0, :, 0] = test_vis[:, :]
@@ -404,7 +404,7 @@ blocks.append((
     ))
 blocks.append((
     GainSolveBlock(flags=flags, max_iterations=1000), 
-    ['visibilities', 'model', 'jones_in'], 
+    ['visibilities', 'model', 'jones_in'],
     ['calibrated_data', 'jones_out']))
 blocks.append((
     SlicingBlock(np.s_[0, :, 0, :, 0]),

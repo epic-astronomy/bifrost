@@ -407,6 +407,9 @@ class ImagingBlock(MultiTransformBlock):
             data_to_plot = np.copy(in_span[0].view(self.dtype)).reshape(self.header['in']['shape'])
             if callable(self.reduction):
                 data_to_plot = self.reduction(data_to_plot)
-            plt.imshow(data_to_plot, cmap='gray', interpolation='nearest')
+            if self.log:
+                plt.imshow(np.log(data_to_plot))
+            else:
+                plt.imshow(data_to_plot)
             plt.colorbar()
             plt.savefig(self.filename)
