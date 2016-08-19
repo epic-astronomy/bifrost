@@ -958,12 +958,24 @@ class NearestNeighborGriddingBlock(TransformBlock):
 
 class GainSolveBlock(TransformBlock):
     """Optimize the Jones matrices to produce the sky model."""
-    def __init__(self, flags = [], max_iterations = 20):
+    def __init__(self, flags=None, max_iterations=20):
+        """
+        @param[in] flags Solution settings [frequency, stand]
+            0-already converged, 1-don't include in calibration,
+            2-unconverged (try to solve for this matrix)
+        @param[in] max_iterations How many iterations before cutting
+            off calibration.
+        """
         super(GainSolveBlock, self).__init__()
+        if flags is None:
+            flags = []
         self.flags = np.array(flags)
         self.shapes = []
         self.max_iterations = max_iterations
     def load_settings(self, input_header):
+        """Set input/output headers and gulp sizes appropriately
+        @param[in] input_header Header for the current
+            ring being read in."""
         print json.loads(input_header.tostring())
         self.shapes.append(json.loads(input_header.tostring())['shape'])
         self.gulp_size = np.product(self.shapes[-1])*8
@@ -1017,7 +1029,6 @@ class GainSolveBlock(TransformBlock):
         jones = np.zeros(shape=new_gpu_jones.shape).astype(np.complex64)
         jones = new_gpu_jones.get()
         jones_after = np.copy(jones)
-        print jones_before-jones_after
         singular = 0
         for i in range(jones.shape[2]):
             try:
