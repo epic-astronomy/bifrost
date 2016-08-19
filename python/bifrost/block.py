@@ -1007,7 +1007,9 @@ class GainSolveBlock(TransformBlock):
             gpu_model.as_BFconstarray(100),
             array_jones,
             gpu_flags.as_BFarray(100),
-            True, 1.0, 0.005, self.max_iterations, num_unconverged)
+            True, 3.0, 0.0025, self.max_iterations, num_unconverged)
+            #True, 3.0, 0.0025, self.max_iterations, num_unconverged)
+            # Good for calibration^
             #True, 10.0, 0.000001, self.max_iterations, num_unconverged)
             #Best so far^
         new_gpu_jones = GPUArray(gpu_jones.shape, np.complex64)

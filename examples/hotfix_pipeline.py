@@ -373,6 +373,9 @@ identity_matrix = np.ones((256, 256, 3), dtype=np.float32)
 baselines_xyz = (identity_matrix*coords)-(identity_matrix*coords).transpose((1, 0, 2))
 median_baseline = np.median(np.abs(baselines_xyz[:, :, 0] + 1j*baselines_xyz[:, :, 1]))
 flags = np.ones(shape=[1, 256]).astype(np.int8)*2
+bad_stands = [ 0,56,57,58,59,60,61,62,63,72,74,75,76,77,78,82,83,84,85,86,87,91,92,93,104,120,121,122,123,124,125,126,127,128,145,148,157,161,164,168,184,185,186,187,188,189,190,191,197,220,224,225,238,239,240,241,242,243,244,245,246,247,248,249,250,251,252,253,254,255 ]
+for bad_stand in bad_stands:
+    flags[0, bad_stand] = 2
 jones = np.ones(shape=[1, 2, 256, 2]).astype(np.complex64)+1j*np.ones(shape=[1, 2, 256, 2]).astype(np.complex64)
 jones[0, 0, :, 1] = 0.001+0.001j
 jones[0, 1, :, 0] = 0.001+0.001j
@@ -403,7 +406,7 @@ blocks.append((
     {'in_vis': 'visibilities', 'in_uv': 'uv_coords', 'out_vis': 'flagged_visibilities'}
     ))
 blocks.append((
-    GainSolveBlock(flags=flags, max_iterations=5000), 
+    GainSolveBlock(flags=flags, max_iterations=20000), 
     ['visibilities', 'model', 'jones_in'],
     ['calibrated_data', 'jones_out']))
 blocks.append((
@@ -455,6 +458,12 @@ blocks.append((
     ['ifftd']))
 blocks.append((
     ImagingBlock(filename='sky.png', reduction=np.abs, log=True),
+    {'in': 'ifftd'}))
+blocks.append((
+    ImagingBlock(filename='realsky.png', reduction=np.real, log=True),
+    {'in': 'ifftd'}))
+blocks.append((
+    ImagingBlock(filename='imagsky.png', reduction=np.imag, log=True),
     {'in': 'ifftd'}))
 Pipeline(blocks).main()
 
