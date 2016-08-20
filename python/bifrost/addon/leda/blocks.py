@@ -31,15 +31,12 @@ This file contains blocks specific to LEDA-OVRO.
 
 import os
 import json
-import itertools
 import numpy as np
 import matplotlib
 ## Use a graphical backend which supports threading
 matplotlib.use('Agg')
 from matplotlib import pyplot as plt
-import bifrost
-from bifrost.addon.leda import bandfiles
-from bifrost.block import SourceBlock, MultiTransformBlock
+from bifrost.block import MultiTransformBlock
 
 DADA_HEADER_SIZE = 4096
 LEDA_OUTRIGGERS = [252, 253, 254, 255, 256]
@@ -123,20 +120,19 @@ class DadaFileRead(object):
                 print "Bad data reshape, possibly due to end of file"
                 break
 
-def build_baseline_ants(nant):
-    nbaseline = nant*(nant+1)/2
-    baseline_ants = np.empty((nbaseline, 2), dtype=np.int32)
-    for i in xrange(nant):
-        for j in xrange(i+1):
-            b = i*(i+1)/2 + j
-            baseline_ants[b,0] = i
-            baseline_ants[b,1] = j
-    return baseline_ants
+def triangle_matrix_indices(side_length):
+    """Returns the indices of the lower triangle in a 2d square matrix
+        @param[in] side_length The number of rows (or columns) in the matrix"""
+    indices = []
+    for row in range(side_length):
+        for column in range(row+1):
+            indices.append([row, column])
+    return np.array(indices)
 
 class NewDadaReadBlock(DadaFileRead, MultiTransformBlock):
     """Read a dada file in with frequency channels in ringlets."""
     ring_names = {
-        'out': """Visibilities outputted as a complex matrix. 
+        'out': """Visibilities outputted as a complex matrix.
             Shape is [frequencies, nstand, nstand, npol, npol]."""}
     def __init__(self, filename, output_chans, time_steps):
         """@param[in] filename The dada file.
@@ -147,8 +143,7 @@ class NewDadaReadBlock(DadaFileRead, MultiTransformBlock):
             time_steps=time_steps,
             filename=filename)
     def main(self):
-        """Put dada file data onto output_ring
-        @param[out] output_ring Ring to contain outgoing data"""
+        """Put dada file data into output ring"""
         self.parse_dada_header()
         self.interpret_header()
         nchan = self.dada_header['NCHAN']
@@ -170,13 +165,21 @@ class NewDadaReadBlock(DadaFileRead, MultiTransformBlock):
                 self.dada_read(),
                 self.write('out')):
             data = np.empty(output_shape, dtype=np.complex64)
-            baseline_ants = build_baseline_ants(nstand)
-            ants_i = baseline_ants[:,0]
-            ants_j = baseline_ants[:,1]
-            data[:,ants_i,ants_j,:,:] = dadafile_data
-            data[:,ants_j,ants_i,:,:] = dadafile_data.conj()
+            triangle_indices = triangle_matrix_indices(side_length=nstand)
+            row_indices = triangle_indices[:, 0]
+            column_indices = triangle_indices[:, 1]
+            data[:, row_indices, column_indices, :, :] = dadafile_data
+            data[:, column_indices, row_indices, :, :] = dadafile_data.conj()
             vis_span[:] = data.view(np.float32).ravel()
         self.file_object.close()
+
+def calculate_cable_delay_matrix(frequencies, delays, dispersions):
+    """Calculate the cable delays,
+        then build a matrix to apply to the visibilities"""
+    cable_delays = (delays+dispersions)/np.sqrt(frequencies)*SPEED_OF_LIGHT*0.82
+    cable_delay_weights = np.exp(1j*2*np.pi*cable_delays/SPEED_OF_LIGHT*frequencies)
+    return cable_delay_weights.astype(np.complex64)
+
 class CableDelayBlock(MultiTransformBlock):
     """Apply cable delays to a visibility matrix"""
     ring_names = {
@@ -187,16 +190,10 @@ class CableDelayBlock(MultiTransformBlock):
         @param[in] delays Delays for each antenna (s)
         @param[in] dispersions Dispersion for each antenna (?)"""
         super(CableDelayBlock, self).__init__()
-        self.cable_delay_matrix = self.calculate_cable_delay_matrix(
+        self.cable_delay_matrix = calculate_cable_delay_matrix(
             frequencies,
             delays,
             dispersions)
-    def calculate_cable_delay_matrix(self, frequencies, delays, dispersions):
-        """Calculate the cable delays,
-            then build a matrix to apply to the visibilities"""
-        cable_delays = (delays+dispersions)/np.sqrt(frequencies)*SPEED_OF_LIGHT*0.82
-        cable_delay_weights = np.exp(1j*2*np.pi*cable_delays/SPEED_OF_LIGHT*frequencies)
-        return cable_delay_weights.astype(np.complex64)
     def load_settings(self):
         """Gulp data appropriately to the shape of the input"""
         sizeofcomplex64 = 8
@@ -227,8 +224,8 @@ class UVCoordinateBlock(MultiTransformBlock):
         with open(self.filename, 'r') as telescope_file:
             telescope = json.load(telescope_file)
         coords_local = np.array(telescope['coords']['local']['__data__'], dtype=np.float32)
-        coords_local = coords_local.reshape(coords_local.size/4,4)
-        antenna_coordinates = coords_local[:,1:]
+        coords_local = coords_local.reshape(coords_local.size/4, 4)
+        antenna_coordinates = coords_local[:, 1:]
         nstand = antenna_coordinates.shape[0]
         identity_matrix = np.ones((nstand, nstand, 3), dtype=np.float32)
         baselines_xyz = (identity_matrix*antenna_coordinates)-(identity_matrix*antenna_coordinates).transpose((1, 0, 2))
@@ -294,7 +291,7 @@ class BaselineSelectorBlock(MultiTransformBlock):
 class SlicingBlock(MultiTransformBlock):
     """Slice incoming data arrays with numpy indices"""
     ring_names = {
-        'in': """The array to slice. Number of dimensions should be the same 
+        'in': """The array to slice. Number of dimensions should be the same
             as the slice""",
         'out': """The sliced array. The number of dimensions might be different
             from the incoming array."""}
@@ -303,6 +300,7 @@ class SlicingBlock(MultiTransformBlock):
             This get used on input data."""
         super(SlicingBlock, self).__init__()
         self.indices = indices
+        self.dtype = np.float32
     def load_settings(self):
         """Calculate the outgoing slice size"""
         self.gulp_size['in'] = int(np.product(self.header['in']['shape']))*self.header['in']['nbit']//8
