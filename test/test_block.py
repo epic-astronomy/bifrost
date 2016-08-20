@@ -345,7 +345,7 @@ class TestFakeVisBlock(unittest.TestCase):
     def setUp(self):
         self.datafile_name = "/data1/mcranmer/data/fake/mona_uvw.dat"
         self.blocks = []
-        self.num_stands = 256
+        self.num_stands = 512
         self.blocks.append(
             (FakeVisBlock(self.datafile_name, self.num_stands), [], [0]))
         self.blocks.append((WriteAsciiBlock('.log.txt'), [0], []))
@@ -355,22 +355,10 @@ class TestFakeVisBlock(unittest.TestCase):
         # Number of uvw values:
         ring_buffer_output = np.loadtxt('.log.txt', dtype=np.float32)
         length_ring_buffer = ring_buffer_output.size
-        self.assertAlmostEqual(length_ring_buffer, 6*self.num_stands*(self.num_stands+1)//2, -2)
-    def test_valid_output(self):
-        """Make sure that the numbers in the ring match the uvw data"""
-        Pipeline(self.blocks).main()
-        ring_buffer_10th_u_coord = open('.log.txt', 'r').read().split(' ')[9*4]
-        line_count = 0
-        for line in open(self.datafile_name, 'r'):
-            line_count += 1
-            if line_count == 10:
-                data_file_10th_line = line
-                break
-        data_file_10th_u_coord = data_file_10th_line.split(' ')[3]
         self.assertAlmostEqual(
-            float(ring_buffer_10th_u_coord),
-            float(data_file_10th_u_coord),
-            3)
+            length_ring_buffer,
+            6*self.num_stands*(self.num_stands+1)//2,
+            -2)
     def test_different_size_data(self):
         """Assert that different data sizes are processed properly"""
         datafile_name = "/data1/mcranmer/data/fake/mona_uvw_half.dat"
