@@ -25,8 +25,9 @@
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+"""@module test_blocks
+This program tests the LEDA specific blocks of Bifrost"""
 import unittest
-import bifrost
 import json
 import os
 import numpy as np
@@ -37,21 +38,32 @@ from bifrost.addon.leda.blocks import UVCoordinateBlock, BaselineSelectorBlock
 from bifrost.addon.leda.blocks import SlicingBlock, ImagingBlock
 
 def load_telescope(filename):
+    """Load in LEDA's settings file (coded as a JSON)
+        @param[in] filename The JSON file.
+        @returns telescope - The full JSON file as a dictionary
+        @returns ant_coords - The coordinates of the LEDA stands
+        @returns delays - The delays of each stand [antenna, polarization]
+        @returns dispersions- The dispersions of each stand [antenna, polarization]"""
     with open(filename, 'r') as telescope_file:
         telescope = json.load(telescope_file)
     coords_local = np.array(telescope['coords']['local']['__data__'], dtype=np.float32)
     # Reshape into ant,column
-    coords_local = coords_local.reshape(coords_local.size/4,4)
-    ant_coords = coords_local[:,1:]
+    coords_local = coords_local.reshape(coords_local.size/4, 4)
+    ant_coords = coords_local[:, 1:]
     inputs = np.array(telescope['inputs']['__data__'], dtype=np.float32)
     # Reshape into ant,pol,column
-    inputs      = inputs.reshape(inputs.size/7/2,2,7)
-    delays      = inputs[:,:,5]*1e-9
-    dispersions = inputs[:,:,6]*1e-9
+    inputs = inputs.reshape(inputs.size/7/2, 2, 7)
+    delays = inputs[:, :, 5]*1e-9
+    dispersions = inputs[:, :, 6]*1e-9
     return telescope, ant_coords, delays, dispersions
 
 #LEDA stand flags:
-bad_stands = [ 0,56,57,58,59,60,61,62,63,72,74,75,76,77,78,82,83,84,85,86,87,91,92,93,104,120,121,122,123,124,125,126,127,128,145,148,157,161,164,168,184,185,186,187,188,189,190,191,197,220,224,225,238,239,240,241,242,243,244,245,246,247,248,249,250,251,252,253,254,255 ]
+BAD_STANDS = [
+    0, 56, 57, 58, 59, 60, 61, 62, 63, 72, 74, 75, 76, 77, 78, 82, 83, 84, 85, 86, 87,
+    91, 92, 93, 104, 120, 121, 122, 123, 124, 125, 126, 127, 128, 145, 148, 157, 161,
+    164, 168, 184, 185, 186, 187, 188, 189, 190, 191, 197, 220, 224, 225, 238, 239,
+    240, 241, 242, 243, 244, 245, 246, 247, 248, 249, 250, 251, 252, 253, 254, 255]
+LEDA_SETTINGS_FILE = "/data1/mcranmer/data/real/leda/lwa_ovro.telescope.json"
 
 class TestNewDadaReadBlock(unittest.TestCase):
     """Test the ability of the Dada block to read
@@ -64,25 +76,30 @@ class TestNewDadaReadBlock(unittest.TestCase):
         self.n_stations = 256
         self.n_pol = 2
         self.blocks = []
-        self.blocks.append((NewDadaReadBlock(dadafile, output_chans=[100], time_steps=1), 
+        self.blocks.append((
+            NewDadaReadBlock(dadafile, output_chans=[100], time_steps=1),
             {'out': 0}))
-        self.blocks.append((WriteAsciiBlock(self.logfile_visibilities ), [0], []))
-        Pipeline(self.blocks).main() 
+        self.blocks.append((WriteAsciiBlock(self.logfile_visibilities), [0], []))
+        Pipeline(self.blocks).main()
     def test_read_and_write(self):
         """Make sure some data is being written"""
         dumpsize = os.path.getsize(self.logfile_visibilities)
         self.assertGreater(dumpsize, 100)
     def test_output_size(self):
         """Make sure dada read block is putting out full matrix"""
-        baseline_visibilities = np.loadtxt(self.logfile_visibilities, dtype=np.float32).view(np.complex64)
+        baseline_visibilities = np.loadtxt(
+            self.logfile_visibilities,
+            dtype=np.float32).view(np.complex64)
         self.assertEqual(baseline_visibilities.size, self.n_pol**2*self.n_stations**2)
     def test_imaging(self):
         """Try to grid and image the data"""
         visibilities = np.loadtxt(self.logfile_visibilities, dtype=np.float32).view(np.complex64)
-        visibilities = visibilities.reshape((self.n_stations, self.n_stations, self.n_pol, self.n_pol))[:, :, 0, 0]
-        antenna_coordinates = load_telescope("/data1/mcranmer/data/real/leda/lwa_ovro.telescope.json")[1]
+        visibilities = visibilities.reshape(
+            (self.n_stations, self.n_stations, self.n_pol, self.n_pol))[:, :, 0, 0]
+        antenna_coordinates = load_telescope(LEDA_SETTINGS_FILE)[1]
         identity_matrix = np.ones((self.n_stations, self.n_stations, 3), dtype=np.float32)
-        baselines_xyz = (identity_matrix*antenna_coordinates)-(identity_matrix*antenna_coordinates).transpose((1, 0, 2))
+        baselines_xyz = (identity_matrix*antenna_coordinates)-\
+            (identity_matrix*antenna_coordinates).transpose((1, 0, 2))
         baselines_u = baselines_xyz[:, :, 0].reshape(-1)
         baselines_v = baselines_xyz[:, :, 1].reshape(-1)
         assert visibilities.dtype == np.complex64
