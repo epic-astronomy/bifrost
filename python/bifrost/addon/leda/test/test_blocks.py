@@ -32,7 +32,7 @@ import os
 import numpy as np
 from bifrost.block import WriteAsciiBlock, Pipeline, TestingBlock, NearestNeighborGriddingBlock
 from bifrost.block import IFFT2Block
-from bifrost.addon.leda.blocks import DadaReadBlock, NewDadaReadBlock, CableDelayBlock
+from bifrost.addon.leda.blocks import NewDadaReadBlock, CableDelayBlock
 from bifrost.addon.leda.blocks import UVCoordinateBlock, BaselineSelectorBlock
 from bifrost.addon.leda.blocks import SlicingBlock, ImagingBlock
 
@@ -53,32 +53,6 @@ def load_telescope(filename):
 #LEDA stand flags:
 bad_stands = [ 0,56,57,58,59,60,61,62,63,72,74,75,76,77,78,82,83,84,85,86,87,91,92,93,104,120,121,122,123,124,125,126,127,128,145,148,157,161,164,168,184,185,186,187,188,189,190,191,197,220,224,225,238,239,240,241,242,243,244,245,246,247,248,249,250,251,252,253,254,255 ]
 
-class TestDadaBlock(unittest.TestCase):
-    """Test the ability of the Dada block to read
-        in data that is compatible with other blocks."""
-    def setUp(self):
-        self.blocks = []
-        self.blocks.append(
-            (DadaReadBlock(
-                "/data1/mcranmer/data/real/leda/2016_xaa.dada"),
-            [], [0]))
-    def test_read_and_write(self):
-        """Reads in a dada file, and logs in ascii
-            file."""
-        logfile = '.log.txt'
-        self.blocks.append((WriteAsciiBlock(logfile), [0], []))
-        Pipeline(self.blocks).main() 
-        test_bytes = open(logfile, 'r').read(500).split(' ')
-        self.assertAlmostEqual(np.float(test_bytes[0]), 3908.5, 3)
-    def test_read_copy_write(self):
-        """Adds another intermediate block to the
-            last step."""
-        logfile = '.log.txt'
-        self.blocks.append((CopyBlock(), [0], [1, 2, 3]))
-        self.blocks.append((WriteAsciiBlock(logfile), [3], []))
-        Pipeline(self.blocks).main() 
-        test_bytes = open(logfile, 'r').read(500).split(' ')
-        self.assertAlmostEqual(np.float(test_bytes[0]), 3908.5, 3)
 class TestNewDadaReadBlock(unittest.TestCase):
     """Test the ability of the Dada block to read
         in data that is compatible with other blocks."""
