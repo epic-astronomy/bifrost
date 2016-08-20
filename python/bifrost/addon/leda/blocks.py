@@ -174,8 +174,10 @@ class NewDadaReadBlock(DadaFileRead, MultiTransformBlock):
         self.file_object.close()
 
 def calculate_cable_delay_matrix(frequencies, delays, dispersions):
-    """Calculate the cable delays,
-        then build a matrix to apply to the visibilities"""
+    """Calculate the cable delays, then build a matrix to apply to the visibilities
+        @param[in] frequencies Frequencies of data in (Hz)
+        @param[in] delays Delays for each antenna (s)
+        @param[in] dispersions Dispersion for each antenna (?)"""
     cable_delays = (delays+dispersions)/np.sqrt(frequencies)*SPEED_OF_LIGHT*0.82
     cable_delay_weights = np.exp(1j*2*np.pi*cable_delays/SPEED_OF_LIGHT*frequencies)
     return cable_delay_weights.astype(np.complex64)
@@ -303,33 +305,46 @@ class SlicingBlock(MultiTransformBlock):
         self.dtype = np.float32
     def load_settings(self):
         """Calculate the outgoing slice size"""
-        self.gulp_size['in'] = int(np.product(self.header['in']['shape']))*self.header['in']['nbit']//8
-        output_settings = np.array([np.zeros(self.header['in']['shape'], dtype=np.int8)[self.indices]])
-        self.gulp_size['out'] = output_settings.nbytes*self.header['in']['nbit']//8
+        self.gulp_size['in'] = int(np.product(self.header['in']['shape']))*\
+            self.header['in']['nbit']//8
+        output_array = np.array(
+            [np.zeros(self.header['in']['shape'], dtype=np.int8)[self.indices]])
+        self.gulp_size['out'] = output_array.nbytes*self.header['in']['nbit']//8
         self.header['out'] = self.header['in'].copy()
-        self.dtype = np.dtype(self.header['in']['dtype'].split()[1].split(".")[1].split("'")[0]).type
-        if len(output_settings.shape) > 1:
-            self.header['out']['shape'] = output_settings.shape[1:]
+        self.dtype = np.dtype(
+            self.header['in']['dtype'].split()[1].split(".")[1].split("'")[0]).type
+        if len(output_array.shape) > 1:
+            self.header['out']['shape'] = output_array.shape[1:]
         else:
             self.header['out']['shape'] = [1, 1]
     def main(self):
+        """Slice the incoming spans into the output span"""
         for in_span, out_span in self.izip(self.read('in'), self.write('out')):
             shaped_data = in_span.view(self.dtype).reshape(self.header['in']['shape'])[self.indices]
             out_span.view(shaped_data.dtype.type)[:] = shaped_data.ravel()
 
 class ImagingBlock(MultiTransformBlock):
+    """Image a 2D matrix using matplotlib.pyplot.imsave"""
     ring_names = {
         'in': """Data to be imaged. Each input span will
             generate an image under the same name"""}
     def __init__(self, filename, reduction=None, log=False):
+        """@param[in] filename Where to save the image
+            @param[in] reduction A function to be applied to the matrix before imaging (e.g., abs)
+            @param[in] log Whether or not to take an np.log of the matrix before imaging"""
         super(ImagingBlock, self).__init__()
         self.filename = filename
         self.reduction = reduction
         self.log = log
+        self.dtype = np.float32
     def load_settings(self):
-        self.gulp_size['in'] = int(np.product(self.header['in']['shape']))*self.header['in']['nbit']//8
-        self.dtype = np.dtype(self.header['in']['dtype'].split()[1].split(".")[1].split("'")[0]).type
+        """Update gulp size settings based on inputted header"""
+        self.gulp_size['in'] = int(np.product(self.header['in']['shape']))*\
+            self.header['in']['nbit']//8
+        self.dtype = np.dtype(
+            self.header['in']['dtype'].split()[1].split(".")[1].split("'")[0]).type
     def main(self):
+        """Load in each span, and save them to the same file as an image (it will update)"""
         for in_span in self.read('in'):
             data_to_plot = np.copy(in_span[0].view(self.dtype)).reshape(self.header['in']['shape'])
             if callable(self.reduction):
