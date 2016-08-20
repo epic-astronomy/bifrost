@@ -362,11 +362,15 @@ class TestFakeVisBlock(unittest.TestCase):
     def test_different_size_data(self):
         """Assert that different data sizes are processed properly"""
         datafile_name = "/data1/mcranmer/data/fake/mona_uvw_half.dat"
-        self.blocks[0] = (FakeVisBlock(datafile_name, 512), [], [0])
+        self.num_stands = 256
+        self.blocks[0] = (FakeVisBlock(datafile_name, self.num_stands), [], [0])
         Pipeline(self.blocks).main()
-        length_ring_buffer = len(open('.log.txt', 'r').read().split(' '))
-        length_data_file = sum(1 for line in open(datafile_name, 'r'))
-        self.assertAlmostEqual(length_ring_buffer, 4*length_data_file, -2)
+        ring_buffer_output = np.loadtxt('.log.txt', dtype=np.float32)
+        length_ring_buffer = ring_buffer_output.size
+        self.assertAlmostEqual(
+            length_ring_buffer,
+            6*self.num_stands*(self.num_stands+1)//2,
+            -2)
 class TestNearestNeighborGriddingBlock(unittest.TestCase):
     """Test the functionality of the nearest neighbor gridding block"""
     def setUp(self):
