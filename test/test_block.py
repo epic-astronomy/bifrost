@@ -345,16 +345,17 @@ class TestFakeVisBlock(unittest.TestCase):
     def setUp(self):
         self.datafile_name = "/data1/mcranmer/data/fake/mona_uvw.dat"
         self.blocks = []
+        self.num_stands = 256
         self.blocks.append(
-            (FakeVisBlock(self.datafile_name, 512), [], [0]))
+            (FakeVisBlock(self.datafile_name, self.num_stands), [], [0]))
         self.blocks.append((WriteAsciiBlock('.log.txt'), [0], []))
     def test_output_size(self):
         """Make sure the outputs are being sized appropriate to the file"""
         Pipeline(self.blocks).main()
         # Number of uvw values:
-        length_ring_buffer = len(open('.log.txt', 'r').read().split(' '))
-        length_data_file = sum(1 for line in open(self.datafile_name, 'r'))
-        self.assertAlmostEqual(length_ring_buffer, 4*length_data_file, -2)
+        ring_buffer_output = np.loadtxt('.log.txt', dtype=np.float32)
+        length_ring_buffer = ring_buffer_output.size
+        self.assertAlmostEqual(length_ring_buffer, 6*self.num_stands*(self.num_stands+1)//2, -2)
     def test_valid_output(self):
         """Make sure that the numbers in the ring match the uvw data"""
         Pipeline(self.blocks).main()
