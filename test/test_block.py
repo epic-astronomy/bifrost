@@ -348,29 +348,32 @@ class TestFakeVisBlock(unittest.TestCase):
         self.num_stands = 512
         self.blocks.append(
             (FakeVisBlock(self.datafile_name, self.num_stands), [], [0]))
-        self.blocks.append((WriteAsciiBlock('.log.txt'), [0], []))
+    def tearDown(self):
+        """Run the pipeline (which should have the asserts inside it)"""
+        Pipeline(self.blocks).main()
     def test_output_size(self):
         """Make sure the outputs are being sized appropriate to the file"""
-        Pipeline(self.blocks).main()
-        # Number of uvw values:
-        ring_buffer_output = np.loadtxt('.log.txt', dtype=np.float32)
-        length_ring_buffer = ring_buffer_output.size
-        self.assertAlmostEqual(
-            length_ring_buffer,
-            6*self.num_stands*(self.num_stands+1)//2,
-            -2)
+        def verify_ring_size(array):
+            self.assertAlmostEqual(
+                array.size,
+                6*self.num_stands*(self.num_stands+1)//2,
+                -2)
+        self.blocks.append([
+            NumpyBlock(function=verify_ring_size, outputs=0),
+            {'in_1': 0}])
     def test_different_size_data(self):
         """Assert that different data sizes are processed properly"""
-        datafile_name = "/data1/mcranmer/data/fake/mona_uvw_half.dat"
         self.num_stands = 256
+        def verify_ring_size(array):
+            self.assertAlmostEqual(
+                array.size,
+                6*self.num_stands*(self.num_stands+1)//2,
+                -2)
+        datafile_name = "/data1/mcranmer/data/fake/mona_uvw_half.dat"
         self.blocks[0] = (FakeVisBlock(datafile_name, self.num_stands), [], [0])
-        Pipeline(self.blocks).main()
-        ring_buffer_output = np.loadtxt('.log.txt', dtype=np.float32)
-        length_ring_buffer = ring_buffer_output.size
-        self.assertAlmostEqual(
-            length_ring_buffer,
-            6*self.num_stands*(self.num_stands+1)//2,
-            -2)
+        self.blocks.append([
+            NumpyBlock(function=verify_ring_size, outputs=0),
+            {'in_1': 0}])
 class TestNearestNeighborGriddingBlock(unittest.TestCase):
     """Test the functionality of the nearest neighbor gridding block"""
     def setUp(self):
