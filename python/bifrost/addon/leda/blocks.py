@@ -317,7 +317,7 @@ class SlicingBlock(MultiTransformBlock):
     def main(self):
         for in_span, out_span in self.izip(self.read('in'), self.write('out')):
             shaped_data = in_span.view(self.dtype).reshape(self.header['in']['shape'])[self.indices]
-            out_span.view(np.complex64)[:] = shaped_data.ravel()
+            out_span.view(shaped_data.dtype.type)[:] = shaped_data.ravel()
 
 class ImagingBlock(MultiTransformBlock):
     ring_names = {
