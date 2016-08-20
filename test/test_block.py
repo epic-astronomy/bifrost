@@ -481,13 +481,25 @@ class TestGainSolveBlock(unittest.TestCase):
         self.blocks = []
     def generate_new_jones(self):
         """Run a pipeline to create a new jones matrix"""
-        self.blocks.append((WriteAsciiBlock('.log.txt'), ['jones_out'], []))
+        out_jones = np.array([])
+        def store_jones(jones):
+            out_jones = np.zeros(shape=jones.shape, dtype=jones.dtype)
+            out_jones.ravel()[:] = jones.ravel()[:]
+        self.blocks.append([NumpyBlock(store_jones, outputs=0), {'in_1':'jones_out'}])
+        #self.blocks.append((WriteAsciiBlock('.log.txt'), ['jones_out'], []))
         Pipeline(self.blocks).main()
-        out_jones = np.loadtxt('.log.txt').astype(np.float32).view(np.complex64)
+        #out_jones = np.loadtxt('.log.txt').astype(np.float32).view(np.complex64)
         return out_jones
     def test_throughput(self):
         """Test shapes are compatible and output is indeed different"""
         for nchan in range(1, 5):
+            self.blocks = []
+            flags = 2*np.ones(shape=[
+                nchan, self.nstand]).astype(np.int8)
+            self.blocks.append([
+                GainSolveBlock(flags=flags), 
+                ['data', 'model', 'jones_in'], 
+                ['calibrated_data', 'jones_out']])
             model = 10*np.random.rand(
                 nchan, self.nstand, 
                 self.npol, self.nstand, 
@@ -499,19 +511,12 @@ class TestGainSolveBlock(unittest.TestCase):
             jones = np.ones(shape=[
                 nchan, self.npol, 
                 self.nstand, self.npol]).astype(np.complex64)
-            flags = 2*np.ones(shape=[
-                nchan, self.nstand]).astype(np.int8)
-            self.blocks.append([
-                GainSolveBlock(flags=flags), 
-                ['data', 'model', 'jones_in'], 
-                ['calibrated_data', 'jones_out']])
             self.blocks.append((TestingBlock(model), [], ['model']))
             self.blocks.append((TestingBlock(data), [], ['data']))
             self.blocks.append((TestingBlock(jones), [], ['jones_in']))
             out_jones = self.generate_new_jones()
             self.assertEqual(out_jones.size, jones.size)
             self.assertGreater(np.max(np.abs(out_jones - jones.ravel())), 1e-3)
-            self.blocks = []
     def test_solving_to_skymodel(self):
         """Attempt to solve a perturbed sky model to the original model"""
         pass
