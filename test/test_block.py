@@ -354,6 +354,7 @@ class TestFakeVisBlock(unittest.TestCase):
     def test_output_size(self):
         """Make sure the outputs are being sized appropriate to the file"""
         def verify_ring_size(array):
+            """Check ring output size"""
             self.assertAlmostEqual(
                 array.size,
                 6*self.num_stands*(self.num_stands+1)//2,
@@ -365,6 +366,7 @@ class TestFakeVisBlock(unittest.TestCase):
         """Assert that different data sizes are processed properly"""
         self.num_stands = 256
         def verify_ring_size(array):
+            """Check ring output size"""
             self.assertAlmostEqual(
                 array.size,
                 6*self.num_stands*(self.num_stands+1)//2,
@@ -476,25 +478,16 @@ class TestGainSolveBlock(unittest.TestCase):
         self.nchan = 1
         self.nstand = 256
         self.npol = 2
-    def generate_new_jones(self, model, data, jones, flags):
+        self.blocks = []
+    def generate_new_jones(self):
         """Run a pipeline to create a new jones matrix"""
-        blocks = []
-        blocks.append((TestingBlock(model), [], ['model']))
-        blocks.append((TestingBlock(data), [], ['data']))
-        blocks.append((TestingBlock(jones), [], ['jones_in']))
-        blocks.append((
-            GainSolveBlock(flags=flags), 
-            ['data', 'model', 'jones_in'], 
-            ['calibrated_data', 'jones_out']))
-        blocks.append((WriteAsciiBlock('.log.txt'), ['jones_out'], []))
-        Pipeline(blocks).main()
+        self.blocks.append((WriteAsciiBlock('.log.txt'), ['jones_out'], []))
+        Pipeline(self.blocks).main()
         out_jones = np.loadtxt('.log.txt').astype(np.float32).view(np.complex64)
         return out_jones
     def test_throughput(self):
         """Test shapes are compatible and output is indeed different"""
         for nchan in range(1, 5):
-            flags = 2*np.ones(shape=[
-                nchan, self.nstand]).astype(np.int8)
             model = 10*np.random.rand(
                 nchan, self.nstand, 
                 self.npol, self.nstand, 
@@ -506,9 +499,22 @@ class TestGainSolveBlock(unittest.TestCase):
             jones = np.ones(shape=[
                 nchan, self.npol, 
                 self.nstand, self.npol]).astype(np.complex64)
-            out_jones = self.generate_new_jones(model, data, jones, flags)
+            flags = 2*np.ones(shape=[
+                nchan, self.nstand]).astype(np.int8)
+            self.blocks.append([
+                GainSolveBlock(flags=flags), 
+                ['data', 'model', 'jones_in'], 
+                ['calibrated_data', 'jones_out']])
+            self.blocks.append((TestingBlock(model), [], ['model']))
+            self.blocks.append((TestingBlock(data), [], ['data']))
+            self.blocks.append((TestingBlock(jones), [], ['jones_in']))
+            out_jones = self.generate_new_jones()
             self.assertEqual(out_jones.size, jones.size)
             self.assertGreater(np.max(np.abs(out_jones - jones.ravel())), 1e-3)
+            self.blocks = []
+    def test_solving_to_skymodel(self):
+        """Attempt to solve a perturbed sky model to the original model"""
+        pass
 class TestMultiTransformBlock(unittest.TestCase):
     """Test call syntax and function of a multi transform block"""
     def test_add_block(self):
