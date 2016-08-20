@@ -976,7 +976,6 @@ class GainSolveBlock(TransformBlock):
         """Set input/output headers and gulp sizes appropriately
         @param[in] input_header Header for the current
             ring being read in."""
-        print json.loads(input_header.tostring())
         self.shapes.append(json.loads(input_header.tostring())['shape'])
         self.gulp_size = np.product(self.shapes[-1])*8
         self.output_header = input_header
@@ -984,10 +983,12 @@ class GainSolveBlock(TransformBlock):
         data_span_generator = self.iterate_ring_read(input_rings[0])
         model_span_generator = self.iterate_ring_read(input_rings[1])
         jones_span_generator = self.iterate_ring_read(input_rings[2])
+        data = data_span_generator.next()
+        data = data.data_view(np.complex64).reshape(self.shapes[0])
+        #[nchan,nstand^,npol^,nstand,npol]
+        """
         datatwo = data_span_generator.next()
         datatwo = datatwo.data_view(np.complex64)[0].reshape((1, 256, 256, 2, 2))
-        #data = data.data_view(np.complex64).reshape(self.shapes[0])
-        #[nchan,nstand^,npol^,nstand,npol]
         data = np.zeros(shape=[1, 256, 2, 256, 2], dtype=np.complex64)
         for i in range(256):
             for j in range(256):
@@ -995,6 +996,7 @@ class GainSolveBlock(TransformBlock):
                 data[0, i, 1, j, 1] = datatwo[0, i, j, 1, 1]
                 data[0, i, 0, j, 1] = datatwo[0, i, j, 0, 1]
                 data[0, i, 1, j, 0] = datatwo[0, i, j, 1, 0]
+                """
         model = model_span_generator.next()
         model = model.data_view(np.complex64).reshape(self.shapes[1])
         jones = jones_span_generator.next()
@@ -1036,7 +1038,8 @@ class GainSolveBlock(TransformBlock):
             except:
                 singular += 1
                 jones[0, :, i, :] = 0#np.array([[1, 0], [0, 1]]).reshape((1, 2, 1, 2)).astype(np.complex64)[0, :, 0, :]
-        print singular, "singular matrices"
+        #if singular == jones.shape[2]:
+            #raise AssertionError("All matrices are singular. Calibration failed.")
         gpu_jones.set(jones)
         self.out_gulp_size = jones.nbytes
         out_jones_generator = self.iterate_ring_write(output_rings[1])

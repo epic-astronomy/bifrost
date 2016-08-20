@@ -494,40 +494,25 @@ class TestGainSolveBlock(unittest.TestCase):
         Pipeline(blocks).main()
         out_jones = np.loadtxt('.log.txt').astype(np.float32).view(np.complex64)
         return out_jones
-    def test_throughput_size(self):
-        """Test input/output sizes are compatible"""
+    def test_throughput(self):
+        """Test shapes are compatible and output is indeed different"""
         for nchan in range(1, 5):
-            flags = np.zeros(shape=[
+            flags = 2*np.ones(shape=[
                 nchan, self.nstand]).astype(np.int8)
-            model = np.zeros(shape=[
+            model = 10*np.random.rand(
                 nchan, self.nstand, 
                 self.npol, self.nstand, 
-                self.npol]).astype(np.complex64)
-            data = np.copy(model)
-            jones = np.zeros(shape=[
+                self.npol).astype(np.complex64)
+            data = 10*np.random.rand(
+                nchan, self.nstand, 
+                self.npol, self.nstand, 
+                self.npol).astype(np.complex64)
+            jones = np.ones(shape=[
                 nchan, self.npol, 
                 self.nstand, self.npol]).astype(np.complex64)
             out_jones = self.generate_new_jones(model, data, jones, flags)
-            self.assertEqual(
-                out_jones.size, 
-                jones.size)
-    def test_jones_changing(self):
-        """Assert that the jones matrices are different than as entered"""
-        flags = 2*np.ones(shape=[
-            self.nchan, self.nstand]).astype(np.int8)
-        model = 10*np.random.rand(
-            self.nchan, self.nstand, 
-            self.npol, self.nstand, 
-            self.npol).astype(np.complex64)
-        data = 10*np.random.rand(
-            self.nchan, self.nstand, 
-            self.npol, self.nstand, 
-            self.npol).astype(np.complex64)
-        jones = np.ones(shape=[
-            self.nchan, self.npol, 
-            self.nstand, self.npol]).astype(np.complex64)
-        out_jones = self.generate_new_jones(model, data, jones, flags)
-        self.assertGreater(np.max(np.abs(out_jones - jones.ravel())), 1e-3)
+            self.assertEqual(out_jones.size, jones.size)
+            self.assertGreater(np.max(np.abs(out_jones - jones.ravel())), 1e-3)
 class TestMultiTransformBlock(unittest.TestCase):
     """Test call syntax and function of a multi transform block"""
     def test_add_block(self):
