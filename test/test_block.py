@@ -478,8 +478,15 @@ class TestGainSolveBlock(unittest.TestCase):
         self.nchan = 1
         self.nstand = 256
         self.npol = 2
+        self.jones = np.ones(shape=[
+            1, self.npol,
+            self.nstand, self.npol]).astype(np.complex64)
     def test_throughput(self):
         """Test shapes are compatible and output is indeed different"""
+        def test_jones(out_jones):
+            """Make sure the jones matrices are changing"""
+            self.assertEqual(out_jones.size, self.jones.size)
+            self.assertGreater(np.max(np.abs(out_jones - self.jones)), 1e-3)
         for nchan in range(1, 2):
             blocks = []
             flags = 2*np.ones(shape=[
@@ -492,36 +499,26 @@ class TestGainSolveBlock(unittest.TestCase):
                 nchan, self.nstand,
                 self.npol, self.nstand,
                 self.npol).astype(np.complex64)
-            jones = np.ones(shape=[
-                nchan, self.npol,
-                self.nstand, self.npol]).astype(np.complex64)
             blocks.append((TestingBlock(model), [], ['model']))
             blocks.append((TestingBlock(data), [], ['data']))
-            blocks.append((TestingBlock(jones), [], ['jones_in']))
+            blocks.append((TestingBlock(self.jones), [], ['jones_in']))
             blocks.append([
                 GainSolveBlock(flags=flags),
                 ['data', 'model', 'jones_in'],
                 ['calibrated_data', 'jones_out']])
-            def test_jones(out_jones):
-                """Make sure the jones matrices are changing"""
-                global jones
-                self.assertEqual(out_jones.size, jones.size)
-                self.assertGreater(np.max(np.abs(out_jones - jones)), 1e-3)
             blocks.append([NumpyBlock(test_jones, outputs=0), {'in_1':'jones_out'}])
             Pipeline(blocks).main()
     def test_solving_to_skymodel(self):
         """Attempt to solve a sky model to itself"""
         #TODO: This relies on LEDA-specific blocks.
-        import ephem
         from bifrost.addon.leda.model_block import ScalarSkyModelBlock
         from bifrost.addon.leda.blocks import load_telescope, LEDA_SETTINGS_FILE, OVRO_EPHEM
-        telescope, coords, delays, dispersions = load_telescope(LEDA_SETTINGS_FILE)
+        coords = load_telescope(LEDA_SETTINGS_FILE)[1]
         sources = {}
         sources['cyg'] = {
             'ra':'19:59:28.4', 'dec':'+40:44:02.1', 'flux': 10571.0, 'frequency': 58e6, 
             'spectral index': -0.2046}
         frequencies = [58e6]
-        nchan = len(frequencies)
         blocks = []
         blocks.append((ScalarSkyModelBlock(OVRO_EPHEM, coords, frequencies, sources), [], ['model+uv']))
         def slice_away_uv(model_and_uv):
@@ -534,24 +531,18 @@ class TestGainSolveBlock(unittest.TestCase):
         blocks.append((NumpyBlock(slice_away_uv), {'in_1': 'model+uv', 'out_1': 'model'}))
         blocks.append((NumpyBlock(np.copy), {'in_1': 'model', 'out_1': 'same_model'}))
         flags = 2*np.ones(shape=[
-            nchan, self.nstand]).astype(np.int8)
-        jones = 2*np.ones(shape=[
-            nchan, self.npol, 
-            self.nstand, self.npol]).astype(np.complex64)
-        blocks.append((TestingBlock(jones), [], ['jones_in']))
+            1, self.nstand]).astype(np.int8)
+        blocks.append((TestingBlock(2*self.jones), [], ['jones_in']))
         blocks.append([
             GainSolveBlock(flags=flags, eps=0.05), ['model', 'same_model', 'jones_in'], ['calibrated_data', 'jones_out']])
-        self.i = 0
         def assert_almost_unity(jones_matrices):
             """Make sure that the jones are almost the identity"""
             unity_jones = np.ones(shape=[
-                nchan, self.npol, 
+                1, self.npol,
                 self.nstand, self.npol]).astype(np.complex64)
             unity_jones[:, 0, :, 1] = 0
             unity_jones[:, 1, :, 0] = 0
-            if self.i > 0:
-                np.testing.assert_almost_equal(jones_matrices, unity_jones, 1)
-            self.i+=1
+            np.testing.assert_almost_equal(jones_matrices, unity_jones, 1)
         blocks.append((NumpyBlock(assert_almost_unity, outputs=0), {'in_1': 'jones_out'}))
         Pipeline(blocks).main()
 class TestMultiTransformBlock(unittest.TestCase):
@@ -805,10 +796,10 @@ class TestNumpyBlock(unittest.TestCase):
             second_connections])
         self.expected_result = np.dstack((self.test_array,)*(len(second_connections)-1)).ravel()
     def test_zero_outputs(self):
-        """Test that zero outputs work with the NumpyBlock"""
+        """Test zero outputs on NumpyBlock. Nothing should be sent through self.function at init"""
         def assert_something(array):
             """Assert the array is only 4 numbers, and return nothing"""
-            self.assertEqual(array.size, 4)
+            np.testing.assert_almost_equal(array, [1, 2, 3, 4])
         self.blocks.append([
             NumpyBlock(function=assert_something, outputs=0),
             {'in_1': 0}])
@@ -830,4 +821,3 @@ class TestNumpyBlock(unittest.TestCase):
             {'in_1': 0, 'out_1': 1}])
         Pipeline(self.blocks).main()
         self.expected_result = self.global_variable
-    #TODO: Test which shows that if outputs=0, no test arrays should be sent through! (i.e., no need to test function)
