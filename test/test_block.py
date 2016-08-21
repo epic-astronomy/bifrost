@@ -836,6 +836,8 @@ class TestGPUBlock(unittest.TestCase):
             """Return the GPUArray"""
             if self.function_iterations > 0:
                 self.assertTrue(isinstance(array, GPUArray))
+                print array.shape
+                print array.get()
                 np.testing.assert_almost_equal(array.get(), np.ones(10))
             self.function_iterations += 1
             return array

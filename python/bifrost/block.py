@@ -299,11 +299,10 @@ class MultiTransformBlock(object):
                 shaped_spans = {}
                 for span, ring_name in self.izip(spans, args):
                     shaped_spans[ring_name] = span.data_view(dtypes[ring_name])
+                    #TODO: Cutting off ringlets
                     if self.rings[ring_name].space == 'system':
                         shaped_spans[ring_name] = shaped_spans[ring_name][0]
-                    yield tuple([shaped_spans[ring_name] for ring_name in args])
-                #yield tuple([span.data_view(dtypes[ring_name])[0] for span, ring_name in self.izip(spans, args)])
-                #yield [span.data_view(np.float32)[0] for span in spans]
+                yield tuple([shaped_spans[ring_name] for ring_name in args])
     def write(self, *args):
         """Iterate over selection of output rings"""
         # resize all rings
@@ -332,7 +331,12 @@ class MultiTransformBlock(object):
                             except:
                                 dtype = np.dtype(self.header[ring_name]['dtype'].split()[1].split(".")[1].split("'")[0]).type
                             dtypes[ring_name] = dtype
-                        yield tuple([out_span.data_view(dtypes[ring_name])[0] for out_span, ring_name in self.izip(out_spans, args)])
+                        shaped_spans = {}
+                        for span, ring_name in self.izip(out_spans, args):
+                            shaped_spans[ring_name] = span.data_view(dtypes[ring_name])
+                            if self.rings[ring_name].space == 'system':
+                                shaped_spans[ring_name] = shaped_spans[ring_name][0]
+                        yield tuple([shaped_spans[ring_name] for ring_name in args])
 class SplitterBlock(MultiTransformBlock):
     """Block which splits up a ring into two"""
     ring_names = {
@@ -1230,7 +1234,8 @@ class GPUBlock(MultiTransformBlock):
         self.gulp_size['out_1'] = output_test_array.nbytes
     def main(self):
         for inspan, outspan in self.izip(self.read('in_1'), self.write('out_1')):
-            inspan = GPUArray(shape=[10], dtype=np.float32)
-            inspan.set(np.ones(10))
-            self.function(inspan)
-            outspan[:] = np.ones(10, dtype=np.float32)[:]
+            print inspan.shape
+            print outspan.shape
+            function_output = self.function(inspan)
+            print function_output.shape
+            outspan.buffer = function_output.buffer
