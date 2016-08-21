@@ -1190,9 +1190,15 @@ class GPUBlock(MultiTransformBlock):
         self.function = function
         assert callable(self.function)
     def load_settings(self):
-        self.header['out_1'] = self.header['in_1']
-        self.gulp_size['in_1'] = 10*4
-        self.gulp_size['out_1'] = 10*4
+        dtype = np.dtype(self.header['in_1']['dtype']).type
+        input_test_array = GPUArray(np.product(self.header['in_1']['shape']), dtype=dtype)
+        self.gulp_size['in_1'] = input_test_array.nbytes
+        output_test_array = self.function(input_test_array)
+        self.header['out_1'] = {}
+        self.header['out_1']['shape'] = output_test_array.shape
+        self.header['out_1']['dtype'] = str(output_test_array.dtype)
+        print self.header
+        self.gulp_size['out_1'] = output_test_array.nbytes
     def main(self):
         for inspan, outspan in self.izip(self.read('in_1'), self.write('out_1')):
             inspan = GPUArray(shape=[10], dtype=np.float32)

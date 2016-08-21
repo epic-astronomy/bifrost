@@ -834,8 +834,9 @@ class TestGPUBlock(unittest.TestCase):
         self.function_iterations = 0
         def identity(array):
             """Return the GPUArray"""
-            self.assertTrue(isinstance(array, GPUArray))
-            np.testing.assert_almost_equal(array.get(), np.ones(10))
+            if self.function_iterations > 0:
+                self.assertTrue(isinstance(array, GPUArray))
+                np.testing.assert_almost_equal(array.get(), np.ones(10))
             self.function_iterations += 1
             return array
         blocks = []
