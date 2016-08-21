@@ -415,7 +415,10 @@ class TestingBlock(SourceBlock):
         @param[in] output_ring Holds the flattend test array in a single span"""
         self.gulp_size = self.test_array.nbytes
         for ospan in self.iterate_ring_write(output_ring):
-            ospan.data_view(self.dtype)[0][:] = self.test_array.ravel()
+            if output_ring.space == 'system':
+                ospan.data_view(self.dtype)[0][:] = self.test_array.ravel()
+            else:
+                ospan.data_view(self.dtype).set(self.test_array.reshape((1, -1)))
             break
 class WriteHeaderBlock(SinkBlock):
     """Prints the header of a ring to a file"""
