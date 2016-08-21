@@ -47,9 +47,9 @@ from bifrost.GPUArray import GPUArray
 from bifrost.sigproc import SigprocFile, unpack
 
 class Pipeline(object):
-    """Class which connects blocks linearly, with
-        one ring between each block. Does this by creating
-        one ring for each input/output 'port' of each block,
+    """Class which connects blocks.
+        Does this by creating one ring for each
+        input/output 'port' of each block,
         and running data through the rings."""
     def __init__(self, blocks):
         self.blocks = blocks
@@ -58,7 +58,27 @@ class Pipeline(object):
             if isinstance(index, Ring):
                 self.rings[str(index)] = index
             else:
-                self.rings[index] = Ring()
+                """Attempt to determine the space"""
+                space = 'system'
+                possible_spaces = []
+                for block in self.blocks:
+                    if issubclass(type(block[0]), MultiTransformBlock):
+                        for ring_name in block[1]:
+                            if block[1][ring_name] == index:
+                                ### Read through listed ring spaces to determine where we should put the ring
+                                try:
+                                    block_spaces = block[0].ring_spaces[ring_index]
+                                    possible_spaces.append(block_spaces)
+                                except:
+                                    pass
+                if possible_spaces is not []:
+                    #If GPU appears in all, select that, else pick CPU.
+                    for possible_space in possible_spaces:
+                        if 'cuda' not in possible_space:
+                            break
+                    else:
+                        space = 'cuda'
+                self.rings[index] = Ring(space)
     def unique_ring_names(self):
         """Return a list of unique ring indices"""
         all_names = []
@@ -1183,6 +1203,7 @@ class NumpyBlock(MultiTransformBlock):
                 outspans[i][:] = output_data[i].ravel()
 class GPUBlock(MultiTransformBlock):
     ring_names = {'in_1':"", 'out_1':""}
+    ring_spaces = {'in_1': ['system', 'cuda'], 'out_1': 'cuda'}
     def __init__(self, function):
         """Based on the number of inputs/outputs, set up enough ring_names
             for the pipeline to call."""
