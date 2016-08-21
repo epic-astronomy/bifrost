@@ -39,6 +39,8 @@ class GPUArray(object):
 		if strides is None:
 			# This magic came from http://stackoverflow.com/a/32874295
 			strides = itemsize*np.r_[1,np.cumprod(shape[::-1][:-1])][::-1]
+                #Convert back to prevent JSON error from numpy datatype
+                shape = tuple(int(shape[i]) for i in range(len(shape)))
 		self.shape   = shape
 		self._dtype   = dtype
 		self.buffer  = buffer

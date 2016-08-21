@@ -1227,7 +1227,6 @@ class GPUBlock(MultiTransformBlock):
         self.header['out_1'] = {}
         self.header['out_1']['shape'] = list(output_test_array.shape)
         self.header['out_1']['dtype'] = str(output_test_array.dtype)
-        print self.header
         self.gulp_size['out_1'] = output_test_array.nbytes
     def main(self):
         for inspan, outspan in self.izip(self.read('in_1'), self.write('out_1')):
