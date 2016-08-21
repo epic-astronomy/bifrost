@@ -267,9 +267,17 @@ class MultiTransformBlock(object):
             # resize all rings
             for ring_name in args:
                 self.rings[ring_name].resize(self.gulp_size[ring_name])
+            dtypes = {}
+            for ring_name in args:
+                try:
+                    dtype = np.dtype(self.header[ring_name]['dtype']).type
+                except:
+                    dtype = np.dtype(self.header[ring_name]['dtype'].split()[1].split(".")[1].split("'")[0]).type
+                dtypes[ring_name] = dtype
             for spans in self.izip(*[sequence.read(self.gulp_size[ring_name]) \
                     for ring_name, sequence in self.izip(args, sequences)]):
-                yield [span.data_view(np.float32)[0] for span in spans]
+                yield tuple([span.data_view(dtypes[ring_name])[0] for span, ring_name in self.izip(spans, args)])
+                #yield [span.data_view(np.float32)[0] for span in spans]
     def write(self, *args):
         """Iterate over selection of output rings"""
         # resize all rings
@@ -291,9 +299,7 @@ class MultiTransformBlock(object):
                             for out_sequence, ring_name in self.izip(
                                 out_sequences,
                                 args)]) as out_spans:
-                        #TODO: Other types and sizes
                         dtypes = {}
-                        #dtypes = {ring_name: np.dtype(self.header[ring_name]['dtype']).type for ring_name in args}
                         for ring_name in args:
                             try:
                                 dtype = np.dtype(self.header[ring_name]['dtype']).type
@@ -1002,7 +1008,9 @@ class GainSolveBlock(MultiTransformBlock):
         for data, model, jones, calibrated_data, out_jones in self.izip(
                 self.read('in_data', 'in_model', 'in_jones'),
                 self.write('out_data', 'out_jones')):
-            assert data.shape == self.header['in_data']['shape']
+            data.reshape(self.header['in_data']['shape'])
+            model.reshape(self.header['in_model']['shape'])
+            jones.reshape(self.header['in_jones']['shape'])
             gpu_data = GPUArray(data.shape, np.complex64)
             gpu_model = GPUArray(model.shape, np.complex64)
             gpu_jones = GPUArray(jones.shape, np.complex64)
