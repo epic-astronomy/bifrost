@@ -40,7 +40,7 @@ class GPUArray(object):
 			# This magic came from http://stackoverflow.com/a/32874295
 			strides = itemsize*np.r_[1,np.cumprod(shape[::-1][:-1])][::-1]
 		self.shape   = shape
-		self.dtype   = dtype
+		self._dtype   = dtype
 		self.buffer  = buffer
 		self.offset  = offset
 		self.strides = strides
@@ -69,6 +69,9 @@ class GPUArray(object):
 	def __del__(self):
 		if self.flags['OWNDATA']:
 			raw_free(self.buffer, self.flags['SPACE'])
+        @property
+        def dtype(self):
+            return np.dtype(self._dtype)
 	@property
 	def data(self):
 		return self.buffer
@@ -85,7 +88,7 @@ class GPUArray(object):
 		return int(np.prod(self.shape))
 	@property
 	def itemsize(self):
-		return self.dtype().itemsize
+		return self._dtype().itemsize
 	@property
 	def nbytes(self):
 		return self.size*self.itemsize
@@ -93,10 +96,9 @@ class GPUArray(object):
 	def ndim(self):
 		return len(self.shape)
 	def get(self, dst=None):
-		hdata = dst if dst is not None else np.empty(self.shape, self.dtype)
-		#hdata = dst if dst is not None else np.zeros(self.shape, self.dtype)
+		hdata = dst if dst is not None else np.empty(self.shape, self._dtype)
 		assert(hdata.shape == self.shape)
-		assert(hdata.dtype == self.dtype)
+		assert(hdata.dtype == self._dtype)
 		if self.flags['C_CONTIGUOUS'] and hdata.flags['C_CONTIGUOUS']:
 			memcpy(hdata, self)
 		elif self.ndim == 2:
@@ -106,7 +108,7 @@ class GPUArray(object):
 		return hdata
 	def set(self, hdata):
 		assert(hdata.shape == self.shape)
-		hdata = hdata.astype(self.dtype)
+		hdata = hdata.astype(self._dtype)
 		if self.flags['C_CONTIGUOUS'] and hdata.flags['C_CONTIGUOUS']:
 			memcpy(self, hdata)
 		elif self.ndim == 2:

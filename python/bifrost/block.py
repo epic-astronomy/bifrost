@@ -1195,7 +1195,7 @@ class GPUBlock(MultiTransformBlock):
         self.gulp_size['in_1'] = input_test_array.nbytes
         output_test_array = self.function(input_test_array)
         self.header['out_1'] = {}
-        self.header['out_1']['shape'] = output_test_array.shape
+        self.header['out_1']['shape'] = list(output_test_array.shape)
         self.header['out_1']['dtype'] = str(output_test_array.dtype)
         print self.header
         self.gulp_size['out_1'] = output_test_array.nbytes
