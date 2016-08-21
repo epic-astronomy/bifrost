@@ -487,7 +487,7 @@ class TestGainSolveBlock(unittest.TestCase):
             """Make sure the jones matrices are changing"""
             self.assertEqual(out_jones.size, self.jones.size)
             self.assertGreater(np.max(np.abs(out_jones - self.jones)), 1e-3)
-        for nchan in range(1, 2):
+        for nchan in range(5, 7):
             blocks = []
             flags = 2*np.ones(shape=[
                 nchan, self.nstand]).astype(np.int8)
@@ -499,6 +499,9 @@ class TestGainSolveBlock(unittest.TestCase):
                 nchan, self.nstand,
                 self.npol, self.nstand,
                 self.npol).astype(np.complex64)
+            self.jones = np.ones(shape=[
+                nchan, self.npol,
+                self.nstand, self.npol]).astype(np.complex64)
             blocks.append((TestingBlock(model), [], ['model']))
             blocks.append((TestingBlock(data), [], ['data']))
             blocks.append((TestingBlock(self.jones), [], ['jones_in']))
@@ -516,11 +519,12 @@ class TestGainSolveBlock(unittest.TestCase):
         coords = load_telescope(LEDA_SETTINGS_FILE)[1]
         sources = {}
         sources['cyg'] = {
-            'ra':'19:59:28.4', 'dec':'+40:44:02.1', 'flux': 10571.0, 'frequency': 58e6, 
+            'ra':'19:59:28.4', 'dec':'+40:44:02.1', 'flux': 10571.0, 'frequency': 58e6,
             'spectral index': -0.2046}
         frequencies = [58e6]
         blocks = []
-        blocks.append((ScalarSkyModelBlock(OVRO_EPHEM, coords, frequencies, sources), [], ['model+uv']))
+        blocks.append((
+            ScalarSkyModelBlock(OVRO_EPHEM, coords, frequencies, sources), [], ['model+uv']))
         def slice_away_uv(model_and_uv):
             """Cut off the uv coordinates from the ScalarSkyModelBlock and reshape to GainSolve"""
             number_stands = model_and_uv.shape[0]
@@ -534,7 +538,9 @@ class TestGainSolveBlock(unittest.TestCase):
             1, self.nstand]).astype(np.int8)
         blocks.append((TestingBlock(2*self.jones), [], ['jones_in']))
         blocks.append([
-            GainSolveBlock(flags=flags, eps=0.05), ['model', 'same_model', 'jones_in'], ['calibrated_data', 'jones_out']])
+            GainSolveBlock(flags=flags, eps=0.05),
+            ['model', 'same_model', 'jones_in'],
+            ['calibrated_data', 'jones_out']])
         def assert_almost_unity(jones_matrices):
             """Make sure that the jones are almost the identity"""
             unity_jones = np.ones(shape=[
@@ -817,7 +823,7 @@ class TestNumpyBlock(unittest.TestCase):
             NumpyBlock(function=create_global_variable, outputs=0),
             {'in_1': 0}])
         self.blocks.append([
-            NumpyBlock(function=np.copy, outputs=1),
+            NumpyBlock(function=np.copy),
             {'in_1': 0, 'out_1': 1}])
         Pipeline(self.blocks).main()
         self.expected_result = self.global_variable
