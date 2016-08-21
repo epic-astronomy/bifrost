@@ -505,10 +505,9 @@ class TestGainSolveBlock(unittest.TestCase):
             blocks.append((TestingBlock(model), [], ['model']))
             blocks.append((TestingBlock(data), [], ['data']))
             blocks.append((TestingBlock(self.jones), [], ['jones_in']))
-            blocks.append([
-                GainSolveBlock(flags=flags),
-                ['data', 'model', 'jones_in'],
-                ['calibrated_data', 'jones_out']])
+            blocks.append([GainSolveBlock(flags=flags), {
+                'in_data': 'data', 'in_model': 'model', 'in_jones': 'jones_in',
+                'out_data': 'calibrated_data', 'out_jones': 'jones_out'}])
             blocks.append([NumpyBlock(test_jones, outputs=0), {'in_1':'jones_out'}])
             Pipeline(blocks).main()
     def test_solving_to_skymodel(self):
@@ -537,10 +536,9 @@ class TestGainSolveBlock(unittest.TestCase):
         flags = 2*np.ones(shape=[
             1, self.nstand]).astype(np.int8)
         blocks.append((TestingBlock(2*self.jones), [], ['jones_in']))
-        blocks.append([
-            GainSolveBlock(flags=flags, eps=0.05),
-            ['model', 'same_model', 'jones_in'],
-            ['calibrated_data', 'jones_out']])
+        blocks.append([GainSolveBlock(flags=flags), {
+            'in_data': 'same_model', 'in_model': 'model', 'in_jones': 'jones_in',
+            'out_data': 'calibrated_data', 'out_jones': 'jones_out'}])
         def assert_almost_unity(jones_matrices):
             """Make sure that the jones have been calibrated to be identity"""
             identity_jones = np.ones(shape=[
