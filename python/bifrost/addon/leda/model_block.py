@@ -104,8 +104,9 @@ class ScalarSkyModelBlock(SourceBlock):
         baselines_v = baselines_xyz[:, :, 1].reshape(-1)
         self.gulp_size = baselines_u.nbytes*4
         self.output_header = json.dumps({
-            'nbit':32,
-            'dtype':str(np.float32)})
+            'nbit': 32,
+            'dtype': str(np.float32),
+            'shape': [number_antennas, number_antennas, 4]})
         out_span_generator = self.iterate_ring_write(output_ring)
         for frequency_index in range(self.frequencies.size):
             out_span = out_span_generator.next()

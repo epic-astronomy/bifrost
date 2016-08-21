@@ -508,8 +508,48 @@ class TestGainSolveBlock(unittest.TestCase):
             blocks.append([NumpyBlock(test_jones, outputs=0), {'in_1':'jones_out'}])
             Pipeline(blocks).main()
     def test_solving_to_skymodel(self):
-        """Attempt to solve a perturbed sky model to the original model"""
-        pass
+        """Attempt to solve a sky model to itself"""
+        #TODO: This relies on LEDA-specific blocks.
+        import ephem
+        from bifrost.addon.leda.model_block import ScalarSkyModelBlock
+        from bifrost.addon.leda.blocks import load_telescope, LEDA_SETTINGS_FILE, OVRO_EPHEM
+        telescope, coords, delays, dispersions = load_telescope(LEDA_SETTINGS_FILE)
+        sources = {}
+        sources['cyg'] = {
+            'ra':'19:59:28.4', 'dec':'+40:44:02.1', 
+            'flux': 10571.0, 'frequency': 58e6, 
+            'spectral index': -0.2046}
+        frequencies = [58e6]
+        nchan = len(frequencies)
+        blocks = []
+        blocks.append((ScalarSkyModelBlock(OVRO_EPHEM, coords, frequencies, sources), [], ['model+uv']))
+        def slice_away_uv(model_and_uv):
+            return (model_and_uv[:, :, 2]+1j*model_and_uv[:, :, 3]).astype(np.complex64)
+        blocks.append((NumpyBlock(slice_away_uv), {'in_1': 'model+uv', 'out_1': 'model'}))
+        blocks.append((NumpyBlock(np.copy), {'in_1': 'model', 'out_1': 'same_model'}))
+        flags = 2*np.ones(shape=[
+            nchan, self.nstand]).astype(np.int8)
+        jones = np.ones(shape=[
+            nchan, self.npol, 
+            self.nstand, self.npol]).astype(np.complex64)
+        blocks.append((TestingBlock(jones), [], ['jones_in']))
+        blocks.append([
+            GainSolveBlock(flags=flags), 
+            ['model', 'same_model', 'jones_in'], 
+            ['calibrated_data', 'jones_out']])
+        self.i = 0
+        def assert_almost_unity(jones_matrices):
+            """Make sure that the jones are almost the identity"""
+            unity_jones = np.ones(shape=[
+                nchan, self.npol, 
+                self.nstand, self.npol]).astype(np.complex64)
+            unity_jones[:, 0, :, 1] = 0
+            unity_jones[:, 1, :, 0] = 0
+            if self.i > 0:
+                np.testing.assert_almost_equal(jones_matrices, unity_jones, 0)
+            self.i+=1
+        blocks.append((NumpyBlock(assert_almost_unity, outputs=0), {'in_1': 'jones_out'}))
+        Pipeline(blocks).main()
 class TestMultiTransformBlock(unittest.TestCase):
     """Test call syntax and function of a multi transform block"""
     def test_add_block(self):
@@ -786,3 +826,4 @@ class TestNumpyBlock(unittest.TestCase):
             {'in_1': 0, 'out_1': 1}])
         Pipeline(self.blocks).main()
         self.expected_result = self.global_variable
+    #TODO: Test which shows that if outputs=0, no test arrays should be sent through! (i.e., no need to test function)

@@ -31,6 +31,7 @@ This file contains blocks specific to LEDA-OVRO.
 
 import os
 import json
+import ephem
 import numpy as np
 import matplotlib
 ## Use a graphical backend which supports threading
@@ -42,6 +43,12 @@ DADA_HEADER_SIZE = 4096
 LEDA_OUTRIGGERS = [252, 253, 254, 255, 256]
 LEDA_NSTATIONS = 256
 SPEED_OF_LIGHT = 299792458.
+LEDA_SETTINGS_FILE = "/data1/mcranmer/data/real/leda/lwa_ovro.telescope.json"
+OVRO_EPHEM = ephem.Observer()
+OVRO_EPHEM.lat = '37.239782'
+OVRO_EPHEM.lon = '-118.281679'
+OVRO_EPHEM.elevation = 1184.134
+OVRO_EPHEM.date = '2016/07/26 16:17:00.00'
 
 def cast_string_to_number(string):
     """Attempt to convert a string to integer or float"""
@@ -54,6 +61,20 @@ def cast_string_to_number(string):
     except ValueError:
         pass
     return string
+
+def load_telescope(filename):
+    with open(filename, 'r') as telescope_file:
+        telescope = json.load(telescope_file)
+    coords_local = np.array(telescope['coords']['local']['__data__'], dtype=np.float32)
+    # Reshape into ant,column
+    coords_local = coords_local.reshape(coords_local.size/4,4)
+    ant_coords = coords_local[:,1:]
+    inputs = np.array(telescope['inputs']['__data__'], dtype=np.float32)
+    # Reshape into ant,pol,column
+    inputs      = inputs.reshape(inputs.size/7/2,2,7)
+    delays      = inputs[:,:,5]*1e-9
+    dispersions = inputs[:,:,6]*1e-9
+    return telescope, ant_coords, delays, dispersions
 
 class DadaFileRead(object):
     """File object for reading in a dada file

@@ -60,7 +60,8 @@ def load_telescope(filename):
     return telescope, ant_coords, delays, dispersions
 
 #coords are in meters
-telescope, coords, delays, dispersions = load_telescope("/data1/mcranmer/data/real/leda/lwa_ovro.telescope.json")
+LEDA_SETTINGS_FILE = "/data1/mcranmer/data/real/leda/lwa_ovro.telescope.json"
+telescope, coords, delays, dispersions = load_telescope(LEDA_SETTINGS_FILE)
 
 class TestScalarSkyModelBlock(unittest.TestCase):
     """Test various functionality of the sky model block"""
