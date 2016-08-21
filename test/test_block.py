@@ -772,3 +772,17 @@ class TestNumpyBlock(unittest.TestCase):
             NumpyBlock(function=np.copy, outputs=1),
             {'in_1': 0, 'out_1': 1}])
         self.expected_result = [1, 2, 3, 4]
+    def test_global_variable_capture(self):
+        """Test that we can pull out a number from a ring using NumpyBlock"""
+        self.global_variable = np.array([])
+        def create_global_variable(array):
+            """Try to append the array to a global variable"""
+            self.global_variable = np.copy(array)
+        self.blocks.append([
+            NumpyBlock(function=create_global_variable, outputs=0),
+            {'in_1': 0}])
+        self.blocks.append([
+            NumpyBlock(function=np.copy, outputs=1),
+            {'in_1': 0, 'out_1': 1}])
+        Pipeline(self.blocks).main()
+        self.expected_result = self.global_variable
