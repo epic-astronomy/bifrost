@@ -1156,11 +1156,9 @@ class NumpyBlock(MultiTransformBlock):
             of the input shapes and data types"""
         test_input_arrays = self.generate_input_arrays()
         if len(self.outputs) == 1:
-            test_output_arrays = [self.function(*test_input_arrays)]
-            self.measure_output_settings(test_output_arrays)
+            self.measure_output_settings([self.function(*test_input_arrays)])
         elif len(self.outputs) > 1:
-            test_output_arrays = self.function(*test_input_arrays)
-            self.measure_output_settings(test_output_arrays)
+            self.measure_output_settings(self.function(*test_input_arrays))
     def generate_input_arrays(self):
         """Generate empty input arrays to test self.function, based on
             input headers."""
