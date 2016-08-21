@@ -43,6 +43,7 @@ import bifrost
 from bifrost import affinity
 from bifrost.libbifrost import _bf
 from bifrost.ring import Ring
+from bifrost.memory import memcpy
 from bifrost.GPUArray import GPUArray
 from bifrost.sigproc import SigprocFile, unpack
 
@@ -1236,6 +1237,7 @@ class GPUBlock(MultiTransformBlock):
         for inspan, outspan in self.izip(self.read('in_1'), self.write('out_1')):
             print inspan.shape
             print outspan.shape
-            function_output = self.function(inspan)
-            print function_output.shape
-            outspan.buffer = function_output.buffer
+            function_output = self.function(inspan.reshape((10)))
+            print function_output.get()
+            memcpy(outspan, function_output.reshape((1, 10)))
+            #outspan.buffer = function_output.buffer

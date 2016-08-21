@@ -41,13 +41,13 @@ class GPUArray(object):
 			strides = itemsize*np.r_[1,np.cumprod(shape[::-1][:-1])][::-1]
                 #Convert back to prevent JSON error from numpy datatype
                 shape = tuple(int(shape[i]) for i in range(len(shape)))
-		self.shape   = shape
-		self._dtype   = dtype
-		self.buffer  = buffer
-		self.offset  = offset
+		self.shape = shape
+		self._dtype  = dtype
+		self.buffer = buffer
+		self.offset = offset
 		self.strides = strides
-		self.base    = None
-		self.flags   = {'WRITEABLE':    True,
+		self.base = None
+		self.flags =   {'WRITEABLE':    True,
 		                'ALIGNED':      buffer%itemsize==0 if buffer is not None else True,
 		                'OWNDATA':      False,
 		                'UPDATEIFCOPY': False,
@@ -77,14 +77,12 @@ class GPUArray(object):
 	@property
 	def data(self):
 		return self.buffer
-	#def reshape(self, shape):
+	def reshape(self, shape):
 	#	# TODO: How to deal with strides?
 	#	#         May be non-contiguous but the reshape still works
 	#	#           E.g., splitting dims
-	#	return GPUArray(shape, self.dtype,
-	#	                buffer=self.buffer,
-	#	                offset=self.offset,
-	#	                strides=self.strides)
+		return GPUArray(shape, self._dtype,
+		                buffer=self.buffer)
 	@property
 	def size(self):
 		return int(np.prod(self.shape))
