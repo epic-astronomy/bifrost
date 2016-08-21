@@ -972,7 +972,7 @@ class GainSolveBlock(MultiTransformBlock):
     ring_names = {
         'in_data': "Data visibilities [nchan,nstand^,npol^,nstand,npol]",
         'in_model': "The model visibilities [nchan,nstand^,npol^,nstand,npol]",
-        'in_jones': "An estimate for the Jones matrices [nchan,npol^,nstand,npol]",
+        'in_jones': "An initial estimate for the Jones matrices [nchan,npol^,nstand,npol]",
         'out_jones': "The result of calibration for the Jones matrices [nchan,npol^,nstand,npol]",
         'out_data': "Calibrated data visibilities [nchan,nstand^,npol^,nstand,npol]"}
     def __init__(self, flags=None, max_iterations=20, eps=0.0025):
@@ -993,7 +993,6 @@ class GainSolveBlock(MultiTransformBlock):
         """Check and set input/output headers and gulp sizes"""
         assert self.header['in_data']['shape'] == self.header['in_model']['shape']
         assert self.header['in_data']['dtype'] == self.header['in_model']['dtype']
-        print self.header
         assert self.header['in_jones']['dtype'] == self.header['in_model']['dtype']
         assert self.header['in_jones']['shape'][1:] == self.header['in_model']['shape'][2:]
         self.gulp_size['in_data'] = np.product(self.header['in_data']['shape'])*8
@@ -1004,7 +1003,7 @@ class GainSolveBlock(MultiTransformBlock):
         self.header['out_data'] = self.header['in_data']
         self.header['out_jones'] = self.header['in_jones']
     def main(self):
-        """Should be properly shaped"""
+        """Load in new data, sky model, and jones matrices, and try to calibrate."""
         for data, model, jones, calibrated_data, out_jones in self.izip(
                 self.read('in_data', 'in_model', 'in_jones'),
                 self.write('out_data', 'out_jones')):
@@ -1031,9 +1030,9 @@ class GainSolveBlock(MultiTransformBlock):
                 True, 3.0, self.eps, self.max_iterations, num_unconverged)
             new_gpu_jones = GPUArray(gpu_jones.shape, np.complex64)
             new_gpu_jones.buffer = array_jones.data
-            #jones = np.zeros(shape=new_gpu_jones.shape).astype(np.complex64)
             jones = new_gpu_jones.get()
             singular = 0
+            #TODO: Iterate over all channels as well!
             for i in range(jones.shape[2]):
                 try:
                     jones[0, :, i, :] = np.linalg.inv(jones[0, :, i, :])
@@ -1042,10 +1041,10 @@ class GainSolveBlock(MultiTransformBlock):
                     jones[0, :, i, :] = 0
             if singular == jones.shape[2]:
                 raise AssertionError("All matrices are singular. Calibration failed.")
-            gpu_jones.set(jones)
-            out_jones[:] = gpu_jones.get().ravel()[:]
+            out_jones[:] = jones.ravel()[:]
             gpu_output_image = GPUArray(data.shape, np.complex64)
             array_image = gpu_output_image.as_BFarray(100)
+            gpu_jones.set(jones)
             _bf.ApplyGainsArray(
                 gpu_data.as_BFconstarray(100),
                 gpu_jones.as_BFconstarray(100),

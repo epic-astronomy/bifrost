@@ -536,7 +536,7 @@ class TestGainSolveBlock(unittest.TestCase):
         flags = 2*np.ones(shape=[
             1, self.nstand]).astype(np.int8)
         blocks.append((TestingBlock(2*self.jones), [], ['jones_in']))
-        blocks.append([GainSolveBlock(flags=flags), {
+        blocks.append([GainSolveBlock(flags=flags, eps=0.05), {
             'in_data': 'same_model', 'in_model': 'model', 'in_jones': 'jones_in',
             'out_data': 'calibrated_data', 'out_jones': 'jones_out'}])
         def assert_almost_unity(jones_matrices):
