@@ -1042,9 +1042,9 @@ class GainSolveBlock(TransformBlock):
                 jones[0, :, i, :] = np.linalg.inv(jones[0, :, i, :])
             except:
                 singular += 1
-                jones[0, :, i, :] = 0#np.array([[1, 0], [0, 1]]).reshape((1, 2, 1, 2)).astype(np.complex64)[0, :, 0, :]
-        #if singular == jones.shape[2]:
-            #raise AssertionError("All matrices are singular. Calibration failed.")
+                jones[0, :, i, :] = 0
+        if singular == jones.shape[2]:
+            raise AssertionError("All matrices are singular. Calibration failed.")
         gpu_jones.set(jones)
         self.out_gulp_size = jones.nbytes
         out_jones_generator = self.iterate_ring_write(output_rings[1])
@@ -1164,7 +1164,10 @@ class NumpyBlock(MultiTransformBlock):
             input headers."""
         test_input_arrays = []
         for input_name in self.inputs:
-            dtype = np.dtype(self.header[input_name]['dtype']).type
+            try:
+                dtype = np.dtype(self.header[input_name]['dtype']).type
+            except:
+                dtype = np.dtype(self.header[input_name]['dtype'].split()[1].split(".")[1].split("'")[0]).type
             array = np.zeros(shape=self.header[input_name]['shape'], dtype=dtype)
             self.gulp_size[input_name] = array.nbytes
             test_input_arrays.append(array)
@@ -1189,9 +1192,13 @@ class NumpyBlock(MultiTransformBlock):
             inspans = allspans[:len(self.inputs)]
             outspans = allspans[len(self.inputs):]
             for i, input_name in enumerate(self.inputs):
-                inspans[i] = inspans[i].reshape(self.header[input_name]['shape'])
+                try:
+                    dtype = np.dtype(self.header[input_name]['dtype']).type
+                except:
+                    dtype = np.dtype(self.header[input_name]['dtype'].split()[1].split(".")[1].split("'")[0]).type
+                inspans[i] = inspans[i].view(dtype).reshape(self.header[input_name]['shape'])
             output_data = self.function(*inspans)
             if len(self.outputs) == 1:
                 output_data = [output_data]
             for i in range(len(self.outputs)):
-                outspans[i][:] = output_data[i].ravel()
+                outspans[i][:] = output_data[i].view(np.float32).ravel()
