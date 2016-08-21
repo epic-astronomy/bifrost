@@ -1008,9 +1008,9 @@ class GainSolveBlock(MultiTransformBlock):
         for data, model, jones, calibrated_data, out_jones in self.izip(
                 self.read('in_data', 'in_model', 'in_jones'),
                 self.write('out_data', 'out_jones')):
-            data.reshape(self.header['in_data']['shape'])
-            model.reshape(self.header['in_model']['shape'])
-            jones.reshape(self.header['in_jones']['shape'])
+            data = data.reshape(self.header['in_data']['shape'])
+            model = model.reshape(self.header['in_model']['shape'])
+            jones = jones.reshape(self.header['in_jones']['shape'])
             gpu_data = GPUArray(data.shape, np.complex64)
             gpu_model = GPUArray(model.shape, np.complex64)
             gpu_jones = GPUArray(jones.shape, np.complex64)
@@ -1029,13 +1029,9 @@ class GainSolveBlock(MultiTransformBlock):
                 array_jones,
                 gpu_flags.as_BFarray(100),
                 True, 3.0, self.eps, self.max_iterations, num_unconverged)
-                #True, 3.0, 0.0025, self.max_iterations, num_unconverged)
-                # Good for calibration^
-                #True, 10.0, 0.000001, self.max_iterations, num_unconverged)
-                #Best so far^
             new_gpu_jones = GPUArray(gpu_jones.shape, np.complex64)
             new_gpu_jones.buffer = array_jones.data
-            jones = np.zeros(shape=new_gpu_jones.shape).astype(np.complex64)
+            #jones = np.zeros(shape=new_gpu_jones.shape).astype(np.complex64)
             jones = new_gpu_jones.get()
             singular = 0
             for i in range(jones.shape[2]):
@@ -1047,34 +1043,18 @@ class GainSolveBlock(MultiTransformBlock):
             if singular == jones.shape[2]:
                 raise AssertionError("All matrices are singular. Calibration failed.")
             gpu_jones.set(jones)
-            self.out_gulp_size = jones.nbytes
-            out_jones_generator = self.iterate_ring_write(output_rings[1])
-            out_jones = out_jones_generator.next()
-            out_jones.data_view(np.complex64)[0][:] = gpu_jones.get().ravel()
-
-        """ Y = G X G^
-BFstatus bfApplyGainsArray(BFconstarray X, // Observed data. [nchan,nstand^,npol^,nstand,npol] cf32
-                           BFconstarray G, // Jones matrices. [nchan,pol^,nstand,npol] cf32
-                           BFarray      V, // Observed data. [nchan,nstand^,npol^,nstand,npol] cf32
-                           BFarray      flags);  // [nchan,nstand] i8
-                              """
-        gpu_output_image = GPUArray(data.shape, np.complex64)
-        array_image = gpu_output_image.as_BFarray(100)
-        _bf.ApplyGainsArray(
-            gpu_data.as_BFconstarray(100),
-            gpu_jones.as_BFconstarray(100),
-            array_image,
-            gpu_flags.as_BFarray(100))
-        gpu_output_image2 = GPUArray(data.shape, np.complex64)
-        gpu_output_image2.buffer = array_image.data
-        resultant_image = gpu_output_image2.get()
-        self.out_gulp_size = resultant_image.nbytes
-        output_header = json.loads(self.output_header.tostring())
-        output_header['shape'] = list(resultant_image.shape)
-        self.output_header = json.dumps(output_header)
-        out_model_generator = self.iterate_ring_write(output_rings[0])
-        out_model = out_model_generator.next()
-        out_model.data_view(np.complex64)[0][:] = gpu_output_image2.get().ravel()
+            out_jones[:] = gpu_jones.get().ravel()[:]
+            gpu_output_image = GPUArray(data.shape, np.complex64)
+            array_image = gpu_output_image.as_BFarray(100)
+            _bf.ApplyGainsArray(
+                gpu_data.as_BFconstarray(100),
+                gpu_jones.as_BFconstarray(100),
+                array_image,
+                gpu_flags.as_BFarray(100))
+            gpu_output_image2 = GPUArray(data.shape, np.complex64)
+            gpu_output_image2.buffer = array_image.data
+            resultant_image = gpu_output_image2.get()
+            calibrated_data[:] = gpu_output_image2.get().ravel()
 class DStackBlock(MultiTransformBlock):
     """Block which performs numpy's dstack operation on rings"""
     ring_names = {
