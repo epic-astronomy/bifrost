@@ -1196,5 +1196,6 @@ class GPUBlock(MultiTransformBlock):
     def main(self):
         for inspan, outspan in self.izip(self.read('in_1'), self.write('out_1')):
             inspan = GPUArray(shape=[10], dtype=np.float32)
+            inspan.set(np.ones(10))
             self.function(inspan)
-            outspan[:] = np.zeros(10, dtype=np.float32)[:]
+            outspan[:] = np.ones(10, dtype=np.float32)[:]
