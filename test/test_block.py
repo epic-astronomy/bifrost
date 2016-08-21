@@ -39,7 +39,7 @@ from bifrost.block import IFFTBlock, FFTBlock, Pipeline, FakeVisBlock
 from bifrost.block import NearestNeighborGriddingBlock, IFFT2Block
 from bifrost.block import GainSolveBlock, SplitterBlock, MultiAddBlock
 from bifrost.block import SplitterBlock, DStackBlock, NumpyBlock
-from bifrost.block import ReductionBlock
+from bifrost.block import ReductionBlock, GPUBlock
 
 class TestIterateRingWrite(unittest.TestCase):
     """Test the iterate_ring_write function of SourceBlocks/TransformBlocks"""
@@ -825,3 +825,18 @@ class TestNumpyBlock(unittest.TestCase):
             {'in_1': 0, 'out_1': 1}])
         Pipeline(self.blocks).main()
         self.expected_result = self.global_variable
+class TestGPUBlock(unittest.TestCase):
+    """Tests for a block which can call arbitrary functions that work on GPUArrays.
+        This block should automatically move CPU data to GPU,
+        call the C function, and then put out data on a GPU ring."""
+    def test_simple_throughput(self):
+        """Apply an identity function to the GPU"""
+        def identity(array):
+            """Return the GPUArray"""
+            self.assertTrue(isinstance(array, GPUArray))
+            return array
+        blocks = []
+        blocks.append([TestingBlock(np.ones(10)), [], [0]])
+        blocks.append([GPUBlock(identity), [0], [1]])
+        blocks.append([GPUBlock(identity), [1], [2]])
+        Pipeline(blocks).main()
