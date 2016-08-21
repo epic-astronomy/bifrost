@@ -296,7 +296,13 @@ class MultiTransformBlock(object):
                 dtypes[ring_name] = dtype
             for spans in self.izip(*[sequence.read(self.gulp_size[ring_name]) \
                     for ring_name, sequence in self.izip(args, sequences)]):
-                yield tuple([span.data_view(dtypes[ring_name])[0] for span, ring_name in self.izip(spans, args)])
+                shaped_spans = {}
+                for span, ring_name in self.izip(spans, args):
+                    shaped_spans[ring_name] = span.data_view(dtypes[ring_name])
+                    if self.rings[ring_name].space == 'system':
+                        shaped_spans[ring_name] = shaped_spans[ring_name][0]
+                    yield tuple([shaped_spans[ring_name] for ring_name in args])
+                #yield tuple([span.data_view(dtypes[ring_name])[0] for span, ring_name in self.izip(spans, args)])
                 #yield [span.data_view(np.float32)[0] for span in spans]
     def write(self, *args):
         """Iterate over selection of output rings"""
