@@ -1201,4 +1201,4 @@ class NumpyBlock(MultiTransformBlock):
             if len(self.outputs) == 1:
                 output_data = [output_data]
             for i in range(len(self.outputs)):
-                outspans[i][:] = output_data[i].view(np.float32).ravel()
+                outspans[i][:] = output_data[i].ravel()
