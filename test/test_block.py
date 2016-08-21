@@ -760,3 +760,15 @@ class TestNumpyBlock(unittest.TestCase):
             NumpyBlock(function=dstack_handler, inputs=number_rings, outputs=1),
             second_connections])
         self.expected_result = np.dstack((self.test_array,)*(len(second_connections)-1)).ravel()
+    def test_zero_outputs(self):
+        """Test that zero outputs work with the NumpyBlock"""
+        def assert_something(array):
+            """Assert the array is only 4 numbers, and return nothing"""
+            self.assertEqual(array.size, 4)
+        self.blocks.append([
+            NumpyBlock(function=assert_something, outputs=0),
+            {'in_1': 0}])
+        self.blocks.append([
+            NumpyBlock(function=np.copy, outputs=1),
+            {'in_1': 0, 'out_1': 1}])
+        self.expected_result = [1, 2, 3, 4]
