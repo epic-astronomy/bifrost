@@ -542,13 +542,13 @@ class TestGainSolveBlock(unittest.TestCase):
             ['model', 'same_model', 'jones_in'],
             ['calibrated_data', 'jones_out']])
         def assert_almost_unity(jones_matrices):
-            """Make sure that the jones are almost the identity"""
-            unity_jones = np.ones(shape=[
+            """Make sure that the jones have been calibrated to be identity"""
+            identity_jones = np.ones(shape=[
                 1, self.npol,
                 self.nstand, self.npol]).astype(np.complex64)
-            unity_jones[:, 0, :, 1] = 0
-            unity_jones[:, 1, :, 0] = 0
-            np.testing.assert_almost_equal(jones_matrices, unity_jones, 1)
+            identity_jones[:, 0, :, 1] = 0
+            identity_jones[:, 1, :, 0] = 0
+            np.testing.assert_almost_equal(jones_matrices, identity_jones, 1)
         blocks.append((NumpyBlock(assert_almost_unity, outputs=0), {'in_1': 'jones_out'}))
         Pipeline(blocks).main()
 class TestMultiTransformBlock(unittest.TestCase):

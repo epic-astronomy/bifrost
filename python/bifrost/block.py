@@ -1009,7 +1009,6 @@ class GainSolveBlock(TransformBlock):
         jones = jones.data_view(np.complex64).reshape(self.shapes[2])
         jones_before = np.copy(jones)
         assert model.shape == data.shape
-        print model.shape
         assert jones.shape[2] == model.shape[1]
         gpu_data = GPUArray(data.shape, np.complex64)
         gpu_model = GPUArray(model.shape, np.complex64)

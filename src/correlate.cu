@@ -239,7 +239,7 @@ BFstatus bfSolveGains(BFconstarray V,      // Observed data. [nchan,nstand^,npol
         
 	BFcomplex64 *jones_before = (BFcomplex64*)malloc(sizeof(BFcomplex64)*nchan*npol*nstand*npol);
     cudaMemcpy((void*) jones_before, (const void*)G.data, sizeof(BFcomplex64)*nchan*npol*nstand*npol, cudaMemcpyDeviceToHost);
-    printf("Before: %f+j%f\n", jones_before[0].r, jones_before[0].i);
+    //printf("Before: %f+j%f\n", jones_before[0].r, jones_before[0].i);
 	int convergence_status = bfSolveGains_old(
                          nchan,
                          nstand,
@@ -254,9 +254,9 @@ BFstatus bfSolveGains(BFconstarray V,      // Observed data. [nchan,nstand^,npol
                          eps,
                          maxiter,
                          num_unconverged_ptr);
-    printf ("Returned \n");
+    //printf ("Returned \n");
         cudaMemcpy((void*) jones_before, (const void*)G.data, sizeof(BFcomplex64)*nchan*npol*nstand*npol, cudaMemcpyDeviceToHost);
-        printf("After: %f+j%f\n", jones_before[0].r, jones_before[0].i);
+        //printf("After: %f+j%f\n", jones_before[0].r, jones_before[0].i);
 	return BF_STATUS_SUCCESS;
 }
 
@@ -322,16 +322,18 @@ BFstatus bfSolveGains_old(BFsize             nchan,
 			
 			// **TODO: Apply phase referencing!
 			
-			std::cout << "CONVERGED AFTER " << it+1 << " ITERATIONS" << std::endl;
-            printf ("About to return\n");
+			//std::cout << "CONVERGED AFTER " << it+1 << " ITERATIONS" << std::endl;
+            //printf ("About to return\n");
             return 0;
             //return BF_STATUS_SUCCESS;
 		}
                 if ( it%(int(maxiter/10.0)) == 0 ){
-		    std::cout << "Iteration " << it << ", num_unconverged = " << num_unconverged << std::endl;
+		    //std::cout << "Iteration " << it << ", num_unconverged = " << num_unconverged << std::endl;
+                }
+                if ( it == maxiter ){
+                        //std::cout << "Reached max iterations of " << it << std::endl;
                 }
 	}
-    printf ("About to return\n");
     return BF_STATUS_SUCCESS;
     /*
 	if( num_unconverged_ptr ) {
