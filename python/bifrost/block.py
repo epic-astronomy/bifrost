@@ -961,8 +961,14 @@ class NearestNeighborGriddingBlock(TransformBlock):
         out_span = out_span_generator.next()
         out_span.data_view(np.complex64)[0][:] = grid.ravel()
 
-class GainSolveBlock(TransformBlock):
+class GainSolveBlock(MultiTransformBlock):
     """Optimize the Jones matrices to produce the sky model."""
+    ring_names = {
+        'in_data': "Data visibilities [nchan,nstand^,npol^,nstand,npol]",
+        'in_model': "The model visibilities [nchan,nstand^,npol^,nstand,npol]",
+        'in_jones': "An estimate for the Jones matrices [nchan,npol^,nstand,npol]",
+        'out_jones': "The result of calibration for the Jones matrices [nchan,npol^,nstand,npol]",
+        'out_data': "Calibrated data visibilities [nchan,nstand^,npol^,nstand,npol]"}
     def __init__(self, flags=None, max_iterations=20, eps=0.0025):
         """
         @param[in] flags Solution settings [frequency, stand]
@@ -975,81 +981,68 @@ class GainSolveBlock(TransformBlock):
         if flags is None:
             flags = []
         self.flags = np.array(flags)
-        self.shapes = []
         self.max_iterations = max_iterations
         self.eps = eps
-    def load_settings(self, input_header):
-        """Set input/output headers and gulp sizes appropriately
-        @param[in] input_header Header for the current
-            ring being read in."""
-        self.shapes.append(json.loads(input_header.tostring())['shape'])
-        self.gulp_size = np.product(self.shapes[-1])*8
-        self.output_header = input_header
-    def main(self, input_rings, output_rings):
-        data_span_generator = self.iterate_ring_read(input_rings[0])
-        model_span_generator = self.iterate_ring_read(input_rings[1])
-        jones_span_generator = self.iterate_ring_read(input_rings[2])
-        data = data_span_generator.next()
-        data = data.data_view(np.complex64).reshape(self.shapes[0])
-        #[nchan,nstand^,npol^,nstand,npol]
-        """
-        datatwo = data_span_generator.next()
-        datatwo = datatwo.data_view(np.complex64)[0].reshape((1, 256, 256, 2, 2))
-        data = np.zeros(shape=[1, 256, 2, 256, 2], dtype=np.complex64)
-        for i in range(256):
-            for j in range(256):
-                data[0, i, 0, j, 0] = datatwo[0, i, j, 0, 0]
-                data[0, i, 1, j, 1] = datatwo[0, i, j, 1, 1]
-                data[0, i, 0, j, 1] = datatwo[0, i, j, 0, 1]
-                data[0, i, 1, j, 0] = datatwo[0, i, j, 1, 0]
-                """
-        model = model_span_generator.next()
-        model = model.data_view(np.complex64).reshape(self.shapes[1])
-        jones = jones_span_generator.next()
-        jones = jones.data_view(np.complex64).reshape(self.shapes[2])
-        jones_before = np.copy(jones)
-        assert model.shape == data.shape
-        assert jones.shape[2] == model.shape[1]
-        gpu_data = GPUArray(data.shape, np.complex64)
-        gpu_model = GPUArray(model.shape, np.complex64)
-        gpu_jones = GPUArray(jones.shape, np.complex64)
-        gpu_flags = GPUArray(self.flags.shape, np.int8)
-        gpu_data.set(data)
-        gpu_model.set(model)
-        gpu_jones.set(jones)
-        gpu_flags.set(self.flags)
-        array_jones = gpu_jones.as_BFarray(100)
-        num_unconverged_type = ctypes.POINTER(ctypes.c_int)
-        num = ctypes.c_int(1)
-        num_unconverged = ctypes.cast(ctypes.addressof(num), num_unconverged_type)
-        _bf.SolveGains(
-            gpu_data.as_BFconstarray(100),
-            gpu_model.as_BFconstarray(100),
-            array_jones,
-            gpu_flags.as_BFarray(100),
-            True, 3.0, self.eps, self.max_iterations, num_unconverged)
-            #True, 3.0, 0.0025, self.max_iterations, num_unconverged)
-            # Good for calibration^
-            #True, 10.0, 0.000001, self.max_iterations, num_unconverged)
-            #Best so far^
-        new_gpu_jones = GPUArray(gpu_jones.shape, np.complex64)
-        new_gpu_jones.buffer = array_jones.data
-        jones = np.zeros(shape=new_gpu_jones.shape).astype(np.complex64)
-        jones = new_gpu_jones.get()
-        singular = 0
-        for i in range(jones.shape[2]):
-            try:
-                jones[0, :, i, :] = np.linalg.inv(jones[0, :, i, :])
-            except:
-                singular += 1
-                jones[0, :, i, :] = 0
-        if singular == jones.shape[2]:
-            raise AssertionError("All matrices are singular. Calibration failed.")
-        gpu_jones.set(jones)
-        self.out_gulp_size = jones.nbytes
-        out_jones_generator = self.iterate_ring_write(output_rings[1])
-        out_jones = out_jones_generator.next()
-        out_jones.data_view(np.complex64)[0][:] = gpu_jones.get().ravel()
+    def load_settings(self):
+        """Check and set input/output headers and gulp sizes"""
+        assert self.header['in_data']['shape'] == self.header['in_model']['shape']
+        assert self.header['in_data']['dtype'] == self.header['in_model']['dtype']
+        print self.header
+        assert self.header['in_jones']['dtype'] == self.header['in_model']['dtype']
+        assert self.header['in_jones']['shape'][1:] == self.header['in_model']['shape'][2:]
+        self.gulp_size['in_data'] = np.product(self.header['in_data']['shape'])*8
+        self.gulp_size['in_model'] = self.gulp_size['in_data']
+        self.gulp_size['in_jones'] = np.product(self.header['in_jones']['shape'])*8
+        self.gulp_size['out_data'] = self.gulp_size['in_data']
+        self.gulp_size['out_jones'] = self.gulp_size['in_jones']
+        self.header['out_data'] = self.header['in_data']
+        self.header['out_jones'] = self.header['in_jones']
+    def main(self):
+        """Should be properly shaped"""
+        for data, model, jones, calibrated_data, out_jones in self.izip(
+                self.read('in_data', 'in_model', 'in_jones'),
+                self.write('out_data', 'out_jones')):
+            assert data.shape == self.header['in_data']['shape']
+            gpu_data = GPUArray(data.shape, np.complex64)
+            gpu_model = GPUArray(model.shape, np.complex64)
+            gpu_jones = GPUArray(jones.shape, np.complex64)
+            gpu_flags = GPUArray(self.flags.shape, np.int8)
+            gpu_data.set(data)
+            gpu_model.set(model)
+            gpu_jones.set(jones)
+            gpu_flags.set(self.flags)
+            array_jones = gpu_jones.as_BFarray(100)
+            num_unconverged_type = ctypes.POINTER(ctypes.c_int)
+            num = ctypes.c_int(1)
+            num_unconverged = ctypes.cast(ctypes.addressof(num), num_unconverged_type)
+            _bf.SolveGains(
+                gpu_data.as_BFconstarray(100),
+                gpu_model.as_BFconstarray(100),
+                array_jones,
+                gpu_flags.as_BFarray(100),
+                True, 3.0, self.eps, self.max_iterations, num_unconverged)
+                #True, 3.0, 0.0025, self.max_iterations, num_unconverged)
+                # Good for calibration^
+                #True, 10.0, 0.000001, self.max_iterations, num_unconverged)
+                #Best so far^
+            new_gpu_jones = GPUArray(gpu_jones.shape, np.complex64)
+            new_gpu_jones.buffer = array_jones.data
+            jones = np.zeros(shape=new_gpu_jones.shape).astype(np.complex64)
+            jones = new_gpu_jones.get()
+            singular = 0
+            for i in range(jones.shape[2]):
+                try:
+                    jones[0, :, i, :] = np.linalg.inv(jones[0, :, i, :])
+                except:
+                    singular += 1
+                    jones[0, :, i, :] = 0
+            if singular == jones.shape[2]:
+                raise AssertionError("All matrices are singular. Calibration failed.")
+            gpu_jones.set(jones)
+            self.out_gulp_size = jones.nbytes
+            out_jones_generator = self.iterate_ring_write(output_rings[1])
+            out_jones = out_jones_generator.next()
+            out_jones.data_view(np.complex64)[0][:] = gpu_jones.get().ravel()
 
         """ Y = G X G^
 BFstatus bfApplyGainsArray(BFconstarray X, // Observed data. [nchan,nstand^,npol^,nstand,npol] cf32
