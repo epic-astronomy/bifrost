@@ -963,7 +963,7 @@ class NearestNeighborGriddingBlock(TransformBlock):
 
 class GainSolveBlock(TransformBlock):
     """Optimize the Jones matrices to produce the sky model."""
-    def __init__(self, flags=None, max_iterations=20):
+    def __init__(self, flags=None, max_iterations=20, eps=0.0025):
         """
         @param[in] flags Solution settings [frequency, stand]
             0-already converged, 1-don't include in calibration,
@@ -977,6 +977,7 @@ class GainSolveBlock(TransformBlock):
         self.flags = np.array(flags)
         self.shapes = []
         self.max_iterations = max_iterations
+        self.eps = eps
     def load_settings(self, input_header):
         """Set input/output headers and gulp sizes appropriately
         @param[in] input_header Header for the current
@@ -1008,6 +1009,7 @@ class GainSolveBlock(TransformBlock):
         jones = jones.data_view(np.complex64).reshape(self.shapes[2])
         jones_before = np.copy(jones)
         assert model.shape == data.shape
+        print model.shape
         assert jones.shape[2] == model.shape[1]
         gpu_data = GPUArray(data.shape, np.complex64)
         gpu_model = GPUArray(model.shape, np.complex64)
@@ -1026,7 +1028,7 @@ class GainSolveBlock(TransformBlock):
             gpu_model.as_BFconstarray(100),
             array_jones,
             gpu_flags.as_BFarray(100),
-            True, 3.0, 0.0025, self.max_iterations, num_unconverged)
+            True, 3.0, self.eps, self.max_iterations, num_unconverged)
             #True, 3.0, 0.0025, self.max_iterations, num_unconverged)
             # Good for calibration^
             #True, 10.0, 0.000001, self.max_iterations, num_unconverged)
@@ -1035,7 +1037,6 @@ class GainSolveBlock(TransformBlock):
         new_gpu_jones.buffer = array_jones.data
         jones = np.zeros(shape=new_gpu_jones.shape).astype(np.complex64)
         jones = new_gpu_jones.get()
-        jones_after = np.copy(jones)
         singular = 0
         for i in range(jones.shape[2]):
             try:
@@ -1156,9 +1157,10 @@ class NumpyBlock(MultiTransformBlock):
         test_input_arrays = self.generate_input_arrays()
         if len(self.outputs) == 1:
             test_output_arrays = [self.function(*test_input_arrays)]
-        else:
+            self.measure_output_settings(test_output_arrays)
+        elif len(self.outputs) > 1:
             test_output_arrays = self.function(*test_input_arrays)
-        self.measure_output_settings(test_output_arrays)
+            self.measure_output_settings(test_output_arrays)
     def generate_input_arrays(self):
         """Generate empty input arrays to test self.function, based on
             input headers."""
