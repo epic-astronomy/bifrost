@@ -373,14 +373,14 @@ class TestingBlock(SourceBlock):
             self.test_array = np.array(test_array).astype(np.complex64)
             header = {
                 'nbit':64,
-                'dtype':str(np.complex64),
+                'dtype':'complex64',
                 'shape':self.test_array.shape}
             self.dtype = np.complex64
         else:
             self.test_array = np.array(test_array).astype(np.float32)
             header = {
                 'nbit':32,
-                'dtype':str(np.float32),
+                'dtype':'float32',
                 'shape':self.test_array.shape}
             self.dtype = np.float32
         self.output_header = json.dumps(header)
