@@ -1181,3 +1181,20 @@ class NumpyBlock(MultiTransformBlock):
                 output_data = [output_data]
             for i in range(len(self.outputs)):
                 outspans[i][:] = output_data[i].ravel()
+class GPUBlock(MultiTransformBlock):
+    ring_names = {'in_1':"", 'out_1':""}
+    def __init__(self, function):
+        """Based on the number of inputs/outputs, set up enough ring_names
+            for the pipeline to call."""
+        super(GPUBlock, self).__init__()
+        self.function = function
+        assert callable(self.function)
+    def load_settings(self):
+        self.header['out_1'] = self.header['in_1']
+        self.gulp_size['in_1'] = 10*4
+        self.gulp_size['out_1'] = 10*4
+    def main(self):
+        for inspan, outspan in self.izip(self.read('in_1'), self.write('out_1')):
+            inspan = GPUArray(shape=[10], dtype=np.float32)
+            self.function(inspan)
+            outspan[:] = np.zeros(10, dtype=np.float32)[:]

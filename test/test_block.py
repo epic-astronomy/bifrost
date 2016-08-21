@@ -837,6 +837,6 @@ class TestGPUBlock(unittest.TestCase):
             return array
         blocks = []
         blocks.append([TestingBlock(np.ones(10)), [], [0]])
-        blocks.append([GPUBlock(identity), [0], [1]])
-        blocks.append([GPUBlock(identity), [1], [2]])
+        blocks.append([GPUBlock(identity), {'in_1':0, 'out_1':1}])
+        blocks.append([GPUBlock(identity), {'in_1':1, 'out_1':2}])
         Pipeline(blocks).main()
