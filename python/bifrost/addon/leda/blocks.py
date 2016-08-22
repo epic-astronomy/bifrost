@@ -170,8 +170,8 @@ class NewDadaReadBlock(DadaFileRead, MultiTransformBlock):
             Shape is [frequencies, nstand, nstand, npol, npol]."""}
     def __init__(self, filename, output_chans, time_steps):
         """@param[in] filename The dada file.
-        @param[in] output_chans The frequency channels to output
-        @param[in] time_steps The number of time samples to output"""
+            @param[in] output_chans The frequency channels to output
+            @param[in] time_steps The number of time samples to output"""
         super(NewDadaReadBlock, self).__init__(
             output_chans=output_chans,
             time_steps=time_steps,
@@ -204,7 +204,7 @@ class NewDadaReadBlock(DadaFileRead, MultiTransformBlock):
             column_indices = triangle_indices[:, 1]
             data[:, row_indices, column_indices, :, :] = dadafile_data
             data[:, column_indices, row_indices, :, :] = dadafile_data.conj()
-            vis_span[:] = data.view(np.float32).ravel()
+            vis_span[:] = data.ravel()
         self.file_object.close()
 
 def calculate_cable_delay_matrix(frequencies, delays, dispersions):
