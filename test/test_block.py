@@ -339,7 +339,6 @@ class TestIFFTBlock(unittest.TestCase):
         Pipeline(self.blocks).main()
         untouched_result = np.loadtxt(self.logfile).astype(np.float32)
         np.testing.assert_almost_equal(unfft_result, untouched_result, 2)
-
 class TestFakeVisBlock(unittest.TestCase):
     """Performs tests of the fake visibility Block."""
     def setUp(self):
@@ -382,8 +381,14 @@ class TestNearestNeighborGriddingBlock(unittest.TestCase):
         """Run a pipeline on a fake visibility set and grid it"""
         self.datafile_name = "/data1/mcranmer/data/fake/mona_uvw.dat"
         self.blocks = []
-        self.blocks.append((FakeVisBlock(self.datafile_name, 512), [], [0]))
-        self.blocks.append((NearestNeighborGriddingBlock(shape=(100, 100)), [0], [1]))
+        self.blocks.append((FakeVisBlock(self.datafile_name, 512), [], ['stand+uv+vis']))
+        def slice_away_stand_values(fake_vis_data):
+            """Cut away the stand numbers from the FakeVisBlock"""
+            return fake_vis_data[:, 2:]
+        self.blocks.append((
+            NumpyBlock(slice_away_stand_values),
+            {'in_1':'stand+uv+vis', 'out_1':'uv+vis'}))
+        self.blocks.append((NearestNeighborGriddingBlock(shape=(100, 100)), ['uv+vis'], [1]))
         self.blocks.append((WriteAsciiBlock('.log.txt'), [1], []))
     def test_output_size(self):
         """Make sure that 10,000 grid points are created"""
@@ -397,7 +402,7 @@ class TestNearestNeighborGriddingBlock(unittest.TestCase):
         self.assertGreater(magnitudes[magnitudes > 0.1].size, 100)
     def test_makes_image(self):
         """Make sure that the grid can be IFFT'd into a non-gaussian image"""
-        self.blocks[1] = (NearestNeighborGriddingBlock(shape=(512, 512)), [0], [1])
+        self.blocks[2] = (NearestNeighborGriddingBlock(shape=(512, 512)), ['uv+vis'], [1])
         Pipeline(self.blocks).main()
         grid = np.loadtxt('.log.txt').astype(np.float32).view(np.complex64)
         grid = grid.reshape((512, 512))
