@@ -31,11 +31,13 @@ import unittest
 import json
 import os
 import numpy as np
+import ephem
 from bifrost.block import WriteAsciiBlock, Pipeline, TestingBlock, NearestNeighborGriddingBlock
 from bifrost.block import IFFT2Block
 from bifrost.addon.leda.blocks import NewDadaReadBlock, CableDelayBlock
 from bifrost.addon.leda.blocks import UVCoordinateBlock, BaselineSelectorBlock
 from bifrost.addon.leda.blocks import SlicingBlock, ImagingBlock
+from bifrost.addon.leda.model_block import ScalarSkyModelBlock
 
 def load_telescope(filename):
     """Load in LEDA's settings file (coded as a JSON)
@@ -64,6 +66,12 @@ BAD_STANDS = [
     164, 168, 184, 185, 186, 187, 188, 189, 190, 191, 197, 220, 224, 225, 238, 239,
     240, 241, 242, 243, 244, 245, 246, 247, 248, 249, 250, 251, 252, 253, 254, 255]
 LEDA_SETTINGS_FILE = "/data1/mcranmer/data/real/leda/lwa_ovro.telescope.json"
+OVRO_EPHEM = ephem.Observer()
+OVRO_EPHEM.lat = '37.239782'
+OVRO_EPHEM.lon = '-118.281679'
+OVRO_EPHEM.elevation = 1184.134
+OVRO_EPHEM.date = '2016/07/26 16:17:00.00'
+telescope, coords, delays, dispersions = load_telescope(LEDA_SETTINGS_FILE)
 
 class TestNewDadaReadBlock(unittest.TestCase):
     """Test the ability of the Dada block to read
@@ -266,3 +274,105 @@ class TestSlicingBlock(unittest.TestCase):
         log_13 = np.loadtxt('.log13.txt')
         np.testing.assert_almost_equal(log_36, [3, 6])
         np.testing.assert_almost_equal(log_13, [1, 3])
+class TestScalarSkyModelBlock(unittest.TestCase):
+    """Test various functionality of the sky model block"""
+    def setUp(self):
+        """Generate simple model based on Cygnus A and the sun at 60 MHz"""
+        self.blocks = []
+        self.sources = {}
+        self.sources['cyg'] = {
+            'ra':'19:59:28.4', 'dec':'+40:44:02.1', 
+            'flux': 10571.0, 'frequency': 58e6, 
+            'spectral index': -0.2046}
+        self.sources['sun'] = {
+            'ephemeris': ephem.Sun(),
+            'flux': 250.0, 'frequency':20e6,
+            'spectral index':+1.9920}
+        frequencies = [60e6]
+        self.blocks.append((ScalarSkyModelBlock(OVRO_EPHEM, coords, frequencies, self.sources), [], [0]))
+        self.blocks.append((WriteAsciiBlock('.log.txt'), [0], []))
+    def test_output_size(self):
+        """Make sure that the visibility output matches the number of baselines"""
+        Pipeline(self.blocks).main()
+        model = np.loadtxt('.log.txt').astype(np.float32)
+        self.assertEqual(model.size, 256*256*4)
+    def test_flux(self):
+        """Make sure that the flux of the model is large enough"""
+        Pipeline(self.blocks).main()
+        model = np.loadtxt('.log.txt').astype(np.float32)
+        self.assertGreater(np.abs(model[2::4]+1j*model[3::4]).sum(), 10571.0)
+    def test_phases(self):
+        """Phases should be distributed well about the unit circle
+        They should therefore cancel eachother out fairly well"""
+        Pipeline(self.blocks).main()
+        model = np.loadtxt('.log.txt').astype(np.float32)
+        self.assertLess(np.abs((model[2::4]+1j*model[3::4]).sum()), 1000.0)
+    def test_multiple_frequences(self):
+        """Attempt to to create models for multiple frequencies"""
+        frequencies = [60e6, 70e6]
+        self.blocks[0] = (ScalarSkyModelBlock(OVRO_EPHEM, coords, frequencies, self.sources), [], [0])
+        open('.log.txt', 'w').close()
+        Pipeline(self.blocks).main()
+        model = np.loadtxt('.log.txt').astype(np.float32)
+        self.assertEqual(model.size, 256*256*4*2)
+    def test_grid_visibilities(self):
+        """Attempt to grid visibilities to a nearest neighbor approach"""
+        gridding_shape = (200, 200)
+        self.blocks[1] = (NearestNeighborGriddingBlock(gridding_shape), [0], [1])
+        self.blocks.append((WriteAsciiBlock('.log.txt'), [1], []))
+        Pipeline(self.blocks).main()
+        model = np.loadtxt('.log.txt').astype(np.float32).view(np.complex64)
+        model = model.reshape(gridding_shape)
+        # Should be the size of the desired grid
+        self.assertEqual(model.size, np.product(gridding_shape))
+        brightness = np.abs(np.fft.fftshift(np.fft.ifft2(np.fft.ifftshift(model))))
+        # Should be many nonzero elements in the image
+        self.assertGreater(brightness[brightness > 1e-30].size, 100)
+        # Should be some bright sources
+        self.assertGreater(np.max(brightness)/np.average(brightness), 10)
+        from matplotlib.image import imsave
+        imsave('model.png', brightness)
+    def test_many_sources(self):
+        """Load in many sources and test the brightness"""
+        from itertools import islice
+        with open('/data1/mcranmer/data/real/vlssr_catalog.txt', 'r') as file_in:
+            iterator = 0
+            for line in file_in:
+                iterator += 1
+                if iterator == 17:
+                    break
+            iterator = 0
+            self.sources = {}
+            number_sources = 1000
+            for line in file_in:
+                iterator += 1
+                if iterator > number_sources:
+                    break
+                if line[0].isspace():
+                    continue
+                source_string = line[:-1]
+                ra = line[:2]+':'+line[3:5]+':'+line[6:11]
+                ra = ra.replace(" ", "")
+                dec = line[12:15]+':'+line[16:18]+':'+line[19:23]
+                dec = dec.replace(" ", "")
+                flux = float(line[29:36].replace(" ",""))
+                self.sources[str(iterator)] = {
+                    'ra': ra, 'dec': dec,
+                    'flux': flux, 'frequency': 58e6, 
+                    'spectral index': -0.2046}
+        frequencies = [60e6]
+        self.blocks[0] = (ScalarSkyModelBlock(OVRO_EPHEM, coords, frequencies, self.sources), [], [0])
+        gridding_shape = (256, 256)
+        self.blocks[1] = (NearestNeighborGriddingBlock(gridding_shape), [0], [1])
+        open('.log.txt', 'w').close()
+        self.blocks.append((WriteAsciiBlock('.log.txt'), [1], []))
+        Pipeline(self.blocks).main()
+        model = np.loadtxt('.log.txt').astype(np.float32).view(np.complex64)
+        model = model.reshape(gridding_shape)
+        # Should be the size of the desired grid
+        self.assertEqual(model.size, np.product(gridding_shape))
+        brightness = np.abs(np.fft.fftshift(np.fft.ifft2(np.fft.ifftshift(model))))
+        # Should be many nonzero elements in the image
+        self.assertGreater(brightness[brightness > 1e-30].size, 100)
+        # Should be some brighter sources
+        self.assertGreater(np.max(brightness)/np.average(brightness), 5)
