@@ -370,6 +370,9 @@ class TestScalarSkyModelBlock(unittest.TestCase):
             'spectral index': negative_spectral_index}
         frequencies = [40e6, 1e9]
         self.blocks[0] = (ScalarSkyModelBlock(OVRO_EPHEM, COORDINATES, frequencies, fake_sources), [], [0])
+        def print_shape(array):
+            print array.shape
+        self.blocks.append([NumpyBlock(print_shape, outputs=0), {'in_1': 0}])
         gridding_shape = (256, 256)
         self.blocks.append((NearestNeighborGriddingBlock(gridding_shape), [0], ['model']))
         def assert_low_frequency_brighter(models):

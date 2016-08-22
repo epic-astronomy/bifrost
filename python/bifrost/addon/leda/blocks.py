@@ -432,6 +432,19 @@ class ScalarSkyModelBlock(SourceBlock):
         if below_horizon:
             antenna_phase_delays.ravel()[:] = 0
         return antenna_phase_delays
+    def extrapolate_flux(self, source):
+        """Estimate the source flux at the desired model frequency"""
+        if 'spectral index' not in source:
+            return list((source['flux'],)*len(self.frequencies))
+        else:
+            spectral_index = float(source['spectral index'])
+            frequency_reference = float(source['frequency'])
+            source_reference = float(source['flux'])
+            # Using S \propto frequency^(spectral_index)
+            extrapolated_flux = np.exp(spectral_index*(np.log(self.frequencies) - np.log(frequency_reference)) + np.log(frequency_reference))
+            print extrapolated_flux
+            return extrapolated_flux
+        return 
     def generate_model(self):
         """Calculate the total visibilities on the antenna baselines"""
         number_antennas = len(self.antenna_coordinates)
@@ -447,8 +460,11 @@ class ScalarSkyModelBlock(SourceBlock):
                 source['ra'], source['dec'])
             baseline_phase_delays = np.einsum(
                 'fi,fj->fij', antenna_phase_delays, antenna_phase_delays.conj())
-            #extrapolated_flux = self.extrapolate_flux(source['flux'], source['frequency'])
-            total_visibilities += (float(source['flux'])/number_antennas**2)*baseline_phase_delays
+            extrapolated_flux = self.extrapolate_flux(source)
+            for frequency_index in range(number_frequencies):
+                total_visibilities[frequency_index] += (extrapolated_flux[frequency_index]/number_antennas**2)*baseline_phase_delays[frequency_index]
+            print np.sum(np.abs(total_visibilities[0]))
+            print np.sum(np.abs(total_visibilities[1]))
         return total_visibilities.astype(np.complex64)
     def main(self, output_ring):
         """Generate a model of the sky and put it on a single output span
