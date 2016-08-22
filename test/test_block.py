@@ -414,41 +414,40 @@ class TestIFFT2Block(unittest.TestCase):
         """Run a pipeline on a fake visibility set and IFFT it after gridding"""
         self.datafile_name = "/data1/mcranmer/data/fake/mona_uvw.dat"
         self.blocks = []
-        self.blocks.append((FakeVisBlock(self.datafile_name, 512), [], [0]))
+        fake_visibilities = np.zeros(shape=[256, 256, 4]).astype(np.float32)
+        fake_visibilities[:, :, 0] = np.arange(256) - 128.0
+        fake_visibilities[:, :, 1] = np.random.rand(256)*100 - 50.0
+        fake_visibilities[:, :, 2] = np.random.rand(256)*10 - 5.0
+        fake_visibilities[:, :, 3] = np.random.rand(256)*10 - 5.0
+        self.blocks.append((TestingBlock(fake_visibilities), [], [0]))
         self.blocks.append((NearestNeighborGriddingBlock(shape=(100, 100)), [0], [1]))
         self.blocks.append((IFFT2Block(), [1], [2]))
-        self.blocks.append((WriteAsciiBlock('.log.txt'), [2], []))
     def test_output_size(self):
         """Make sure that the output is the same size as the input
         The input size should be coming from the shape on the nearest neighbor"""
-        open('.log.txt', 'w').close()
+        def assert_size(image):
+            """Test size is 10000"""
+            self.assertEqual(image.size, 10000)
+        self.blocks.append((NumpyBlock(assert_size, outputs=0), {'in_1': 2}))
         Pipeline(self.blocks).main()
-        brightness = np.real(np.loadtxt('.log.txt').astype(np.float32).view(np.complex64))
-        self.assertEqual(brightness.size, 10000)
     def test_same_magnitude(self):
         """Make sure that many points are nonzero"""
-        open('.log.txt', 'w').close()
+        def assert_nonzero(image):
+            """Test 100 elements bigger than 0.1"""
+            magnitude = np.abs(image)
+            self.assertGreater(magnitude[magnitude > 0.1].size, 100)
+        self.blocks.append((NumpyBlock(assert_nonzero, outputs=0), {'in_1': 2}))
         Pipeline(self.blocks).main()
-        brightness = np.loadtxt('.log.txt').astype(np.float32).view(np.complex64)
-        magnitudes = np.abs(brightness)
-        self.assertGreater(magnitudes[magnitudes > 0.1].size, 100)
     def test_ifft_correct_values(self):
         """Make sure the IFFT produces values as if we were to do it without the block"""
-        open('.log.txt', 'w').close()
+        def compare_ifft(non_ifft_array, ifft_array):
+            """Do an ifft here and see if it is the same"""
+            np.testing.assert_almost_equal(
+                ifft_array, 
+                np.fft.fftshift(np.fft.ifft2(np.fft.ifftshift(non_ifft_array))),
+                2)
+        self.blocks.append((NumpyBlock(compare_ifft, inputs=2, outputs=0), {'in_1': 1, 'in_2': 2}))
         Pipeline(self.blocks).main()
-        test_brightness = np.loadtxt('.log.txt').astype(np.float32).view(np.complex64)
-        test_brightness = test_brightness.reshape((100, 100))
-        self.blocks[2] = (WriteAsciiBlock('.log.txt'), [1], [])
-        del self.blocks[3]
-        open('.log.txt', 'w').close()
-        Pipeline(self.blocks).main()
-        grid = np.loadtxt('.log.txt').astype(np.float32).view(np.complex64)
-        grid = grid.reshape((100, 100))
-        brightness = np.fft.fftshift(np.fft.ifft2(np.fft.ifftshift(grid)))
-        from matplotlib import pyplot as plt
-        plt.imshow(np.real(test_brightness)) #Needs to be in row,col order
-        plt.savefig('mona.png')
-        np.testing.assert_almost_equal(test_brightness, brightness, 2)
 class TestPipeline(unittest.TestCase):
     """Test rigidity and features of the pipeline"""
     def test_naming_rings(self):
