@@ -430,7 +430,6 @@ class ScalarSkyModelBlock(SourceBlock):
         antenna_phase_delays = np.exp(-1j*2*np.pi*antenna_time_delays*self.frequencies)
         below_horizon = (alt < 0)
         if below_horizon:
-            print "Source below horizon!"
             antenna_phase_delays.ravel()[:] = 0
         return antenna_phase_delays
     def generate_model(self):
@@ -448,6 +447,7 @@ class ScalarSkyModelBlock(SourceBlock):
                 source['ra'], source['dec'])
             baseline_phase_delays = np.einsum(
                 'fi,fj->fij', antenna_phase_delays, antenna_phase_delays.conj())
+            #extrapolated_flux = self.extrapolate_flux(source['flux'], source['frequency'])
             total_visibilities += (float(source['flux'])/number_antennas**2)*baseline_phase_delays
         return total_visibilities.astype(np.complex64)
     def main(self, output_ring):

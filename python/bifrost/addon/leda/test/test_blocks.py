@@ -373,9 +373,12 @@ class TestScalarSkyModelBlock(unittest.TestCase):
         gridding_shape = (256, 256)
         self.blocks.append((NearestNeighborGriddingBlock(gridding_shape), [0], ['model']))
         def assert_low_frequency_brighter(models):
-            """Make sure that the lower frequency model is brighter"""
+            """Make sure that the lower frequency model is much brighter"""
             low_frequency_model = np.abs(models[0])
             high_frequency_model = np.abs(models[1])
-            self.assertGreater(np.sum(low_frequency_model), np.sum(high_frequency_model))
+            self.assertGreater(np.sum(high_frequency_model), 0)
+            self.assertGreater(
+                np.sum(low_frequency_model)/np.sum(high_frequency_model),
+                10e10)
         self.blocks.append((NumpyBlock(assert_low_frequency_brighter, outputs=0), {'in_1': 'model'}))
         Pipeline(self.blocks).main()
