@@ -390,11 +390,11 @@ class ImagingBlock(MultiTransformBlock):
             plt.colorbar()
             plt.savefig(self.filename)
 
-def horizontal_to_cartesian(az, alt, radius=1):
-    """transform to the cartesian coordiante system"""
-    x_coord = radius*np.cos(alt)*np.sin(az)
-    y_coord = radius*np.cos(alt)*np.cos(az)
-    z_coord = radius*np.sin(alt)
+def horizontal_to_cartesian(azimuth, altitude, radius=1):
+    """transform to the cartesian coordinate system"""
+    x_coord = radius*np.cos(altitude)*np.sin(azimuth)
+    y_coord = radius*np.cos(altitude)*np.cos(azimuth)
+    z_coord = radius*np.sin(altitude)
     return np.array([x_coord, y_coord, z_coord])
 
 class ScalarSkyModelBlock(SourceBlock):
@@ -405,9 +405,11 @@ class ScalarSkyModelBlock(SourceBlock):
             frequencies, sources):
         """
         @param[in] observer Should be an ephem.Observer()
-        @param[in] antenna_coordinates A list of cartesian coordinates in meters, 
+        @param[in] antenna_coordinates A list of cartesian coordinates in meters,
             relative to the observer center
-        @param[in] frequencies All the frequencies """
+        @param[in] frequencies All the frequencies in Hz.
+        @param[in] sources Dictionary of sources, which are also dictionaries,
+            and contain flux, ra, dec and, optionally, frequency and spectral_index"""
         super(ScalarSkyModelBlock, self).__init__()
         self.observer = observer
         self.antenna_coordinates = antenna_coordinates
@@ -418,32 +420,35 @@ class ScalarSkyModelBlock(SourceBlock):
         @param[in] source_position_ra Should be a string
         @param[in] source_position_dec Should be a string"""
         source_position = ephem.FixedBody()
+        #TODO: PyEphem will apparently change these to ra, dec in future version
         source_position._ra = source_position_ra
         source_position._dec = source_position_dec
-	source_position.compute(self.observer)
-	az = np.float(repr(source_position.az))
-        alt = np.float(repr(source_position.alt))
-        cartesian_direction_to_source = horizontal_to_cartesian(az, alt)
+        source_position.compute(self.observer)
+        azimuth = np.float(repr(source_position.az))
+        altitude = np.float(repr(source_position.alt))
+        cartesian_direction_to_source = horizontal_to_cartesian(azimuth, altitude)
         antenna_distance_to_observatory = np.sum(
             self.antenna_coordinates*cartesian_direction_to_source, axis=-1)
         antenna_time_delays = antenna_distance_to_observatory/299792458.
         antenna_phase_delays = np.exp(-1j*2*np.pi*antenna_time_delays*self.frequencies)
-        below_horizon = (alt < 0)
+        below_horizon = (altitude < 0)
         if below_horizon:
             antenna_phase_delays.ravel()[:] = 0
         return antenna_phase_delays
     def extrapolate_flux(self, source):
-        """Estimate the source flux at the desired model frequency"""
-        if 'spectral index' not in source:
-            return list((source['flux'],)*len(self.frequencies))
-        else:
+        """Estimate the source flux at the desired model frequency
+            @param[in] source Dictionary containing settings for the source."""
+        if 'spectral index' in source:
             spectral_index = float(source['spectral index'])
             frequency_reference = float(source['frequency'])
             flux_reference = float(source['flux'])
             # Using S \propto frequency^(spectral_index)
-            extrapolated_flux = np.exp(spectral_index*(np.log(self.frequencies) - np.log(frequency_reference)) + np.log(flux_reference))
+            log_extrapolated_flux = np.log(flux_reference)
+            log_extrapolated_flux += spectral_index*(np.log(self.frequencies/frequency_reference))
+            extrapolated_flux = np.exp(log_extrapolated_flux)
             return extrapolated_flux
-        return
+        else:
+            return list((source['flux'],)*len(self.frequencies))
     def generate_model(self):
         """Calculate the total visibilities for the antenna baselines"""
         number_antennas = len(self.antenna_coordinates)
