@@ -442,7 +442,6 @@ class ScalarSkyModelBlock(SourceBlock):
             source_reference = float(source['flux'])
             # Using S \propto frequency^(spectral_index)
             extrapolated_flux = np.exp(spectral_index*(np.log(self.frequencies) - np.log(frequency_reference)) + np.log(frequency_reference))
-            print extrapolated_flux
             return extrapolated_flux
         return 
     def generate_model(self):
@@ -463,8 +462,6 @@ class ScalarSkyModelBlock(SourceBlock):
             extrapolated_flux = self.extrapolate_flux(source)
             for frequency_index in range(number_frequencies):
                 total_visibilities[frequency_index] += (extrapolated_flux[frequency_index]/number_antennas**2)*baseline_phase_delays[frequency_index]
-            print np.sum(np.abs(total_visibilities[0]))
-            print np.sum(np.abs(total_visibilities[1]))
         return total_visibilities.astype(np.complex64)
     def main(self, output_ring):
         """Generate a model of the sky and put it on a single output span
@@ -479,17 +476,18 @@ class ScalarSkyModelBlock(SourceBlock):
         baselines_xyz = (identity_matrix*self.antenna_coordinates)-(identity_matrix*self.antenna_coordinates).transpose((1, 0, 2))
         baselines_u = baselines_xyz[:, :, 0].reshape(-1)
         baselines_v = baselines_xyz[:, :, 1].reshape(-1)
-        self.gulp_size = baselines_u.nbytes*4
+        self.gulp_size = baselines_u.nbytes*4*self.frequencies.size
         self.output_header = json.dumps({
             'nbit': 32,
             'dtype': str(np.float32),
-            'shape': [number_antennas, number_antennas, 4]})
+            'shape': [self.frequencies.size, number_antennas, number_antennas, 4]})
         out_span_generator = self.iterate_ring_write(output_ring)
+        out_span = out_span_generator.next()
+        out_span = out_span.data_view(np.float32)[0].reshape([self.frequencies.size, number_antennas, number_antennas, 4])
         for frequency_index in range(self.frequencies.size):
-            out_span = out_span_generator.next()
             real_visibilities = visibilities[frequency_index].reshape(-1).view(np.float32)[0::2]
             imaginary_visibilities = visibilities[frequency_index].reshape(-1).view(np.float32)[1::2]
-            out_span.data_view(np.float32)[0][0::4] = baselines_u
-            out_span.data_view(np.float32)[0][1::4] = baselines_v
-            out_span.data_view(np.float32)[0][2::4] = real_visibilities
-            out_span.data_view(np.float32)[0][3::4] = imaginary_visibilities 
+            out_span[frequency_index].ravel()[0::4] = baselines_u
+            out_span[frequency_index].ravel()[1::4] = baselines_v
+            out_span[frequency_index].ravel()[2::4] = real_visibilities
+            out_span[frequency_index].ravel()[3::4] = imaginary_visibilities 

@@ -362,26 +362,25 @@ class TestScalarSkyModelBlock(unittest.TestCase):
         Pipeline(self.blocks).main()
     def test_source_scaling(self):
         """Make sure that different frequencies lead different brightnesses"""
-        negative_spectral_index = -100
+        negative_spectral_index = -10
         fake_sources = {}
         fake_sources['my_fake_source'] = {
             'ra':'19:59:28.4', 'dec':'+40:44:02.1', 
             'flux': 1000.0, 'frequency': 58e6, 
             'spectral index': negative_spectral_index}
-        frequencies = [40e6, 1e9]
+        frequencies = [10e6, 100e6]
         self.blocks[0] = (ScalarSkyModelBlock(OVRO_EPHEM, COORDINATES, frequencies, fake_sources), [], [0])
-        def print_shape(array):
-            print array.shape
-        self.blocks.append([NumpyBlock(print_shape, outputs=0), {'in_1': 0}])
+        def split_model_frequencies(model):
+            return model[0], model[1]
+        self.blocks.append([NumpyBlock(split_model_frequencies, outputs=2), {'in_1': 0, 'out_1': 'low_model', 'out_2': 'high_model'}])
         gridding_shape = (256, 256)
-        self.blocks.append((NearestNeighborGriddingBlock(gridding_shape), [0], ['model']))
-        def assert_low_frequency_brighter(models):
+        self.blocks.append((NearestNeighborGriddingBlock(gridding_shape), ['low_model'], ['low_grid']))
+        self.blocks.append((NearestNeighborGriddingBlock(gridding_shape), ['high_model'], ['high_grid']))
+        def assert_low_frequency_brighter(low_frequency_model, high_frequency_model):
             """Make sure that the lower frequency model is much brighter"""
-            low_frequency_model = np.abs(models[0])
-            high_frequency_model = np.abs(models[1])
-            self.assertGreater(np.sum(high_frequency_model), 0)
+            self.assertGreater(np.sum(np.abs(high_frequency_model)), 0)
             self.assertGreater(
-                np.sum(low_frequency_model)/np.sum(high_frequency_model),
-                10e10)
-        self.blocks.append((NumpyBlock(assert_low_frequency_brighter, outputs=0), {'in_1': 'model'}))
+                np.sum(np.abs(low_frequency_model))/np.sum(np.abs(high_frequency_model)),
+                1e5)
+        self.blocks.append((NumpyBlock(assert_low_frequency_brighter, inputs=2, outputs=0), {'in_1': 'low_grid', 'in_2': 'high_grid'}))
         Pipeline(self.blocks).main()
