@@ -572,10 +572,11 @@ class TestMultiTransformBlock(unittest.TestCase):
         blocks.append([
             MultiAddBlock(),
             {'in_1': 'third_sum', 'in_2':4, 'out_sum': my_ring}])
-        blocks.append([WriteAsciiBlock('.log.txt'), [my_ring], []])
+        def assert_result_of_addition(array):
+            """Make sure that the above arrays add up to what we expect"""
+            np.testing.assert_almost_equal(array, [18, 14])
+        blocks.append((NumpyBlock(assert_result_of_addition, outputs=0), {'in_1': my_ring}))
         Pipeline(blocks).main()
-        summed_result = np.loadtxt('.log.txt')
-        np.testing.assert_almost_equal(summed_result, [18, 14])
     def test_for_bad_ring_definitions(self):
         """Try to pass bad input and outputs"""
         blocks = []
