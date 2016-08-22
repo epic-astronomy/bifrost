@@ -340,3 +340,23 @@ class TestScalarSkyModelBlock(unittest.TestCase):
             self.assertGreater(np.max(brightness)/np.average(brightness), 5)
         self.blocks.append((NumpyBlock(assert_brightness, outputs=0), {'in_1': 1}))
         Pipeline(self.blocks).main()
+    def test_source_outside_fov(self):
+        """Load in a source on the other side of the planet, and test it is not visible"""
+        no_sources = {}
+        fake_sources = {}
+        fake_sources['my_fake_source'] = {
+            'ra': 0, 'dec': '-89:00:00.0',
+            'flux': 1000000, 'frequency': 58e6, 
+            'spectral index': -0.2046}
+        frequencies = [40e6]
+        self.blocks[0] = (ScalarSkyModelBlock(OVRO_EPHEM, COORDINATES, frequencies, fake_sources), [], [0])
+        self.blocks[1] = (ScalarSkyModelBlock(OVRO_EPHEM, COORDINATES, frequencies, no_sources), [], [1])
+        gridding_shape = (256, 256)
+        self.blocks.append((NearestNeighborGriddingBlock(gridding_shape), [0], ['fake']))
+        self.blocks.append((NearestNeighborGriddingBlock(gridding_shape), [1], ['none']))
+        def assert_both_zero(model_no_source, model_invisible_source):
+            """Make sure that the two models are both zero in brightness"""
+            self.assertAlmostEqual(np.max(model_no_source), 0)
+            self.assertAlmostEqual(np.max(model_invisible_source), 0)
+        self.blocks.append((NumpyBlock(assert_both_zero, inputs=2, outputs=0), {'in_1':'none', 'in_2':'fake'}))
+        Pipeline(self.blocks).main()
