@@ -513,7 +513,7 @@ class TestGainSolveBlock(unittest.TestCase):
     def test_solving_to_skymodel(self):
         """Attempt to solve a sky model to itself"""
         #TODO: This relies on LEDA-specific blocks.
-        from bifrost.addon.leda.model_block import ScalarSkyModelBlock
+        from bifrost.addon.leda.blocks import ScalarSkyModelBlock
         from bifrost.addon.leda.blocks import load_telescope, LEDA_SETTINGS_FILE, OVRO_EPHEM
         coords = load_telescope(LEDA_SETTINGS_FILE)[1]
         sources = {}

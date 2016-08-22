@@ -37,7 +37,7 @@ from bifrost.ring import Ring
 from bifrost.addon.leda.blocks import DadaReadBlock, NewDadaReadBlock, CableDelayBlock
 from bifrost.addon.leda.blocks import UVCoordinateBlock, BaselineSelectorBlock
 from bifrost.addon.leda.blocks import SlicingBlock, ImagingBlock
-from bifrost.addon.leda.model_block import ScalarSkyModelBlock
+from bifrost.addon.leda.blocks import ScalarSkyModelBlock
 
 FFT_SIZE = 512
 N_STANDS = 250

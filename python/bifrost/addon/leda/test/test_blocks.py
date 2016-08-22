@@ -36,42 +36,9 @@ from bifrost.block import WriteAsciiBlock, Pipeline, TestingBlock, NearestNeighb
 from bifrost.block import IFFT2Block
 from bifrost.addon.leda.blocks import NewDadaReadBlock, CableDelayBlock
 from bifrost.addon.leda.blocks import UVCoordinateBlock, BaselineSelectorBlock
-from bifrost.addon.leda.blocks import SlicingBlock, ImagingBlock
-from bifrost.addon.leda.model_block import ScalarSkyModelBlock
-
-def load_telescope(filename):
-    """Load in LEDA's settings file (coded as a JSON)
-        @param[in] filename The JSON file.
-        @returns telescope - The full JSON file as a dictionary
-        @returns ant_coords - The coordinates of the LEDA stands
-        @returns delays - The delays of each stand [antenna, polarization]
-        @returns dispersions- The dispersions of each stand [antenna, polarization]"""
-    with open(filename, 'r') as telescope_file:
-        telescope = json.load(telescope_file)
-    coords_local = np.array(telescope['coords']['local']['__data__'], dtype=np.float32)
-    # Reshape into ant,column
-    coords_local = coords_local.reshape(coords_local.size/4, 4)
-    ant_coords = coords_local[:, 1:]
-    inputs = np.array(telescope['inputs']['__data__'], dtype=np.float32)
-    # Reshape into ant,pol,column
-    inputs = inputs.reshape(inputs.size/7/2, 2, 7)
-    delays = inputs[:, :, 5]*1e-9
-    dispersions = inputs[:, :, 6]*1e-9
-    return telescope, ant_coords, delays, dispersions
-
-#LEDA stand flags:
-BAD_STANDS = [
-    0, 56, 57, 58, 59, 60, 61, 62, 63, 72, 74, 75, 76, 77, 78, 82, 83, 84, 85, 86, 87,
-    91, 92, 93, 104, 120, 121, 122, 123, 124, 125, 126, 127, 128, 145, 148, 157, 161,
-    164, 168, 184, 185, 186, 187, 188, 189, 190, 191, 197, 220, 224, 225, 238, 239,
-    240, 241, 242, 243, 244, 245, 246, 247, 248, 249, 250, 251, 252, 253, 254, 255]
-LEDA_SETTINGS_FILE = "/data1/mcranmer/data/real/leda/lwa_ovro.telescope.json"
-OVRO_EPHEM = ephem.Observer()
-OVRO_EPHEM.lat = '37.239782'
-OVRO_EPHEM.lon = '-118.281679'
-OVRO_EPHEM.elevation = 1184.134
-OVRO_EPHEM.date = '2016/07/26 16:17:00.00'
-telescope, coords, delays, dispersions = load_telescope(LEDA_SETTINGS_FILE)
+from bifrost.addon.leda.blocks import SlicingBlock, ImagingBlock, load_telescope
+from bifrost.addon.leda.blocks import ScalarSkyModelBlock
+from bifrost.addon.leda.blocks import OVRO_EPHEM, COORDINATES, DELAYS
 
 class TestNewDadaReadBlock(unittest.TestCase):
     """Test the ability of the Dada block to read
@@ -138,7 +105,6 @@ class TestCableDelayBlock(unittest.TestCase):
         self.logfile_cable_delay = '.log_cables.txt'
         self.logfile_no_cable_delay = '.log_no_cables.txt'
         dadafile = '/data2/hg/interfits/lconverter/WholeSkyL64_47.004_d20150203_utc181702_test/2015-04-08-20_15_03_0001133593833216.dada'
-        coordinates, delays, dispersions = load_telescope("/data1/mcranmer/data/real/leda/lwa_ovro.telescope.json")[1:]
         frequencies = 10e5*(47.004-2.616/2) + np.arange(start=0, stop=2.616, step=2.616/109)
         self.n_stations = 256
         self.n_pol = 2
@@ -148,7 +114,7 @@ class TestCableDelayBlock(unittest.TestCase):
             NewDadaReadBlock(dadafile, output_chans=output_channels , time_steps=1),
             {'out': 0}))
         self.blocks.append((
-            CableDelayBlock(frequencies[output_channels], delays, dispersions),
+            CableDelayBlock(frequencies[output_channels], DELAYS, DISPERSIONS),
             {'in': 0, 'out': 1}))
         self.blocks.append((WriteAsciiBlock(self.logfile_cable_delay), [1], []))
         self.blocks.append((WriteAsciiBlock(self.logfile_no_cable_delay), [0], []))
@@ -289,7 +255,7 @@ class TestScalarSkyModelBlock(unittest.TestCase):
             'flux': 250.0, 'frequency':20e6,
             'spectral index':+1.9920}
         frequencies = [60e6]
-        self.blocks.append((ScalarSkyModelBlock(OVRO_EPHEM, coords, frequencies, self.sources), [], [0]))
+        self.blocks.append((ScalarSkyModelBlock(OVRO_EPHEM, COORDINATES, frequencies, self.sources), [], [0]))
         self.blocks.append((WriteAsciiBlock('.log.txt'), [0], []))
     def test_output_size(self):
         """Make sure that the visibility output matches the number of baselines"""
@@ -310,7 +276,7 @@ class TestScalarSkyModelBlock(unittest.TestCase):
     def test_multiple_frequences(self):
         """Attempt to to create models for multiple frequencies"""
         frequencies = [60e6, 70e6]
-        self.blocks[0] = (ScalarSkyModelBlock(OVRO_EPHEM, coords, frequencies, self.sources), [], [0])
+        self.blocks[0] = (ScalarSkyModelBlock(OVRO_EPHEM, COORDINATES, frequencies, self.sources), [], [0])
         open('.log.txt', 'w').close()
         Pipeline(self.blocks).main()
         model = np.loadtxt('.log.txt').astype(np.float32)
@@ -361,7 +327,7 @@ class TestScalarSkyModelBlock(unittest.TestCase):
                     'flux': flux, 'frequency': 58e6, 
                     'spectral index': -0.2046}
         frequencies = [60e6]
-        self.blocks[0] = (ScalarSkyModelBlock(OVRO_EPHEM, coords, frequencies, self.sources), [], [0])
+        self.blocks[0] = (ScalarSkyModelBlock(OVRO_EPHEM, COORDINATES, frequencies, self.sources), [], [0])
         gridding_shape = (256, 256)
         self.blocks[1] = (NearestNeighborGriddingBlock(gridding_shape), [0], [1])
         open('.log.txt', 'w').close()
