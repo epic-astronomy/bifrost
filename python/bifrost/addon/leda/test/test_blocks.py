@@ -33,7 +33,7 @@ import os
 import numpy as np
 import ephem
 from bifrost.block import WriteAsciiBlock, Pipeline, TestingBlock, NearestNeighborGriddingBlock
-from bifrost.block import IFFT2Block
+from bifrost.block import IFFT2Block, NumpyBlock
 from bifrost.addon.leda.blocks import NewDadaReadBlock, CableDelayBlock
 from bifrost.addon.leda.blocks import UVCoordinateBlock, BaselineSelectorBlock
 from bifrost.addon.leda.blocks import SlicingBlock, ImagingBlock, load_telescope
@@ -330,15 +330,13 @@ class TestScalarSkyModelBlock(unittest.TestCase):
         self.blocks[0] = (ScalarSkyModelBlock(OVRO_EPHEM, COORDINATES, frequencies, self.sources), [], [0])
         gridding_shape = (256, 256)
         self.blocks[1] = (NearestNeighborGriddingBlock(gridding_shape), [0], [1])
-        open('.log.txt', 'w').close()
-        self.blocks.append((WriteAsciiBlock('.log.txt'), [1], []))
+        def assert_brightness(model):
+            # Should be the size of the desired grid
+            self.assertEqual(model.size, np.product(gridding_shape))
+            brightness = np.abs(np.fft.fftshift(np.fft.ifft2(np.fft.ifftshift(model))))
+            # Should be many nonzero elements in the image
+            self.assertGreater(brightness[brightness > 1e-30].size, 100)
+            # Should be some brighter sources
+            self.assertGreater(np.max(brightness)/np.average(brightness), 5)
+        self.blocks.append((NumpyBlock(assert_brightness, outputs=0), {'in_1': 1}))
         Pipeline(self.blocks).main()
-        model = np.loadtxt('.log.txt').astype(np.float32).view(np.complex64)
-        model = model.reshape(gridding_shape)
-        # Should be the size of the desired grid
-        self.assertEqual(model.size, np.product(gridding_shape))
-        brightness = np.abs(np.fft.fftshift(np.fft.ifft2(np.fft.ifftshift(model))))
-        # Should be many nonzero elements in the image
-        self.assertGreater(brightness[brightness > 1e-30].size, 100)
-        # Should be some brighter sources
-        self.assertGreater(np.max(brightness)/np.average(brightness), 5)
