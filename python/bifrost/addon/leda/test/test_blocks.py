@@ -360,3 +360,4 @@ class TestScalarSkyModelBlock(unittest.TestCase):
             self.assertAlmostEqual(np.max(model_invisible_source), 0)
         self.blocks.append((NumpyBlock(assert_both_zero, inputs=2, outputs=0), {'in_1':'none', 'in_2':'fake'}))
         Pipeline(self.blocks).main()
+    #TODO: Add test for scaling frequency/flux

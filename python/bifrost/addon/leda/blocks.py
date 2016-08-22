@@ -428,6 +428,9 @@ class ScalarSkyModelBlock(SourceBlock):
             self.antenna_coordinates*cartesian_direction_to_source, axis=-1)
         antenna_time_delays = antenna_distance_to_observatory/299792458.
         antenna_phase_delays = np.exp(-1j*2*np.pi*antenna_time_delays*self.frequencies)
+        below_horizon = alt < 0
+        if below_horizon:
+            antenna_phase_delays.ravel()[:] = 0
         return antenna_phase_delays
     def generate_model(self):
         """Calculate the total visibilities on the antenna baselines"""
