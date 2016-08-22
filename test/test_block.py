@@ -419,12 +419,12 @@ class TestIFFT2Block(unittest.TestCase):
         """Run a pipeline on a fake visibility set and IFFT it after gridding"""
         self.datafile_name = "/data1/mcranmer/data/fake/mona_uvw.dat"
         self.blocks = []
-        fake_visibilities = np.zeros(shape=[256, 256, 4]).astype(np.float32)
-        fake_visibilities[:, :, 0] = np.arange(256) - 128.0
-        fake_visibilities[:, :, 1] = np.random.rand(256)*100 - 50.0
-        fake_visibilities[:, :, 2] = np.random.rand(256)*10 - 5.0
-        fake_visibilities[:, :, 3] = np.random.rand(256)*10 - 5.0
-        self.blocks.append((TestingBlock(fake_visibilities), [], [0]))
+        random_visibilities = np.zeros(shape=[256, 256, 4]).astype(np.float32)
+        random_visibilities[:, :, 0] = np.arange(256) - 128.0
+        random_visibilities[:, :, 1] = np.random.rand(256)*100 - 50.0
+        random_visibilities[:, :, 2] = np.random.rand(256)*10 - 5.0
+        random_visibilities[:, :, 3] = np.random.rand(256)*10 - 5.0
+        self.blocks.append((TestingBlock(random_visibilities), [], [0]))
         self.blocks.append((NearestNeighborGriddingBlock(shape=(100, 100)), [0], [1]))
         self.blocks.append((IFFT2Block(), [1], [2]))
     def test_output_size(self):
@@ -517,17 +517,6 @@ class TestGainSolveBlock(unittest.TestCase):
     def test_solving_to_skymodel(self):
         """Attempt to solve a sky model to itself"""
         #TODO: This relies on LEDA-specific blocks.
-        from bifrost.addon.leda.blocks import ScalarSkyModelBlock
-        from bifrost.addon.leda.blocks import load_telescope, LEDA_SETTINGS_FILE, OVRO_EPHEM
-        coords = load_telescope(LEDA_SETTINGS_FILE)[1]
-        sources = {}
-        sources['cyg'] = {
-            'ra':'19:59:28.4', 'dec':'+40:44:02.1', 'flux': 10571.0, 'frequency': 58e6,
-            'spectral index': -0.2046}
-        frequencies = [58e6]
-        blocks = []
-        blocks.append((
-            ScalarSkyModelBlock(OVRO_EPHEM, coords, frequencies, sources), [], ['model+uv']))
         def slice_away_uv(model_and_uv):
             """Cut off the uv coordinates from the ScalarSkyModelBlock and reshape to GainSolve"""
             number_stands = model_and_uv.shape[1]
@@ -535,14 +524,6 @@ class TestGainSolveBlock(unittest.TestCase):
             model[0, :, 0, :, 0] = model_and_uv[0, :, :, 2]+1j*model_and_uv[0, :, :, 3]
             model[0, :, 1, :, 1] = model[0, :, 0, :, 0]
             return model
-        blocks.append((NumpyBlock(slice_away_uv), {'in_1': 'model+uv', 'out_1': 'model'}))
-        blocks.append((NumpyBlock(np.copy), {'in_1': 'model', 'out_1': 'same_model'}))
-        flags = 2*np.ones(shape=[
-            1, self.nstand]).astype(np.int8)
-        blocks.append((TestingBlock(2*self.jones), [], ['jones_in']))
-        blocks.append([GainSolveBlock(flags=flags, eps=0.05), {
-            'in_data': 'same_model', 'in_model': 'model', 'in_jones': 'jones_in',
-            'out_data': 'calibrated_data', 'out_jones': 'jones_out'}])
         def assert_almost_unity(jones_matrices):
             """Make sure that the jones have been calibrated to be identity"""
             identity_jones = np.ones(shape=[
@@ -551,7 +532,81 @@ class TestGainSolveBlock(unittest.TestCase):
             identity_jones[:, 0, :, 1] = 0
             identity_jones[:, 1, :, 0] = 0
             np.testing.assert_almost_equal(jones_matrices, identity_jones, 1)
+        from bifrost.addon.leda.blocks import ScalarSkyModelBlock
+        from bifrost.addon.leda.blocks import load_telescope, LEDA_SETTINGS_FILE, OVRO_EPHEM
+        # Change to a time when cyg is visible
+        OVRO_EPHEM.date = '2012/08/29 20:39:49' 
+        coords = load_telescope(LEDA_SETTINGS_FILE)[1]
+        sources = {}
+        sources['cyg'] = {
+            'ra':'19:59:28.4', 'dec':'+40:44:02.1', 'flux': 10571.0, 'frequency': 58e6,
+            'spectral index': -0.2046}
+        frequencies = [40e6]
+        blocks = []
+        blocks.append((
+            ScalarSkyModelBlock(OVRO_EPHEM, coords, frequencies, sources), [], ['model+uv']))
+        blocks.append((NumpyBlock(slice_away_uv), {'in_1': 'model+uv', 'out_1': 'model'}))
+        blocks.append((NumpyBlock(np.copy), {'in_1': 'model', 'out_1': 'same_model'}))
+        flags = 2*np.ones(shape=[
+            1, self.nstand]).astype(np.int8)
+        blocks.append((TestingBlock(2*self.jones), [], ['jones_in']))
+        blocks.append([GainSolveBlock(flags=flags, eps=0.05), {
+            'in_data': 'same_model', 'in_model': 'model', 'in_jones': 'jones_in',
+            'out_data': 'calibrated_data', 'out_jones': 'jones_out'}])
         blocks.append((NumpyBlock(assert_almost_unity, outputs=0), {'in_1': 'jones_out'}))
+        Pipeline(blocks).main()
+    def test_calibration_dada_files(self):
+        """Attempt to calibrate jones matrices to LEDA data from a DADA file"""
+        #TODO: This relies on LEDA-specific blocks.
+        sources = {}
+        sources['cyg'] = {
+            'ra':'19:59:28.4', 'dec':'+40:44:02.1', 'flux': 10571.0, 'frequency': 58e6,
+            'spectral index': -0.2046}
+        sources['cas'] = {
+                'ra':'23:23:27.8', 'dec':'+58:48:34', 'flux': 6052.0, 'frequency': 58e6,
+                'spectral index': 0.7581}
+        def slice_away_uv(model_and_uv):
+            """Cut off the uv coordinates from the ScalarSkyModelBlock and reshape to GainSolve"""
+            number_stands = model_and_uv.shape[1]
+            model = np.zeros(shape=[1, number_stands, 2, number_stands, 2]).astype(np.complex64)
+            model[0, :, 0, :, 0] = model_and_uv[0, :, :, 2]+1j*model_and_uv[0, :, :, 3]
+            model[0, :, 1, :, 1] = model[0, :, 0, :, 0]
+            return model
+        def reformat_data_for_gridding(visibilities, uv_coordinates):
+            """Reshape visibility data for gridding on UV plane"""
+            reformatted_data = np.zeros(shape=[self.nstand, self.nstand, 4], dtype=np.float32)
+            reformatted_data[:, :, 0:2] = uv_coordinates
+            reformatted_data[:, :, 2] = np.real(visibilities)
+            reformatted_data[:, :, 3] = np.imag(visibilities)
+        from bifrost.addon.leda.blocks import (
+            ScalarSkyModelBlock, DELAYS, COORDINATES, DISPERSIONS, UVCoordinateBlock,
+            load_telescope, LEDA_SETTINGS_FILE, OVRO_EPHEM, BAD_STANDS, NewDadaReadBlock)
+        dada_file = "/data2/ovro4/one/2013-07-16-22:06:07_0000028200960000.000000.dada"
+        OVRO_EPHEM.date = '2013/07/16 22:06:07'
+        frequencies = [40e6]
+        blocks = []
+        blocks.append((
+            NewDadaReadBlock(dada_file, output_chans=[100], time_steps=1),
+            {'out': 'visibilities'}))
+        blocks.append((
+            ScalarSkyModelBlock(OVRO_EPHEM, COORDINATES, frequencies, sources), [], ['model+uv']))
+        blocks.append((NumpyBlock(slice_away_uv), {'in_1': 'model+uv', 'out_1': 'model'}))
+        blocks.append((NumpyBlock(np.copy), {'in_1': 'model', 'out_1': 'same_model'}))
+        flags = 2*np.ones(shape=[
+            1, self.nstand]).astype(np.int8)
+        blocks.append((TestingBlock(self.jones), [], ['jones_in']))
+        blocks.append([GainSolveBlock(flags=flags, eps=0.05), {
+            'in_data': 'visibilities', 'in_model': 'model', 'in_jones': 'jones_in',
+            'out_data': 'calibrated_data', 'out_jones': 'jones_out'}])
+        blocks.append((
+            UVCoordinateBlock(LEDA_SETTINGS_FILE), {'out': 'uv_coords'}))
+        blocks.append((
+            NumpyBlock(reformat_data_for_gridding, inputs=2),
+            {'in_1': 'calibrated_data', 'in_2': 'uv_coords', 'out_1': 'data_for_gridding'}))
+        blocks.append((NearestNeighborGriddingBlock((256, 256)), ['data_for_gridding'], ['grid']))
+        blocks.append((IFFT2Block(), ['grid'], ['image']))
+        from bifrost.addon.leda.blocks import ImagingBlock
+        blocks.append((ImagingBlock('sky.png', np.abs), {'in': 'image'}))
         Pipeline(blocks).main()
 class TestMultiTransformBlock(unittest.TestCase):
     """Test call syntax and function of a multi transform block"""
