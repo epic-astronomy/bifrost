@@ -574,14 +574,16 @@ class TestGainSolveBlock(unittest.TestCase):
             return model
         def reformat_data_for_gridding(visibilities, uv_coordinates):
             """Reshape visibility data for gridding on UV plane"""
-            reformatted_data = np.zeros(shape=[self.nstand, self.nstand, 4], dtype=np.float32)
+            reformatted_data = np.zeros(shape=[self.nstand, self.nstand, 4], dtype=np.complex64)
             reformatted_data[:, :, 0:2] = uv_coordinates
-            reformatted_data[:, :, 2] = np.real(visibilities)
-            reformatted_data[:, :, 3] = np.imag(visibilities)
+            reformatted_data[:, :, 2] = np.real(visibilities[0, :, 0, :, 0])
+            reformatted_data[:, :, 3] = np.imag(visibilities[0, :, 0, :, 0])
+            return reformatted_data
         from bifrost.addon.leda.blocks import (
             ScalarSkyModelBlock, DELAYS, COORDINATES, DISPERSIONS, UVCoordinateBlock,
             load_telescope, LEDA_SETTINGS_FILE, OVRO_EPHEM, BAD_STANDS, NewDadaReadBlock)
-        dada_file = "/data2/ovro4/one/2013-07-16-22:06:07_0000028200960000.000000.dada"
+        dada_file = '/data2/hg/interfits/lconverter/WholeSkyL64_47.004_d20150203_utc181702_test/2015-04-08-20_15_03_0001133593833216.dada'
+        #dada_file = "/data2/ovro4/one/2013-07-16-22:06:07_0000028200960000.000000.dada"
         OVRO_EPHEM.date = '2013/07/16 22:06:07'
         frequencies = [40e6]
         blocks = []
@@ -595,8 +597,13 @@ class TestGainSolveBlock(unittest.TestCase):
         flags = 2*np.ones(shape=[
             1, self.nstand]).astype(np.int8)
         blocks.append((TestingBlock(self.jones), [], ['jones_in']))
+        def transpose_to_gain_solve(data_array):
+            """Transpose the DADA data to the gain_solve format"""
+            return data_array.transpose((0, 1, 3, 2, 4))
+
+        blocks.append((NumpyBlock(transpose_to_gain_solve), {'in_1': 'visibilities', 'out_1': 'formatted_visibilities'}))
         blocks.append([GainSolveBlock(flags=flags, eps=0.05), {
-            'in_data': 'visibilities', 'in_model': 'model', 'in_jones': 'jones_in',
+            'in_data': 'formatted_visibilities', 'in_model': 'model', 'in_jones': 'jones_in',
             'out_data': 'calibrated_data', 'out_jones': 'jones_out'}])
         blocks.append((
             UVCoordinateBlock(LEDA_SETTINGS_FILE), {'out': 'uv_coords'}))

@@ -1038,7 +1038,7 @@ class GainSolveBlock(MultiTransformBlock):
             for i in range(jones.shape[2]):
                 try:
                     jones[0, :, i, :] = np.linalg.inv(jones[0, :, i, :])
-                except np.LinAlgError:
+                except np.linalg.LinAlgError:
                     number_singular_matrices += 1
                     jones[0, :, i, :] = 0
             if number_singular_matrices == jones.shape[2]:
