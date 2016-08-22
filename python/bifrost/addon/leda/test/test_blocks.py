@@ -270,11 +270,12 @@ class TestScalarSkyModelBlock(unittest.TestCase):
     def test_phases(self):
         """Phases should be distributed well about the unit circle
         They should therefore cancel eachother out fairly well"""
-        def npprint(array):
+        def assert_phase_distribution(array):
+            """Make sure that there is a good distribution of phases"""
             self.assertGreater(
                 np.abs(array[0, :, :, 2]+1j*array[0, :, :, 3]).sum(),
                 100*np.abs((array[0, :, :, 2]+1j*array[0, :, :, 3]).sum()))
-        self.blocks[1] = (NumpyBlock(npprint, outputs=0), {'in_1':0})
+        self.blocks[1] = (NumpyBlock(assert_phase_distribution, outputs=0), {'in_1':0})
         Pipeline(self.blocks).main()
     def test_multiple_frequences(self):
         """Attempt to to create models for multiple frequencies"""
@@ -334,6 +335,7 @@ class TestScalarSkyModelBlock(unittest.TestCase):
         gridding_shape = (256, 256)
         self.blocks[1] = (NearestNeighborGriddingBlock(gridding_shape), [0], [1])
         def assert_brightness(model):
+            """Test that brightness of the model is as expected"""
             # Should be the size of the desired grid
             self.assertEqual(model.size, np.product(gridding_shape))
             brightness = np.abs(np.fft.fftshift(np.fft.ifft2(np.fft.ifftshift(model))))
@@ -343,8 +345,8 @@ class TestScalarSkyModelBlock(unittest.TestCase):
             self.assertGreater(np.max(brightness)/np.average(brightness), 5)
         self.blocks.append((NumpyBlock(assert_brightness, outputs=0), {'in_1': 1}))
         Pipeline(self.blocks).main()
-    def test_source_outside_fov(self):
-        """Load in a source on the other side of the planet, and test it is not visible"""
+    def test_source_outside_field_of_view(self):
+        """Load in a source on the other side of the planet, and test that it is not visible"""
         no_sources = {}
         fake_sources = {}
         fake_sources['my_fake_source'] = {
@@ -366,7 +368,7 @@ class TestScalarSkyModelBlock(unittest.TestCase):
     def test_source_scaling(self):
         """Make sure that different frequencies give different brightnesses and location"""
         def split_model_frequencies(model):
-            """Cut the low frequency model into a separate ring"""
+            """Cut the different frequency models into separate rings"""
             return model[0], model[1]
         def assert_low_frequency_brighter(low_frequency_model, high_frequency_model):
             """Make sure that the lower frequency model is much brighter"""
@@ -400,5 +402,4 @@ class TestScalarSkyModelBlock(unittest.TestCase):
         self.blocks.append((
             NumpyBlock(assert_source_different_location, inputs=2, outputs=0),
             {'in_1': 'low_image', 'in_2': 'high_image'}))
-
         Pipeline(self.blocks).main()

@@ -465,7 +465,7 @@ class ScalarSkyModelBlock(SourceBlock):
         return total_visibilities.astype(np.complex64)
     def main(self, output_ring):
         """Generate a model of the sky and put it on a single output span
-        @param[in] output_ring The ring to put this visibility model on. 
+            @param[in] output_ring The ring to put this visibility model on.
             Is entered as [[u,v,re,im],[u,..],..]"""
         visibilities = self.generate_model()
         number_antennas = self.antenna_coordinates.shape[0]
@@ -473,21 +473,23 @@ class ScalarSkyModelBlock(SourceBlock):
             len(self.antenna_coordinates),
             len(self.antenna_coordinates), 
             3), dtype=np.float32)
-        baselines_xyz = (identity_matrix*self.antenna_coordinates)-(identity_matrix*self.antenna_coordinates).transpose((1, 0, 2))
+        baselines_xyz = self.antenna_coordinates[None, :] - self.antenna_coordinates[:, None]
         baselines_u = baselines_xyz[:, :, 0].reshape(-1)
         baselines_v = baselines_xyz[:, :, 1].reshape(-1)
         self.gulp_size = baselines_u.nbytes*4*self.frequencies.size
+        model_shape = [self.frequencies.size, number_antennas, number_antennas, 4]
         self.output_header = json.dumps({
             'nbit': 32,
             'dtype': str(np.float32),
-            'shape': [self.frequencies.size, number_antennas, number_antennas, 4]})
+            'shape': model_shape})
         out_span_generator = self.iterate_ring_write(output_ring)
         out_span = out_span_generator.next()
-        out_span = out_span.data_view(np.float32)[0].reshape([self.frequencies.size, number_antennas, number_antennas, 4])
+        out_span = out_span.data_view(np.float32)[0]
+        out_span = out_span.reshape(model_shape)
         for frequency_index in range(self.frequencies.size):
-            real_visibilities = visibilities[frequency_index].reshape(-1).view(np.float32)[0::2]
-            imaginary_visibilities = visibilities[frequency_index].reshape(-1).view(np.float32)[1::2]
+            real_visibilities = np.real(visibilities[frequency_index].ravel())
+            imaginary_visibilities = np.imag(visibilities[frequency_index].ravel())
             out_span[frequency_index].ravel()[0::4] = baselines_u
             out_span[frequency_index].ravel()[1::4] = baselines_v
             out_span[frequency_index].ravel()[2::4] = real_visibilities
-            out_span[frequency_index].ravel()[3::4] = imaginary_visibilities 
+            out_span[frequency_index].ravel()[3::4] = imaginary_visibilities
