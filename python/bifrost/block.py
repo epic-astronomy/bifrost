@@ -975,6 +975,9 @@ class GainSolveBlock(MultiTransformBlock):
         'in_jones': "An initial estimate for the Jones matrices [nchan,npol^,nstand,npol]",
         'out_jones': "The result of calibration for the Jones matrices [nchan,npol^,nstand,npol]",
         'out_data': "Calibrated data visibilities [nchan,nstand^,npol^,nstand,npol]"}
+    ring_spaces = {
+        'in_data': 'system', 'in_model': 'system',
+        'in_jones': 'system', 'out_jones': 'system', 'out_data': 'system'}
     def __init__(self, flags=None, max_iterations=20, eps=0.0025):
         """
         @param[in] flags Solution settings [frequency, stand]
@@ -1018,42 +1021,39 @@ class GainSolveBlock(MultiTransformBlock):
             gpu_model.set(model)
             gpu_jones.set(jones)
             gpu_flags.set(self.flags)
-            array_jones = gpu_jones.as_BFarray(100)
-            num_unconverged_type = ctypes.POINTER(ctypes.c_int)
-            num = ctypes.c_int(1)
-            num_unconverged = ctypes.cast(ctypes.addressof(num), num_unconverged_type)
+            jones_array = gpu_jones.as_BFarray(100)
+            num_unconverged = ctypes.cast(
+                ctypes.addressof(ctypes.c_int(0)),
+                ctypes.POINTER(ctypes.c_int))
             _bf.SolveGains(
                 gpu_data.as_BFconstarray(100),
                 gpu_model.as_BFconstarray(100),
-                array_jones,
+                jones_array,
                 gpu_flags.as_BFarray(100),
                 True, 3.0, self.eps, self.max_iterations, num_unconverged)
-            new_gpu_jones = GPUArray(gpu_jones.shape, np.complex64)
-            new_gpu_jones.buffer = array_jones.data
-            jones = new_gpu_jones.get()
-            singular = 0
+            gpu_jones.buffer = jones_array.data
+            jones = gpu_jones.get()
+            number_singular_matrices = 0
             #TODO: Iterate over all channels as well!
             for i in range(jones.shape[2]):
                 try:
                     jones[0, :, i, :] = np.linalg.inv(jones[0, :, i, :])
-                except:
-                    singular += 1
+                except np.LinAlgError:
+                    number_singular_matrices += 1
                     jones[0, :, i, :] = 0
-            if singular == jones.shape[2]:
+            if number_singular_matrices == jones.shape[2]:
                 raise AssertionError("All matrices are singular. Calibration failed.")
             out_jones[:] = jones.ravel()[:]
-            gpu_output_image = GPUArray(data.shape, np.complex64)
-            array_image = gpu_output_image.as_BFarray(100)
+            data_array = gpu_data.as_BFarray(100)
             gpu_jones.set(jones)
+            #TODO: Is gpu_data giving the same address for both of these?
             _bf.ApplyGainsArray(
                 gpu_data.as_BFconstarray(100),
                 gpu_jones.as_BFconstarray(100),
-                array_image,
+                data_array,
                 gpu_flags.as_BFarray(100))
-            gpu_output_image2 = GPUArray(data.shape, np.complex64)
-            gpu_output_image2.buffer = array_image.data
-            resultant_image = gpu_output_image2.get()
-            calibrated_data[:] = gpu_output_image2.get().ravel()
+            gpu_data.buffer = data_array.data
+            calibrated_data[:] = gpu_data.get().ravel()
 class DStackBlock(MultiTransformBlock):
     """Block which performs numpy's dstack operation on rings"""
     ring_names = {
