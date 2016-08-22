@@ -360,4 +360,22 @@ class TestScalarSkyModelBlock(unittest.TestCase):
             self.assertAlmostEqual(np.max(model_invisible_source), 0)
         self.blocks.append((NumpyBlock(assert_both_zero, inputs=2, outputs=0), {'in_1':'none', 'in_2':'fake'}))
         Pipeline(self.blocks).main()
-    #TODO: Add test for scaling frequency/flux
+    def test_source_scaling(self):
+        """Make sure that different frequencies lead different brightnesses"""
+        negative_spectral_index = -100
+        fake_sources = {}
+        fake_sources['my_fake_source'] = {
+            'ra': 0, 'dec': '40:00:00.0',
+            'flux': 1000, 'frequency': 58e6, 
+            'spectral index': negative_spectral_index}
+        frequencies = [40e6, 1e9]
+        self.blocks[0] = (ScalarSkyModelBlock(OVRO_EPHEM, COORDINATES, frequencies, fake_sources), [], [0])
+        gridding_shape = (256, 256)
+        self.blocks.append((NearestNeighborGriddingBlock(gridding_shape), [0], ['model']))
+        def assert_low_frequency_brighter(models):
+            """Make sure that the lower frequency model is brighter"""
+            low_frequency_model = models[0]
+            high_frequency_model = models[1]
+            self.assertGreater(np.max(low_frequency_model), np.max(high_frequency_model))
+        self.blocks.append((NumpyBlock(assert_low_frequency_brighter, outputs=0), {'in_1': 'model'}))
+        Pipeline(self.blocks).main()
