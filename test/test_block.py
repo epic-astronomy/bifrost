@@ -473,7 +473,7 @@ class TestPipeline(unittest.TestCase):
         result = np.loadtxt('.log.txt').astype(np.float32)
         np.testing.assert_almost_equal(result, [1, 2, 3])
 class TestGainSolveBlock(unittest.TestCase):
-    """Test the gain solve block, which calls mitchcal gain solve"""
+    """Test the gain solve block, which calls the GPU kernel from correlate.cu"""
     def setUp(self):
         self.nchan = 1
         self.nstand = 256
@@ -526,9 +526,9 @@ class TestGainSolveBlock(unittest.TestCase):
             ScalarSkyModelBlock(OVRO_EPHEM, coords, frequencies, sources), [], ['model+uv']))
         def slice_away_uv(model_and_uv):
             """Cut off the uv coordinates from the ScalarSkyModelBlock and reshape to GainSolve"""
-            number_stands = model_and_uv.shape[0]
+            number_stands = model_and_uv.shape[1]
             model = np.zeros(shape=[1, number_stands, 2, number_stands, 2]).astype(np.complex64)
-            model[0, :, 0, :, 0] = model_and_uv[:, :, 2]+1j*model_and_uv[:, :, 3]
+            model[0, :, 0, :, 0] = model_and_uv[0, :, :, 2]+1j*model_and_uv[0, :, :, 3]
             model[0, :, 1, :, 1] = model[0, :, 0, :, 0]
             return model
         blocks.append((NumpyBlock(slice_away_uv), {'in_1': 'model+uv', 'out_1': 'model'}))
