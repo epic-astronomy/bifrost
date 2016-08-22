@@ -439,13 +439,13 @@ class ScalarSkyModelBlock(SourceBlock):
         else:
             spectral_index = float(source['spectral index'])
             frequency_reference = float(source['frequency'])
-            source_reference = float(source['flux'])
+            flux_reference = float(source['flux'])
             # Using S \propto frequency^(spectral_index)
-            extrapolated_flux = np.exp(spectral_index*(np.log(self.frequencies) - np.log(frequency_reference)) + np.log(frequency_reference))
+            extrapolated_flux = np.exp(spectral_index*(np.log(self.frequencies) - np.log(frequency_reference)) + np.log(flux_reference))
             return extrapolated_flux
-        return 
+        return
     def generate_model(self):
-        """Calculate the total visibilities on the antenna baselines"""
+        """Calculate the total visibilities for the antenna baselines"""
         number_antennas = len(self.antenna_coordinates)
         number_frequencies = len(self.frequencies)
         total_visibilities = np.zeros(
@@ -461,7 +461,10 @@ class ScalarSkyModelBlock(SourceBlock):
                 'fi,fj->fij', antenna_phase_delays, antenna_phase_delays.conj())
             extrapolated_flux = self.extrapolate_flux(source)
             for frequency_index in range(number_frequencies):
-                total_visibilities[frequency_index] += (extrapolated_flux[frequency_index]/number_antennas**2)*baseline_phase_delays[frequency_index]
+                visibilities = baseline_phase_delays[frequency_index]*\
+                    extrapolated_flux[frequency_index]
+                scaled_visibilities = visibilities/number_antennas**2
+                total_visibilities[frequency_index] += scaled_visibilities
         return total_visibilities.astype(np.complex64)
     def main(self, output_ring):
         """Generate a model of the sky and put it on a single output span
@@ -469,10 +472,6 @@ class ScalarSkyModelBlock(SourceBlock):
             Is entered as [[u,v,re,im],[u,..],..]"""
         visibilities = self.generate_model()
         number_antennas = self.antenna_coordinates.shape[0]
-        identity_matrix = np.ones((
-            len(self.antenna_coordinates),
-            len(self.antenna_coordinates), 
-            3), dtype=np.float32)
         baselines_xyz = self.antenna_coordinates[None, :] - self.antenna_coordinates[:, None]
         baselines_u = baselines_xyz[:, :, 0].reshape(-1)
         baselines_v = baselines_xyz[:, :, 1].reshape(-1)
