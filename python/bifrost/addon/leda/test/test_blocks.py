@@ -346,7 +346,7 @@ class TestScalarSkyModelBlock(unittest.TestCase):
         fake_sources = {}
         fake_sources['my_fake_source'] = {
             'ra': 0, 'dec': '-89:00:00.0',
-            'flux': 1000000, 'frequency': 58e6, 
+            'flux': 1000000.0, 'frequency': 58e6, 
             'spectral index': -0.2046}
         frequencies = [40e6]
         self.blocks[0] = (ScalarSkyModelBlock(OVRO_EPHEM, COORDINATES, frequencies, fake_sources), [], [0])
@@ -365,17 +365,21 @@ class TestScalarSkyModelBlock(unittest.TestCase):
         negative_spectral_index = -100
         fake_sources = {}
         fake_sources['my_fake_source'] = {
-            'ra': 0, 'dec': '40:00:00.0',
-            'flux': 1000, 'frequency': 58e6, 
+            'ra':'19:59:28.4', 'dec':'+40:44:02.1', 
+            'flux': 1000.0, 'frequency': 58e6, 
             'spectral index': negative_spectral_index}
         frequencies = [40e6, 1e9]
         self.blocks[0] = (ScalarSkyModelBlock(OVRO_EPHEM, COORDINATES, frequencies, fake_sources), [], [0])
+        def npprint(array):
+            print np.max(array[:, :, 3:])
+        self.blocks.append((NumpyBlock(npprint, outputs=0), {'in_1': 0}))
         gridding_shape = (256, 256)
         self.blocks.append((NearestNeighborGriddingBlock(gridding_shape), [0], ['model']))
         def assert_low_frequency_brighter(models):
             """Make sure that the lower frequency model is brighter"""
             low_frequency_model = models[0]
             high_frequency_model = models[1]
+            print np.max(models)
             self.assertGreater(np.max(low_frequency_model), np.max(high_frequency_model))
         self.blocks.append((NumpyBlock(assert_low_frequency_brighter, outputs=0), {'in_1': 'model'}))
         Pipeline(self.blocks).main()
