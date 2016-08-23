@@ -1216,24 +1216,38 @@ class NumpyBlock(MultiTransformBlock):
             for i in range(len(self.outputs)):
                 outspans[i][:] = output_data[i].ravel()
 class GPUBlock(MultiTransformBlock):
-    ring_names = {'in_1':"", 'out_1':""}
-    ring_spaces = {'in_1': ['system', 'cuda'], 'out_1': 'cuda'}
-    def __init__(self, function):
+    def __init__(self, function, outputs=1):
         """Based on the number of inputs/outputs, set up enough ring_names
             for the pipeline to call."""
         super(GPUBlock, self).__init__()
         self.function = function
+        self.outputs = outputs
+        self.ring_names = {'in_1':""}
+        self.ring_spaces = {'in_1': ['system', 'cuda']}
+        if self.outputs == 1:
+            self.ring_names['out_1'] = ""
+            self.ring_spaces['out_1'] = 'cuda'
         assert callable(self.function)
     def load_settings(self):
         dtype = np.dtype(self.header['in_1']['dtype']).type
         input_test_array = GPUArray(np.product(self.header['in_1']['shape']), dtype=dtype)
         self.gulp_size['in_1'] = input_test_array.nbytes
-        output_test_array = self.function(input_test_array)
-        self.header['out_1'] = {}
-        self.header['out_1']['shape'] = list(output_test_array.shape)
-        self.header['out_1']['dtype'] = str(output_test_array.dtype)
-        self.gulp_size['out_1'] = output_test_array.nbytes
+        if self.outputs > 0:
+            print "Input", list(input_test_array.shape)
+            print "Input", input_test_array.get()
+            output_test_array = self.function(input_test_array)
+            print "Output", list(output_test_array.shape)
+            print "Output", output_test_array.get()
+            self.header['out_1'] = {}
+            self.header['out_1']['shape'] = list(output_test_array.shape)
+            self.header['out_1']['dtype'] = str(output_test_array.dtype)
+            self.gulp_size['out_1'] = output_test_array.nbytes
     def main(self):
-        for inspan, outspan in self.izip(self.read('in_1'), self.write('out_1')):
-            function_output = self.function(inspan.reshape(self.header['in_1']['shape']))
-            memcpy(outspan, function_output.reshape((1, 10)))
+        if self.outputs == 1:
+            for inspan, outspan in self.izip(self.read('in_1'), self.write('out_1')):
+                function_output = self.function(inspan.reshape(self.header['in_1']['shape']))
+                memcpy(outspan, function_output.reshape(outspan.shape))
+        else:
+            for inspan in self.read('in_1'):
+                inspan = inspan[0]
+                self.function(inspan.reshape(self.header['in_1']['shape']))

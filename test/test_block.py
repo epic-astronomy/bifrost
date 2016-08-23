@@ -848,31 +848,42 @@ class TestGPUBlock(unittest.TestCase):
         """Send a GPU ring through a pycuda function"""
         try:
             import pycuda
+            import pycuda.driver as cuda
+            from pycuda.compiler import SourceModule
         except ImportError:
-            print "No PyCUDA detected"
+            print "No PyCUDA installation detected. Skipping tests..."
             return
-        import pycuda.driver as cuda
-        import pycuda.autoinit
-        from pycuda.compiler import SourceModule
-        double_kernel = SourceModule("""
-          __global__ void double_array(float *a)
-          {
-            int idx = threadIdx.x + threadIdx.y*4;
-            a[idx] *= 2;
-          }
-            """)
+
         def double(gpu_array):
             """Double every value of the gpu_array"""
-            print gpu_array.get()
+            dev = cuda.Device(0)
+            ctx = dev.make_context()
+
+            pycuda_array = cuda.mem_alloc(gpu_array.nbytes)
+            cuda.memcpy_htod(pycuda_array, gpu_array.get())
+
+            double_kernel = SourceModule("""
+              __global__ void double_array(float *a)
+              {
+                int idx = threadIdx.x;
+                a[idx] *= 2;
+              }
+                """)
+
             function = double_kernel.get_function("double_array")
-            pycuda_array = gpu_array.as_pycuda()
             function(pycuda_array, block=(4, 1, 1))
-            return as_bfgpuarray(pycuda_array)
-        def assert_double(array):
-            """Test in CPU space that everything got doubled"""
-            np.testing.assert_almost_equal(array, 2*np.ones(4))
+            local_array = np.empty_like(gpu_array.get())
+            cuda.memcpy_dtoh(local_array, pycuda_array)
+            ctx.pop()
+            del pycuda_array
+            del ctx
+            gpu_array.set(local_array)
+            return gpu_array
+        def assert_double(gpu_array):
+            """Test space that everything got doubled"""
+            np.testing.assert_almost_equal(gpu_array.get(), 2*np.ones(4))
         blocks = []
-        blocks.append([TestingBlock(np.ones(10)), [], [0]])
+        blocks.append([TestingBlock(np.ones(4)), [], [0]])
         blocks.append([GPUBlock(double), {'in_1':0, 'out_1':1}])
-        blocks.append([NumpyBlock(assert_double, outputs=0), {'in_1':1}])
+        blocks.append([GPUBlock(assert_double, outputs=0), {'in_1':1}])
         Pipeline(blocks).main()
