@@ -1034,20 +1034,20 @@ class GainSolveBlock(MultiTransformBlock):
                 True, 3.0, self.eps, self.max_iterations, num_unconverged)
             gpu_jones.buffer = jones_array.data
             jones = gpu_jones.get()
-            number_singular_matrices = 0
-            #TODO: Iterate over all channels as well!
-            for i in range(jones.shape[2]):
-                try:
-                    jones[0, :, i, :] = np.linalg.inv(jones[0, :, i, :])
-                except np.linalg.LinAlgError:
-                    number_singular_matrices += 1
-                    jones[0, :, i, :] = 0
-            if number_singular_matrices == jones.shape[2]:
-                raise AssertionError("All matrices are singular. Calibration failed.")
+            for frequency_index in range(jones.shape[0]):
+                number_singular_matrices = 0
+                for stand in range(jones.shape[2]):
+                    jones_index = np.s_[frequency_index, :, stand, :]
+                    try:
+                        jones[jones_index] = np.linalg.inv(jones[jones_index])
+                    except np.linalg.LinAlgError:
+                        number_singular_matrices += 1
+                        jones[jones_index] = 0
+                if number_singular_matrices == jones.shape[2]:
+                    raise AssertionError("All matrices are singular. Calibration failed.")
             out_jones[:] = jones.ravel()[:]
             data_array = gpu_data.as_BFarray(100)
             gpu_jones.set(jones)
-            #TODO: Is gpu_data giving the same address for both of these?
             _bf.ApplyGainsArray(
                 gpu_data.as_BFconstarray(100),
                 gpu_jones.as_BFconstarray(100),
