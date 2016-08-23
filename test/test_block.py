@@ -844,3 +844,33 @@ class TestGPUBlock(unittest.TestCase):
         blocks.append([GPUBlock(identity), {'in_1':0, 'out_1':1}])
         Pipeline(blocks).main()
         self.assertGreater(self.function_iterations, 0)
+    def test_use_pycuda(self):
+        """Send a GPU ring through a pycuda function"""
+        try:
+            import pycuda
+        except ImportError:
+            print "No PyCUDA detected"
+            return
+        import pycuda.driver as cuda
+        import pycuda.autoinit
+        from pycuda.compiler import SourceModule
+        double_kernel = SourceModule("""
+            __global__ void double(float *a)
+            {
+                int idx = threadIdx.x;
+                a[idx] *= 2;
+            }
+            """)
+        def double(gpu_array):
+            """Double every value of the gpu_array"""
+            function = double_kernel.get_function("double")
+            pycuda_array = gpu_array.as_pycuda()
+            function(pycuda_array, block=(4, 1, 1))
+            return as_bfgpuarray(pycuda_array)
+        def assert_double(array):
+            """Test in CPU space that everything got doubled"""
+            np.testing.assert_almost_equal(array, 2*np.ones(4))
+        blocks.append([TestingBlock(np.ones(10)), [], [0]])
+        blocks.append([GPUBlock(double), {'in_1':0, 'out_1':1}])
+        blocks.append([NumpyBlock(assert_double, outputs=0), {'in_1':1}])
+        Pipeline(blocks).main()
