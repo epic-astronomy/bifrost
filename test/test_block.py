@@ -842,6 +842,5 @@ class TestGPUBlock(unittest.TestCase):
         blocks = []
         blocks.append([TestingBlock(np.ones(10)), [], [0]])
         blocks.append([GPUBlock(identity), {'in_1':0, 'out_1':1}])
-        blocks.append([GPUBlock(identity), {'in_1':1, 'out_1':2}])
         Pipeline(blocks).main()
         self.assertGreater(self.function_iterations, 0)

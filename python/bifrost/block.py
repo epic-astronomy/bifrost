@@ -1235,9 +1235,5 @@ class GPUBlock(MultiTransformBlock):
         self.gulp_size['out_1'] = output_test_array.nbytes
     def main(self):
         for inspan, outspan in self.izip(self.read('in_1'), self.write('out_1')):
-            print inspan.shape
-            print outspan.shape
-            function_output = self.function(inspan.reshape((10)))
-            print function_output.get()
+            function_output = self.function(inspan.reshape(self.header['in_1']['shape']))
             memcpy(outspan, function_output.reshape((1, 10)))
-            #outspan.buffer = function_output.buffer
