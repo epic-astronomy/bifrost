@@ -863,6 +863,7 @@ class TestGPUBlock(unittest.TestCase):
             """)
         def double(gpu_array):
             """Double every value of the gpu_array"""
+            print gpu_array.get()
             function = double_kernel.get_function("double_array")
             pycuda_array = gpu_array.as_pycuda()
             function(pycuda_array, block=(4, 1, 1))

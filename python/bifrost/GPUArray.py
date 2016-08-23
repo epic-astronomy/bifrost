@@ -160,3 +160,10 @@ class GPUArray(object):
                     1, ndim,
                     shape, strides)
                 return BFarray
+        def as_pycuda(self):
+                import pycuda.driver as cuda
+                cuda.init()
+                nparray = self.get().astype(np.float32)
+                pycuda_array = cuda.mem_alloc(nparray.nbytes)
+                cuda.memcpy_dtoh(nparray, pycuda_array)
+                return pycuda_array
