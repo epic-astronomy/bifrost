@@ -517,6 +517,8 @@ class TestGainSolveBlock(unittest.TestCase):
     def test_solving_to_skymodel(self):
         """Attempt to solve a sky model to itself"""
         #TODO: This relies on LEDA-specific blocks.
+        from bifrost.addon.leda.blocks import ScalarSkyModelBlock
+        from bifrost.addon.leda.blocks import load_telescope, LEDA_SETTINGS_FILE, OVRO_EPHEM
         def slice_away_uv(model_and_uv):
             """Cut off the uv coordinates from the ScalarSkyModelBlock and reshape to GainSolve"""
             number_stands = model_and_uv.shape[1]
@@ -532,8 +534,6 @@ class TestGainSolveBlock(unittest.TestCase):
             identity_jones[:, 0, :, 1] = 0
             identity_jones[:, 1, :, 0] = 0
             np.testing.assert_almost_equal(jones_matrices, identity_jones, 1)
-        from bifrost.addon.leda.blocks import ScalarSkyModelBlock
-        from bifrost.addon.leda.blocks import load_telescope, LEDA_SETTINGS_FILE, OVRO_EPHEM
         # Change to a time when cyg is visible
         OVRO_EPHEM.date = '2012/08/29 20:39:49' 
         coords = load_telescope(LEDA_SETTINGS_FILE)[1]
@@ -558,20 +558,18 @@ class TestGainSolveBlock(unittest.TestCase):
     def test_calibration_dada_files(self):
         """Attempt to calibrate jones matrices to LEDA data from a DADA file"""
         #TODO: This relies on LEDA-specific blocks.
-        sources = {}
-        sources['cyg'] = {
-            'ra':'19:59:28.4', 'dec':'+40:44:02.1', 'flux': 10571.0, 'frequency': 58e6,
-            'spectral index': -0.2046}
-        sources['cas'] = {
-                'ra':'23:23:27.8', 'dec':'+58:48:34', 'flux': 6052.0, 'frequency': 58e6,
-                'spectral index': 0.7581}
+        from bifrost.addon.leda.blocks import (
+            ScalarSkyModelBlock, DELAYS, COORDINATES, DISPERSIONS, UVCoordinateBlock,
+            load_telescope, LEDA_SETTINGS_FILE, OVRO_EPHEM, BAD_STANDS, NewDadaReadBlock)
         def slice_away_uv(model_and_uv):
             """Cut off the uv coordinates from the ScalarSkyModelBlock and reshape to GainSolve"""
             number_stands = model_and_uv.shape[1]
             model = np.zeros(shape=[1, number_stands, 2, number_stands, 2]).astype(np.complex64)
+            uv_coords = np.zeros(shape=[number_stands, number_stands, 2]).astype(np.float32)
             model[0, :, 0, :, 0] = model_and_uv[0, :, :, 2]+1j*model_and_uv[0, :, :, 3]
             model[0, :, 1, :, 1] = model[0, :, 0, :, 0]
-            return model
+            uv_coords[:, :, 0:2] = model_and_uv[0, :, :, 0:2]
+            return model, uv_coords
         def reformat_data_for_gridding(visibilities, uv_coordinates):
             """Reshape visibility data for gridding on UV plane"""
             reformatted_data = np.zeros(shape=[self.nstand, self.nstand, 4], dtype=np.float32)
@@ -580,42 +578,62 @@ class TestGainSolveBlock(unittest.TestCase):
             reformatted_data[:, :, 2] = np.real(visibilities[0, :, 0, :, 0])
             reformatted_data[:, :, 3] = np.imag(visibilities[0, :, 0, :, 0])
             return reformatted_data
-        from bifrost.addon.leda.blocks import (
-            ScalarSkyModelBlock, DELAYS, COORDINATES, DISPERSIONS, UVCoordinateBlock,
-            load_telescope, LEDA_SETTINGS_FILE, OVRO_EPHEM, BAD_STANDS, NewDadaReadBlock)
-        dada_file = '/data2/hg/interfits/lconverter/WholeSkyL64_47.004_d20150203_utc181702_test/2015-04-08-20_15_03_0001133593833216.dada'
-        #dada_file = "/data2/ovro4/one/2013-07-16-22:06:07_0000028200960000.000000.dada"
-        OVRO_EPHEM.date = '2013/07/16 22:06:07'
+        def transpose_to_gain_solve(data_array):
+            """Transpose the DADA data to the gain_solve format"""
+            return data_array.transpose((0, 1, 3, 2, 4))
+        def assert_closer_to_model(calibrated_data, uncalibrated_data, model):
+            """Make sure the calibrated data is converging to the model"""
+            calibrated_data = calibrated_data/np.sum(calibrated_data)
+            uncalibrated_data = uncalibrated_data/np.sum(uncalibrated_data)
+            model = model/np.sum(model)
+            self.assertGreater(
+                np.sum(np.abs(calibrated_data-uncalibrated_data)),
+                np.sum(np.abs(calibrated_data-model)))
+        sources = {}
+        sources['cyg'] = {
+            'ra':'19:59:28.4', 'dec':'+40:44:02.1', 'flux': 10571.0,
+            'frequency': 58e6, 'spectral index': -0.2046}
+        dada_file = '/data2/hg/interfits/lconverter/'+\
+            'WholeSkyL64_47.004_d20150203_utc181702_test/'+\
+            '2015-04-08-20_15_03_0001133593833216.dada'
+        OVRO_EPHEM.date = '2015/04/08 20:15:03.00'
         frequencies = [40e6]
+        flags = 2*np.ones(shape=[1, self.nstand]).astype(np.int8)
         blocks = []
         blocks.append((
             NewDadaReadBlock(dada_file, output_chans=[100], time_steps=1),
             {'out': 'visibilities'}))
         blocks.append((
-            ScalarSkyModelBlock(OVRO_EPHEM, COORDINATES, frequencies, sources), [], ['model+uv']))
-        blocks.append((NumpyBlock(slice_away_uv), {'in_1': 'model+uv', 'out_1': 'model'}))
-        blocks.append((NumpyBlock(np.copy), {'in_1': 'model', 'out_1': 'same_model'}))
-        flags = 2*np.ones(shape=[
-            1, self.nstand]).astype(np.int8)
-        blocks.append((TestingBlock(self.jones), [], ['jones_in']))
-        def transpose_to_gain_solve(data_array):
-            """Transpose the DADA data to the gain_solve format"""
-            return data_array.transpose((0, 1, 3, 2, 4))
-        blocks.append((NumpyBlock(transpose_to_gain_solve), {'in_1': 'visibilities', 'out_1': 'formatted_visibilities'}))
-        blocks.append([GainSolveBlock(flags=flags, eps=0.05, max_iterations=10), {
-            'in_data': 'formatted_visibilities', 'in_model': 'model', 'in_jones': 'jones_in',
-            'out_data': 'calibrated_data', 'out_jones': 'jones_out'}])
+            ScalarSkyModelBlock(OVRO_EPHEM, COORDINATES, frequencies, sources),
+            [], ['model+uv']))
         blocks.append((
-            UVCoordinateBlock(LEDA_SETTINGS_FILE), {'out': 'uv_coords'}))
+            NumpyBlock(slice_away_uv, outputs=2),
+            {'in_1': 'model+uv', 'out_1': 'model', 'out_2': 'uv_coords'}))
         blocks.append((
-            NumpyBlock(reformat_data_for_gridding, inputs=2),
-            {'in_1': 'calibrated_data', 'in_2': 'uv_coords', 'out_1': 'data_for_gridding'}))
-        blocks.append((NearestNeighborGriddingBlock((256, 256)), ['data_for_gridding'], ['grid']))
-        """
-        blocks.append((IFFT2Block(), ['grid'], ['image']))
-        from bifrost.addon.leda.blocks import ImagingBlock
-        blocks.append((ImagingBlock('sky.png', np.abs), {'in': 'image'}))
-        """
+            TestingBlock(self.jones),
+            [], ['jones_in']))
+        blocks.append((
+            NumpyBlock(transpose_to_gain_solve),
+            {'in_1': 'visibilities', 'out_1': 'formatted_visibilities'}))
+        blocks.append([
+            GainSolveBlock(flags=flags, eps=0.05, max_iterations=10),
+            {'in_data': 'formatted_visibilities', 'in_model': 'model',
+             'in_jones': 'jones_in', 'out_data': 'calibrated_data',
+             'out_jones': 'jones_out'}])
+        for view in ['calibrated_data', 'model', 'formatted_visibilities']:
+            blocks.append((
+                NumpyBlock(reformat_data_for_gridding, inputs=2),
+                {'in_1': view, 'in_2': 'uv_coords', 'out_1': view+'data_for_gridding'}))
+            blocks.append((
+                NearestNeighborGriddingBlock((256, 256)),
+                [view+'data_for_gridding'], [view+'grid']))
+            blocks.append((
+                IFFT2Block(),
+                [view+'grid'], [view+'_image']))
+        blocks.append([
+            NumpyBlock(assert_closer_to_model, inputs=3, outputs=0),
+            {'in_1':'calibrated_data_image', 'in_2':'formatted_visibilities_image',
+             'in_3':'model_image'}])
         Pipeline(blocks).main()
 class TestMultiTransformBlock(unittest.TestCase):
     """Test call syntax and function of a multi transform block"""
