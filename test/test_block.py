@@ -857,8 +857,7 @@ class TestGPUBlock(unittest.TestCase):
             """Double every value of a 4 element gpu vector"""
             device = cuda.Device(0)
             context = device.make_context()
-            pycuda_array = cuda.mem_alloc(gpu_array.nbytes)
-            cuda.memcpy_htod(pycuda_array, gpu_array.get())
+            pycuda_array = gpu_array.as_pycuda(driver=cuda)
             double_kernel = SourceModule("""
               __global__ void double_the_array(float *a)
               {
@@ -868,18 +867,16 @@ class TestGPUBlock(unittest.TestCase):
                 """)
             function = double_kernel.get_function("double_the_array")
             function(pycuda_array, block=(4, 1, 1))
-            local_array = np.empty_like(gpu_array.get())
-            cuda.memcpy_dtoh(local_array, pycuda_array)
+            gpu_array.from_pycuda(pycuda_array, driver=cuda)
             context.pop()
             del pycuda_array
             del context
-            gpu_array.set(local_array)
             return gpu_array
-        def assert_double(array):
+        def assert_twos(array):
             """Test that everything got doubled"""
             np.testing.assert_almost_equal(array, 2*np.ones(4))
         blocks = []
         blocks.append([TestingBlock(np.ones(4)), [], [0]])
         blocks.append([GPUBlock(double), {'in_1':0, 'out_1':1}])
-        blocks.append([NumpyBlock(assert_double, outputs=0), {'in_1':1}])
+        blocks.append([NumpyBlock(assert_twos, outputs=0), {'in_1':1}])
         Pipeline(blocks).main()

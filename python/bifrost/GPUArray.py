@@ -31,8 +31,6 @@ import numpy as np
 from memory import raw_malloc, raw_free, memset, memcpy, memcpy2D
 from bifrost.libbifrost import _bf
 
-
-
 class GPUArray(object):
 	def __init__(self, shape, dtype, buffer=None, offset=0, strides=None):
 		itemsize = dtype().itemsize
@@ -161,9 +159,12 @@ class GPUArray(object):
                     1, ndim,
                     shape, strides)
                 return BFarray
-        def as_pycuda(self):
-                import pycuda.driver as pycuda
+        def as_pycuda(self, driver):
                 nparray = self.get().astype(np.float32)
-                pycuda_array = pycuda.mem_alloc(nparray.nbytes)
-                pycuda.memcpy_dtoh(nparray, pycuda_array)
+                pycuda_array = driver.mem_alloc(nparray.nbytes)
+                driver.memcpy_htod(pycuda_array, nparray)
                 return pycuda_array
+        def from_pycuda(self, pycuda_array, driver):
+                local_array = np.empty_like(self.get())
+                driver.memcpy_dtoh(local_array, pycuda_array)
+                self.set(local_array)
