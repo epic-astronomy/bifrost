@@ -1209,12 +1209,17 @@ class NumpyBlock(MultiTransformBlock):
                     dtype = np.dtype(self.header[input_name]['dtype']).type
                 except:
                     dtype = np.dtype(self.header[input_name]['dtype'].split()[1].split(".")[1].split("'")[0]).type
-                inspans[i] = inspans[i].view(dtype).reshape(self.header[input_name]['shape'])
+                if self.rings[input_name].space == 'system':
+                    inspans[i] = inspans[i].view(dtype).reshape(self.header[input_name]['shape'])
+                else:
+                    inspans[i] = inspans[i].get().view(dtype).reshape(self.header[input_name]['shape'])
+
             output_data = self.function(*inspans)
             if len(self.outputs) == 1:
                 output_data = [output_data]
             for i in range(len(self.outputs)):
                 outspans[i][:] = output_data[i].ravel()
+
 class GPUBlock(MultiTransformBlock):
     def __init__(self, function, outputs=1):
         """Based on the number of inputs/outputs, set up enough ring_names
