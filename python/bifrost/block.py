@@ -1233,11 +1233,7 @@ class GPUBlock(MultiTransformBlock):
         input_test_array = GPUArray(np.product(self.header['in_1']['shape']), dtype=dtype)
         self.gulp_size['in_1'] = input_test_array.nbytes
         if self.outputs > 0:
-            print "Input", list(input_test_array.shape)
-            print "Input", input_test_array.get()
             output_test_array = self.function(input_test_array)
-            print "Output", list(output_test_array.shape)
-            print "Output", output_test_array.get()
             self.header['out_1'] = {}
             self.header['out_1']['shape'] = list(output_test_array.shape)
             self.header['out_1']['dtype'] = str(output_test_array.dtype)

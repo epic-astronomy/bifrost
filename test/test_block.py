@@ -853,37 +853,33 @@ class TestGPUBlock(unittest.TestCase):
         except ImportError:
             print "No PyCUDA installation detected. Skipping tests..."
             return
-
         def double(gpu_array):
-            """Double every value of the gpu_array"""
-            dev = cuda.Device(0)
-            ctx = dev.make_context()
-
+            """Double every value of a 4 element gpu vector"""
+            device = cuda.Device(0)
+            context = device.make_context()
             pycuda_array = cuda.mem_alloc(gpu_array.nbytes)
             cuda.memcpy_htod(pycuda_array, gpu_array.get())
-
             double_kernel = SourceModule("""
-              __global__ void double_array(float *a)
+              __global__ void double_the_array(float *a)
               {
                 int idx = threadIdx.x;
                 a[idx] *= 2;
               }
                 """)
-
-            function = double_kernel.get_function("double_array")
+            function = double_kernel.get_function("double_the_array")
             function(pycuda_array, block=(4, 1, 1))
             local_array = np.empty_like(gpu_array.get())
             cuda.memcpy_dtoh(local_array, pycuda_array)
-            ctx.pop()
+            context.pop()
             del pycuda_array
-            del ctx
+            del context
             gpu_array.set(local_array)
             return gpu_array
-        def assert_double(gpu_array):
-            """Test space that everything got doubled"""
-            np.testing.assert_almost_equal(gpu_array.get(), 2*np.ones(4))
+        def assert_double(array):
+            """Test that everything got doubled"""
+            np.testing.assert_almost_equal(array, 2*np.ones(4))
         blocks = []
         blocks.append([TestingBlock(np.ones(4)), [], [0]])
         blocks.append([GPUBlock(double), {'in_1':0, 'out_1':1}])
-        blocks.append([GPUBlock(assert_double, outputs=0), {'in_1':1}])
+        blocks.append([NumpyBlock(assert_double, outputs=0), {'in_1':1}])
         Pipeline(blocks).main()
