@@ -555,12 +555,12 @@ class TestGainSolveBlock(unittest.TestCase):
             'out_data': 'calibrated_data', 'out_jones': 'jones_out'}])
         blocks.append((NumpyBlock(assert_almost_unity, outputs=0), {'in_1': 'jones_out'}))
         Pipeline(blocks).main()
-    def test_calibration_dada_files(self):
-        """Attempt to calibrate jones matrices to LEDA data from a DADA file"""
+    def setup_dada_calibration(self):
+        """Set up a pipeline to calibrate jones matrices to a dada file"""
         #TODO: This relies on LEDA-specific blocks.
         from bifrost.addon.leda.blocks import (
             ScalarSkyModelBlock, DELAYS, COORDINATES, DISPERSIONS, UVCoordinateBlock,
-            load_telescope, LEDA_SETTINGS_FILE, OVRO_EPHEM, BAD_STANDS, NewDadaReadBlock)
+            load_telescope, LEDA_SETTINGS_FILE, OVRO_EPHEM, NewDadaReadBlock)
         def slice_away_uv(model_and_uv):
             """Cut off the uv coordinates from the ScalarSkyModelBlock and reshape to GainSolve"""
             number_stands = model_and_uv.shape[1]
@@ -581,14 +581,6 @@ class TestGainSolveBlock(unittest.TestCase):
         def transpose_to_gain_solve(data_array):
             """Transpose the DADA data to the gain_solve format"""
             return data_array.transpose((0, 1, 3, 2, 4))
-        def assert_closer_to_model(calibrated_data, uncalibrated_data, model):
-            """Make sure the calibrated data is converging to the model"""
-            calibrated_data = calibrated_data/np.sum(calibrated_data)
-            uncalibrated_data = uncalibrated_data/np.sum(uncalibrated_data)
-            model = model/np.sum(model)
-            self.assertGreater(
-                np.sum(np.abs(calibrated_data-uncalibrated_data)),
-                np.sum(np.abs(calibrated_data-model)))
         sources = {}
         sources['cyg'] = {
             'ra':'19:59:28.4', 'dec':'+40:44:02.1', 'flux': 10571.0,
@@ -597,7 +589,7 @@ class TestGainSolveBlock(unittest.TestCase):
             'WholeSkyL64_47.004_d20150203_utc181702_test/'+\
             '2015-04-08-20_15_03_0001133593833216.dada'
         OVRO_EPHEM.date = '2015/04/08 20:15:03.00'
-        frequencies = [40e6]
+        frequencies = [47e6]
         flags = 2*np.ones(shape=[1, self.nstand]).astype(np.int8)
         blocks = []
         blocks.append((
@@ -623,17 +615,50 @@ class TestGainSolveBlock(unittest.TestCase):
         for view in ['calibrated_data', 'model', 'formatted_visibilities']:
             blocks.append((
                 NumpyBlock(reformat_data_for_gridding, inputs=2),
-                {'in_1': view, 'in_2': 'uv_coords', 'out_1': view+'data_for_gridding'}))
+                {'in_1': view, 'in_2': 'uv_coords', 'out_1': view+'_data_for_gridding'}))
             blocks.append((
                 NearestNeighborGriddingBlock((256, 256)),
-                [view+'data_for_gridding'], [view+'grid']))
+                [view+'_data_for_gridding'], [view+'_grid']))
             blocks.append((
                 IFFT2Block(),
-                [view+'grid'], [view+'_image']))
+                [view+'_grid'], [view+'_image']))
+        return blocks
+    def test_calibration_dada_files(self):
+        """Attempt to calibrate jones matrices to LEDA data from a DADA file"""
+        def assert_closer_to_model(calibrated_data, uncalibrated_data, model):
+            """Make sure the calibrated data is converging to the model"""
+            calibrated_data = calibrated_data/np.sum(calibrated_data)
+            uncalibrated_data = uncalibrated_data/np.sum(uncalibrated_data)
+            model = model/np.sum(model)
+            self.assertGreater(
+                np.sum(np.abs(calibrated_data-uncalibrated_data)),
+                np.sum(np.abs(calibrated_data-model)))
+        blocks = self.setup_dada_calibration()
         blocks.append([
             NumpyBlock(assert_closer_to_model, inputs=3, outputs=0),
             {'in_1':'calibrated_data_image', 'in_2':'formatted_visibilities_image',
              'in_3':'model_image'}])
+        Pipeline(blocks).main()
+    def test_calibration_flagging(self):
+        """Perform the above calibration, but with stand flags set"""
+        from bifrost.addon.leda.blocks import BAD_STANDS
+        def assert_stands_flagged(array):
+            """Make sure that GainSolveBlock is setting flagged stands to zero"""
+            np.testing.assert_almost_equal(
+                np.array(np.where((np.abs(array)<1e-10)[0, :, 0, 1, 0])).ravel(),
+                BAD_STANDS)
+        flags = 2*np.ones(shape=[1, self.nstand]).astype(np.int8)
+        for stand in BAD_STANDS:
+            flags[0, stand] = 1
+        blocks = self.setup_dada_calibration()
+        blocks[5] = (
+            GainSolveBlock(flags=flags, eps=0.05, max_iterations=20),
+            {'in_data': 'formatted_visibilities', 'in_model': 'model',
+             'in_jones': 'jones_in', 'out_data': 'calibrated_data',
+             'out_jones': 'jones_out'})
+        blocks.append([
+            NumpyBlock(assert_stands_flagged, outputs=0),
+            {'in_1':'calibrated_data'}])
         Pipeline(blocks).main()
 class TestMultiTransformBlock(unittest.TestCase):
     """Test call syntax and function of a multi transform block"""
