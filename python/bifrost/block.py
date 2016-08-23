@@ -927,8 +927,9 @@ class NearestNeighborGriddingBlock(TransformBlock):
         """Turn float coordinates from another grid into one of self.shape
         @param[in] coordinates The coordinates to normalize (numpy.ndarray)"""
         shifted = coordinates-np.min(coordinates)
+        assert np.max(shifted) > 0
         amplitude_unity = shifted/np.max(shifted)
-        normalized = amplitude_unity*self.shape[0]-0.5
+        normalized = np.rint(amplitude_unity*self.shape[0])-1
         return normalized.astype(int)
     def main(self, input_rings, output_rings):
         """Compute a nearest neighbor gridding on the input data

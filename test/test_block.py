@@ -574,8 +574,9 @@ class TestGainSolveBlock(unittest.TestCase):
             return model
         def reformat_data_for_gridding(visibilities, uv_coordinates):
             """Reshape visibility data for gridding on UV plane"""
-            reformatted_data = np.zeros(shape=[self.nstand, self.nstand, 4], dtype=np.complex64)
-            reformatted_data[:, :, 0:2] = uv_coordinates
+            reformatted_data = np.zeros(shape=[self.nstand, self.nstand, 4], dtype=np.float32)
+            reformatted_data[:, :, 0] = uv_coordinates[:, :, 0]
+            reformatted_data[:, :, 1] = uv_coordinates[:, :, 1]
             reformatted_data[:, :, 2] = np.real(visibilities[0, :, 0, :, 0])
             reformatted_data[:, :, 3] = np.imag(visibilities[0, :, 0, :, 0])
             return reformatted_data
@@ -600,9 +601,8 @@ class TestGainSolveBlock(unittest.TestCase):
         def transpose_to_gain_solve(data_array):
             """Transpose the DADA data to the gain_solve format"""
             return data_array.transpose((0, 1, 3, 2, 4))
-
         blocks.append((NumpyBlock(transpose_to_gain_solve), {'in_1': 'visibilities', 'out_1': 'formatted_visibilities'}))
-        blocks.append([GainSolveBlock(flags=flags, eps=0.05), {
+        blocks.append([GainSolveBlock(flags=flags, eps=0.05, max_iterations=10), {
             'in_data': 'formatted_visibilities', 'in_model': 'model', 'in_jones': 'jones_in',
             'out_data': 'calibrated_data', 'out_jones': 'jones_out'}])
         blocks.append((
@@ -611,9 +611,11 @@ class TestGainSolveBlock(unittest.TestCase):
             NumpyBlock(reformat_data_for_gridding, inputs=2),
             {'in_1': 'calibrated_data', 'in_2': 'uv_coords', 'out_1': 'data_for_gridding'}))
         blocks.append((NearestNeighborGriddingBlock((256, 256)), ['data_for_gridding'], ['grid']))
+        """
         blocks.append((IFFT2Block(), ['grid'], ['image']))
         from bifrost.addon.leda.blocks import ImagingBlock
         blocks.append((ImagingBlock('sky.png', np.abs), {'in': 'image'}))
+        """
         Pipeline(blocks).main()
 class TestMultiTransformBlock(unittest.TestCase):
     """Test call syntax and function of a multi transform block"""
