@@ -867,7 +867,7 @@ class TestGPUBlock(unittest.TestCase):
                 """)
             function = double_kernel.get_function("double_the_array")
             function(pycuda_array, block=(4, 1, 1))
-            gpu_array.from_pycuda(pycuda_array, driver=cuda)
+            gpu_array.set_from_pycuda(pycuda_array, driver=cuda)
             context.pop()
             del pycuda_array
             del context

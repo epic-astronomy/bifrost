@@ -160,11 +160,18 @@ class GPUArray(object):
                     shape, strides)
                 return BFarray
         def as_pycuda(self, driver):
+                """Return a pycuda.driver.DeviceAllocation instance representing this array
+                    @param[in] driver The imported instance of pycuda.driver. 
+                        Necessary for threading."""
                 nparray = self.get().astype(np.float32)
                 pycuda_array = driver.mem_alloc(nparray.nbytes)
                 driver.memcpy_htod(pycuda_array, nparray)
                 return pycuda_array
-        def from_pycuda(self, pycuda_array, driver):
+        def set_from_pycuda(self, pycuda_array, driver):
+                """Use a pycuda.driver.DeviceAllocation to set the GPUArray.
+                    @param[in] pycuda_array The pycuda.driver.DeviceAllocation instance.
+                    @param[in] driver The imported instance of pycuda.driver.
+                        Necessary for threading."""
                 local_array = np.empty_like(self.get())
                 driver.memcpy_dtoh(local_array, pycuda_array)
                 self.set(local_array)
