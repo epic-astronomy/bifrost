@@ -839,7 +839,8 @@ class TestGPUBlock(unittest.TestCase):
             """Test that output ring has the expected result"""
             np.testing.assert_almost_equal(
                 array,
-                self.expected_result)
+                self.expected_result,
+                3)
             self.iterations += 1
         self.blocks.append([NumpyBlock(assert_expected_result, outputs=0), {'in_1':'result'}])
         Pipeline(self.blocks).main()
@@ -855,12 +856,8 @@ class TestGPUBlock(unittest.TestCase):
         self.blocks.append([GPUBlock(identity), {'in_1':0, 'out_1':'result'}])
     def test_use_pycuda(self):
         """Send a GPU ring through a pycuda function"""
-        try:
-            import pycuda.driver as cuda
-            from pycuda.compiler import SourceModule
-        except ImportError:
-            print "No PyCUDA installation detected. Skipping tests..."
-            return
+        import pycuda.driver as cuda
+        from pycuda.compiler import SourceModule
         def double(gpu_array):
             """Double every value of a 4 element gpu vector"""
             device = cuda.Device(0)
@@ -885,19 +882,13 @@ class TestGPUBlock(unittest.TestCase):
         self.expected_result = 2*np.ones(4)
     def test_use_pyclibrary(self):
         """Send a GPU ring through a PyCLibrary-loaded function"""
-        try:
-            import pycuda.driver as cuda
-            from pycuda.compiler import SourceModule
-        except ImportError:
-            print "No PyCUDA installation detected. Skipping tests..."
-            return
         def fft(gpu_array):
             """Perform an fft on the input"""
             bifrost_gpu_array = gpu_array.as_BFarray()
             bf_fft(bifrost_gpu_array, bifrost_gpu_array)
             gpu_array.buffer = bifrost_gpu_array.data
             return gpu_array
-        input_array = np.ones(4)+1j*np.ones(4)
+        input_array = np.ones(40)+1j*np.ones(40)
         self.expected_result = np.fft.fft(input_array)
         self.blocks.append([TestingBlock(input_array, complex_numbers=True), [], [0]])
         self.blocks.append([GPUBlock(fft), {'in_1':0, 'out_1':'result'}])
