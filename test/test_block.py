@@ -30,6 +30,7 @@ This file tests all aspects of the Bifrost.block module.
 """
 import unittest
 import numpy as np
+from bifrost.fft import fft as bf_fft
 from bifrost.ring import Ring
 from bifrost.libbifrost import _bf
 from bifrost.GPUArray import GPUArray
@@ -847,7 +848,6 @@ class TestGPUBlock(unittest.TestCase):
     def test_use_pycuda(self):
         """Send a GPU ring through a pycuda function"""
         try:
-            import pycuda
             import pycuda.driver as cuda
             from pycuda.compiler import SourceModule
         except ImportError:
@@ -879,4 +879,29 @@ class TestGPUBlock(unittest.TestCase):
         blocks.append([TestingBlock(np.ones(4)), [], [0]])
         blocks.append([GPUBlock(double), {'in_1':0, 'out_1':1}])
         blocks.append([NumpyBlock(assert_twos, outputs=0), {'in_1':1}])
+        Pipeline(blocks).main()
+    def test_use_pyclibrary(self):
+        """Send a GPU ring through a PyCLibrary-loaded function"""
+        try:
+            import pycuda.driver as cuda
+            from pycuda.compiler import SourceModule
+        except ImportError:
+            print "No PyCUDA installation detected. Skipping tests..."
+            return
+        def fft(input_array):
+            """Perform an fft on the input"""
+            bifrost_gpu_array = input_array.as_BFarray()
+            bf_fft(bifrost_gpu_array, bifrost_gpu_array)
+            input_array.buffer = bifrost_gpu_array.data
+            return input_array
+        def assert_ffted(array):
+            """Test that everything got ffted"""
+            print array
+            np.testing.assert_almost_equal(
+                array,
+                np.fft.fft(np.ones(4)+1j*np.ones(4)))
+        blocks = []
+        blocks.append([TestingBlock(np.ones(4) + 1j*np.ones(4), complex_numbers=True), [], [0]])
+        blocks.append([GPUBlock(fft), {'in_1':0, 'out_1':1}])
+        blocks.append([NumpyBlock(assert_ffted, outputs=0), {'in_1':1}])
         Pipeline(blocks).main()

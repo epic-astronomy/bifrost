@@ -1246,7 +1246,6 @@ class GPUBlock(MultiTransformBlock):
             ring_description = "Output number " + output_name[4:]
             self.ring_names[output_name] = ring_description
             self.ring_spaces[output_name] = 'cuda'
-        print self.ring_names, self.ring_spaces
     def load_settings(self):
         dtype = np.dtype(self.header['in_1']['dtype']).type
         input_test_array = GPUArray(np.product(self.header['in_1']['shape']), dtype=dtype)
