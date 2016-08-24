@@ -1156,12 +1156,15 @@ class NumpyBlock(MultiTransformBlock):
         self.inputs = ['in_%d' % (i+1) for i in range(inputs)]
         self.outputs = ['out_%d' % (i+1) for i in range(outputs)]
         self.ring_names = {}
+        self.ring_spaces = {}
         for input_name in self.inputs:
             ring_description = "Input number " + input_name[3:]
             self.ring_names[input_name] = ring_description
+            self.ring_spaces[input_name] = ['cuda', 'system']
         for output_name in self.outputs:
             ring_description = "Output number " + output_name[4:]
             self.ring_names[output_name] = ring_description
+            self.ring_spaces[output_name] = 'system'
         self.function = function
         assert callable(self.function)
     def load_settings(self):
@@ -1221,30 +1224,41 @@ class NumpyBlock(MultiTransformBlock):
                 outspans[i][:] = output_data[i].ravel()
 
 class GPUBlock(MultiTransformBlock):
-    def __init__(self, function, outputs=1):
+    def __init__(self, function, inputs=1, outputs=1):
         """Based on the number of inputs/outputs, set up enough ring_names
-            for the pipeline to call."""
+            for the pipeline to call.
+            @param[in] function Function with GPUArray arguments and 
+                GPUArray return values
+            @param[in] inputs The number of input rings.
+            @param[in] outputs The number of output rings."""
         super(GPUBlock, self).__init__()
+        assert callable(function)
         self.function = function
-        self.outputs = outputs
-        self.ring_names = {'in_1':""}
-        self.ring_spaces = {'in_1': ['system', 'cuda']}
-        if self.outputs == 1:
-            self.ring_names['out_1'] = ""
-            self.ring_spaces['out_1'] = 'cuda'
-        assert callable(self.function)
+        self.ring_names = {}
+        self.ring_spaces = {}
+        self.inputs = ['in_%d' % (i+1) for i in range(inputs)]
+        self.outputs = ['out_%d' % (i+1) for i in range(outputs)]
+        for input_name in self.inputs:
+            ring_description = "Input number " + input_name[3:]
+            self.ring_names[input_name] = ring_description
+            self.ring_spaces[input_name] = ['system', 'cuda']
+        for output_name in self.outputs:
+            ring_description = "Output number " + output_name[4:]
+            self.ring_names[output_name] = ring_description
+            self.ring_spaces[output_name] = 'cuda'
+        print self.ring_names, self.ring_spaces
     def load_settings(self):
         dtype = np.dtype(self.header['in_1']['dtype']).type
         input_test_array = GPUArray(np.product(self.header['in_1']['shape']), dtype=dtype)
         self.gulp_size['in_1'] = input_test_array.nbytes
-        if self.outputs > 0:
+        if len(self.outputs) > 0:
             output_test_array = self.function(input_test_array)
             self.header['out_1'] = {}
             self.header['out_1']['shape'] = list(output_test_array.shape)
             self.header['out_1']['dtype'] = str(output_test_array.dtype)
             self.gulp_size['out_1'] = output_test_array.nbytes
     def main(self):
-        if self.outputs == 1:
+        if len(self.outputs) == 1:
             for inspan, outspan in self.izip(self.read('in_1'), self.write('out_1')):
                 function_output = self.function(inspan.reshape(self.header['in_1']['shape']))
                 memcpy(outspan, function_output.reshape(outspan.shape))
