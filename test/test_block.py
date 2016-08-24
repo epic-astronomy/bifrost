@@ -830,21 +830,29 @@ class TestGPUBlock(unittest.TestCase):
     """Tests for a block which can call arbitrary functions that work on GPUArrays.
         This block should automatically move CPU data to GPU,
         call the C function, and then put out data on a GPU ring."""
+    def setUp(self):
+        self.blocks = []
+        self.expected_result = None
+        self.iterations = 0
+    def tearDown(self):
+        def assert_expected_result(array):
+            """Test that output ring has the expected result"""
+            np.testing.assert_almost_equal(
+                array,
+                self.expected_result)
+            self.iterations += 1
+        self.blocks.append([NumpyBlock(assert_expected_result, outputs=0), {'in_1':'result'}])
+        Pipeline(self.blocks).main()
+        self.assertGreater(self.iterations, 0)
     def test_simple_throughput(self):
         """Apply an identity function to the GPU"""
-        self.function_iterations = 0
         def identity(array):
             """Return the GPUArray"""
-            if self.function_iterations > 0:
-                self.assertTrue(isinstance(array, GPUArray))
-                np.testing.assert_almost_equal(array.get(), np.ones(10))
-            self.function_iterations += 1
+            assert isinstance(array, GPUArray)
             return array
-        blocks = []
-        blocks.append([TestingBlock(np.ones(10)), [], [0]])
-        blocks.append([GPUBlock(identity), {'in_1':0, 'out_1':1}])
-        Pipeline(blocks).main()
-        self.assertGreater(self.function_iterations, 0)
+        self.expected_result = np.ones(10)
+        self.blocks.append([TestingBlock(self.expected_result), [], [0]])
+        self.blocks.append([GPUBlock(identity), {'in_1':0, 'out_1':'result'}])
     def test_use_pycuda(self):
         """Send a GPU ring through a pycuda function"""
         try:
@@ -872,14 +880,9 @@ class TestGPUBlock(unittest.TestCase):
             del pycuda_array
             del context
             return gpu_array
-        def assert_twos(array):
-            """Test that everything got doubled"""
-            np.testing.assert_almost_equal(array, 2*np.ones(4))
-        blocks = []
-        blocks.append([TestingBlock(np.ones(4)), [], [0]])
-        blocks.append([GPUBlock(double), {'in_1':0, 'out_1':1}])
-        blocks.append([NumpyBlock(assert_twos, outputs=0), {'in_1':1}])
-        Pipeline(blocks).main()
+        self.blocks.append([TestingBlock(np.ones(4)), [], [0]])
+        self.blocks.append([GPUBlock(double), {'in_1':0, 'out_1':'result'}])
+        self.expected_result = 2*np.ones(4)
     def test_use_pyclibrary(self):
         """Send a GPU ring through a PyCLibrary-loaded function"""
         try:
@@ -888,20 +891,13 @@ class TestGPUBlock(unittest.TestCase):
         except ImportError:
             print "No PyCUDA installation detected. Skipping tests..."
             return
-        def fft(input_array):
+        def fft(gpu_array):
             """Perform an fft on the input"""
-            bifrost_gpu_array = input_array.as_BFarray()
+            bifrost_gpu_array = gpu_array.as_BFarray()
             bf_fft(bifrost_gpu_array, bifrost_gpu_array)
-            input_array.buffer = bifrost_gpu_array.data
-            return input_array
-        def assert_ffted(array):
-            """Test that everything got ffted"""
-            print array
-            np.testing.assert_almost_equal(
-                array,
-                np.fft.fft(np.ones(4)+1j*np.ones(4)))
-        blocks = []
-        blocks.append([TestingBlock(np.ones(4) + 1j*np.ones(4), complex_numbers=True), [], [0]])
-        blocks.append([GPUBlock(fft), {'in_1':0, 'out_1':1}])
-        blocks.append([NumpyBlock(assert_ffted, outputs=0), {'in_1':1}])
-        Pipeline(blocks).main()
+            gpu_array.buffer = bifrost_gpu_array.data
+            return gpu_array
+        input_array = np.ones(4)+1j*np.ones(4)
+        self.expected_result = np.fft.fft(input_array)
+        self.blocks.append([TestingBlock(input_array, complex_numbers=True), [], [0]])
+        self.blocks.append([GPUBlock(fft), {'in_1':0, 'out_1':'result'}])
