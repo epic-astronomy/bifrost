@@ -221,6 +221,7 @@ class CableDelayBlock(MultiTransformBlock):
     ring_names = {
         'in': "Visibilities WITHOUT cable delays added",
         'out': "Visibilities WITH cable delays added"}
+    ring_spaces = {'in':'system', 'out':'system'}
     def __init__(self, frequencies, delays, dispersions):
         """@param[in] frequencies Frequencies of data in (Hz)
         @param[in] delays Delays for each antenna (s)
@@ -246,7 +247,7 @@ class CableDelayBlock(MultiTransformBlock):
                     visibilities[0, i, j, 0, 0] *= self.cable_delay_matrix[j, 0].conj()
                     visibilities[0, i, j, 1, 1] *= self.cable_delay_matrix[i, 1]
                     visibilities[0, i, j, 1, 1] *= self.cable_delay_matrix[j, 1].conj()
-            outspan[:] = visibilities.ravel().view(np.float32)[:]
+            outspan[:] = visibilities.ravel()[:]
 class UVCoordinateBlock(MultiTransformBlock):
     """Read the UV coordinates in from a telescope json file, and put them into a ring"""
     ring_names = {

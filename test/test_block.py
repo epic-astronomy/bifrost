@@ -560,7 +560,7 @@ class TestGainSolveBlock(unittest.TestCase):
         #TODO: This relies on LEDA-specific blocks.
         from bifrost.addon.leda.blocks import (
             ScalarSkyModelBlock, DELAYS, COORDINATES, DISPERSIONS, UVCoordinateBlock,
-            load_telescope, LEDA_SETTINGS_FILE, OVRO_EPHEM, NewDadaReadBlock)
+            load_telescope, LEDA_SETTINGS_FILE, OVRO_EPHEM, NewDadaReadBlock, CableDelayBlock)
         def slice_away_uv(model_and_uv):
             """Cut off the uv coordinates from the ScalarSkyModelBlock and reshape to GainSolve"""
             number_stands = model_and_uv.shape[1]
@@ -583,18 +583,22 @@ class TestGainSolveBlock(unittest.TestCase):
             return data_array.transpose((0, 1, 3, 2, 4))
         sources = {}
         sources['cyg'] = {
-            'ra':'19:59:28.4', 'dec':'+40:44:02.1', 'flux': 10571.0,
-            'frequency': 58e6, 'spectral index': -0.2046}
-        dada_file = '/data2/hg/interfits/lconverter/'+\
-            'WholeSkyL64_47.004_d20150203_utc181702_test/'+\
-            '2015-04-08-20_15_03_0001133593833216.dada'
-        OVRO_EPHEM.date = '2015/04/08 20:15:03.00'
+            'ra':'19:59:28.4', 'dec':'+40:44:02.1', 'flux': 10571.0, 'frequency': 58e6,
+            'spectral index': -0.2046}
+        dada_file = '/data2/hg/interfits/lconverter/WholeSkyL64_47.004_d20150203_utc181702_test/2015-04-08-20_15_03_0001133593833216.dada'
+        OVRO_EPHEM.date = '2015/04/09 14:34:51'
         frequencies = [47e6]
         flags = 2*np.ones(shape=[1, self.nstand]).astype(np.int8)
         blocks = []
         blocks.append((
-            NewDadaReadBlock(dada_file, output_chans=[100], time_steps=1),
-            {'out': 'visibilities'}))
+            NewDadaReadBlock(dada_file, output_chans=[87], time_steps=1),
+            {'out': 'raw_visibilities'}))
+        blocks.append((
+            CableDelayBlock(frequencies, DELAYS, DISPERSIONS),
+            {'in':'raw_visibilities', 'out':'visibilities'}))
+        blocks.append((
+            NumpyBlock(transpose_to_gain_solve),
+            {'in_1': 'visibilities', 'out_1': 'formatted_visibilities'}))
         blocks.append((
             ScalarSkyModelBlock(OVRO_EPHEM, COORDINATES, frequencies, sources),
             [], ['model+uv']))
@@ -604,9 +608,6 @@ class TestGainSolveBlock(unittest.TestCase):
         blocks.append((
             TestingBlock(self.jones),
             [], ['jones_in']))
-        blocks.append((
-            NumpyBlock(transpose_to_gain_solve),
-            {'in_1': 'visibilities', 'out_1': 'formatted_visibilities'}))
         blocks.append([
             GainSolveBlock(flags=flags, eps=0.05, max_iterations=10),
             {'in_data': 'formatted_visibilities', 'in_model': 'model',
@@ -651,8 +652,8 @@ class TestGainSolveBlock(unittest.TestCase):
         for stand in BAD_STANDS:
             flags[0, stand] = 1
         blocks = self.setup_dada_calibration()
-        blocks[5] = (
-            GainSolveBlock(flags=flags, eps=0.05, max_iterations=20),
+        blocks[6] = (
+            GainSolveBlock(flags=flags, eps=0.05, max_iterations=8),
             {'in_data': 'formatted_visibilities', 'in_model': 'model',
              'in_jones': 'jones_in', 'out_data': 'calibrated_data',
              'out_jones': 'jones_out'})
