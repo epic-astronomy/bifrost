@@ -496,16 +496,13 @@ class TestGainSolveBlock(unittest.TestCase):
             flags = 2*np.ones(shape=[
                 nchan, self.nstand]).astype(np.int8)
             model = 10*np.random.rand(
-                nchan, self.nstand,
-                self.npol, self.nstand,
+                nchan, self.nstand, self.npol, self.nstand,
                 self.npol).astype(np.complex64)
             data = 10*np.random.rand(
-                nchan, self.nstand,
-                self.npol, self.nstand,
+                nchan, self.nstand, self.npol, self.nstand,
                 self.npol).astype(np.complex64)
             self.jones = np.ones(shape=[
-                nchan, self.npol,
-                self.nstand, self.npol]).astype(np.complex64)
+                nchan, self.npol, self.nstand, self.npol]).astype(np.complex64)
             blocks.append((TestingBlock(model), [], ['model']))
             blocks.append((TestingBlock(data), [], ['data']))
             blocks.append((TestingBlock(self.jones), [], ['jones_in']))
@@ -514,6 +511,47 @@ class TestGainSolveBlock(unittest.TestCase):
                 'out_data': 'calibrated_data', 'out_jones': 'jones_out'}])
             blocks.append([NumpyBlock(test_jones, outputs=0), {'in_1':'jones_out'}])
             Pipeline(blocks).main()
+    def test_solve_arbitrary_jones(self):
+        """Set up a test with random gains, and try to find those gains"""
+        def test_jones(out_jones):
+            """Make sure the jones matrices have been calculated within reason"""
+            new_out_jones = np.copy(out_jones)
+            singular = 0
+            incorrect = 0
+            for i in range(self.nstand):
+                try:
+                    new_out_jones[0, :, i, :] = np.linalg.inv(out_jones[0, :, i, :])
+                except np.linalg.LinAlgError:
+                    singular += 1
+                    continue
+                try:
+                    np.testing.assert_almost_equal(
+                        new_out_jones[0, :, i, :],
+                        self.jones[0, :, i, :],
+                        0)
+                except AssertionError:
+                    incorrect += 1
+            assert incorrect+singular < 0.5*self.nstand
+        nchan = 1
+        flags = 2*np.ones(shape=[nchan, self.nstand]).astype(np.int8)
+        model = 2*(np.random.rand(
+            nchan, self.nstand, self.npol, self.nstand, self.npol)+1j*np.random.rand(
+            nchan, self.nstand, self.npol, self.nstand, self.npol)).astype(np.complex64)
+        self.jones = 10*(np.random.rand(nchan, self.npol, self.nstand, self.npol)+1j*np.random.rand(nchan, self.npol, self.nstand, self.npol)).astype(np.complex64)
+        data = np.copy(model)
+        for i in range(self.nstand):
+            for j in range(self.nstand):
+                data[0, i, :, j, :] = self.jones[0, :, i, :] * data[0, i, :, j, :] * np.transpose(self.jones[0, :, j, :]).conj()
+        jones = 10*(np.ones(shape=[nchan, self.npol, self.nstand, self.npol])+1j*np.ones(shape=[nchan, self.npol, self.nstand, self.npol])).astype(np.complex64)
+        blocks = []
+        blocks.append((TestingBlock(model), [], ['model']))
+        blocks.append((TestingBlock(data), [], ['data']))
+        blocks.append((TestingBlock(jones), [], ['jones_in']))
+        blocks.append([GainSolveBlock(flags=flags, eps=0.001, max_iterations=10), {
+            'in_data': 'data', 'in_model': 'model', 'in_jones': 'jones_in',
+            'out_data': 'calibrated_data', 'out_jones': 'jones_out'}])
+        blocks.append([NumpyBlock(test_jones, outputs=0), {'in_1':'jones_out'}])
+        Pipeline(blocks).main()
     def test_solving_to_skymodel(self):
         """Attempt to solve a sky model to itself"""
         #TODO: This relies on LEDA-specific blocks.
