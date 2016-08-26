@@ -979,7 +979,7 @@ class GainSolveBlock(MultiTransformBlock):
     ring_spaces = {
         'in_data': 'system', 'in_model': 'system',
         'in_jones': 'system', 'out_jones': 'system', 'out_data': 'system'}
-    def __init__(self, flags=None, max_iterations=20, eps=0.0025):
+    def __init__(self, flags=None, max_iterations=20, eps=0.0025, l2reg=3.0):
         """
         @param[in] flags Solution settings [frequency, stand]
             0-already converged, 1-don't include in calibration,
@@ -993,6 +993,7 @@ class GainSolveBlock(MultiTransformBlock):
         self.flags = np.array(flags)
         self.max_iterations = max_iterations
         self.eps = eps
+        self.l2reg = l2reg
     def load_settings(self):
         """Check and set input/output headers and gulp sizes"""
         assert self.header['in_data']['shape'] == self.header['in_model']['shape']
@@ -1031,7 +1032,7 @@ class GainSolveBlock(MultiTransformBlock):
                 gpu_model.as_BFconstarray(100),
                 jones_array,
                 gpu_flags.as_BFarray(100),
-                True, 3.0, self.eps, self.max_iterations, num_unconverged)
+                True, self.l2reg, self.eps, self.max_iterations, num_unconverged)
             gpu_jones.buffer = jones_array.data
             jones = gpu_jones.get()
             for frequency_index in range(jones.shape[0]):

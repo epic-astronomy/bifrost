@@ -547,7 +547,7 @@ class TestGainSolveBlock(unittest.TestCase):
         blocks.append((TestingBlock(model), [], ['model']))
         blocks.append((TestingBlock(data), [], ['data']))
         blocks.append((TestingBlock(jones), [], ['jones_in']))
-        blocks.append([GainSolveBlock(flags=flags, eps=0.001, max_iterations=10), {
+        blocks.append([GainSolveBlock(flags=flags, eps=0.001, max_iterations=10, l2reg=0.0), {
             'in_data': 'data', 'in_model': 'model', 'in_jones': 'jones_in',
             'out_data': 'calibrated_data', 'out_jones': 'jones_out'}])
         blocks.append([NumpyBlock(test_jones, outputs=0), {'in_1':'jones_out'}])
