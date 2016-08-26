@@ -525,6 +525,8 @@ class TestGainSolveBlock(unittest.TestCase):
                     singular += 1
                     continue
                 try:
+                    print new_out_jones[0, :, i, :]
+                    print self.jones[0, :, i, :]
                     np.testing.assert_almost_equal(
                         new_out_jones[0, :, i, :],
                         self.jones[0, :, i, :],
@@ -534,19 +536,37 @@ class TestGainSolveBlock(unittest.TestCase):
             assert incorrect+singular < 0.5*self.nstand
         nchan = 1
         self.nstand = 1
-        flags = [[2]]
-        test_jones = np.array([[1j, 1j], [2+0.1j, 3j]])
-        identity = np.array([[1, 0], [0, 1]])
-        self.jones = np.copy(test_jones).reshape((1, 2, 1, 2))
-        model = np.copy(identity).reshape((1, 1, 2, 1, 2))
-        data = test_jones*np.copy(identity)*np.transpose(test_jones).conj()
-        data = data.reshape((1, 1, 2, 1, 2))
-        starting_jones = np.array([[5+5j, -100], [82.0, -5-1j]]).reshape((1, 2, 1, 2))
+        flags = np.array([[2, 2]]).astype(np.int8)
+        model00 = np.array([[0, 0], [0, 0]]).astype(np.complex64)
+        model11 = np.array([[0, 0], [0, 0]]).astype(np.complex64)
+        model01 = np.array([[1, 1], [0, 1]]).astype(np.complex64)
+        model10 = np.transpose(model01).conj()
+        test_jones0 = np.array([[1, 0], [0, -1j]]).astype(np.complex64)
+        test_jones1 = np.array([[-10j, 1], [-1, 1]]).astype(np.complex64)
+        self.jones = np.zeros([1, 2, 2, 2]).astype(np.complex64)
+        self.jones[0, :, 0, :] = test_jones0[:, :]
+        self.jones[0, :, 1, :] = test_jones1[:, :]
+        data00 = np.array([[0, 0], [0, 0]]).astype(np.complex64)
+        data11 = np.array([[0, 0], [0, 0]]).astype(np.complex64)
+        data01 = np.dot(test_jones0, np.dot(model01, np.transpose(test_jones1).conj()))
+        data10 = np.transpose(data01).conj()
+        data = np.zeros([1, 2, 2, 2, 2]).astype(np.complex64)
+        model = np.zeros([1, 2, 2, 2, 2]).astype(np.complex64)
+        data[0, 0, :, 1, :] = data01[:, :]
+        data[0, 1, :, 0, :] = data10[:, :]
+        model[0, 0, :, 1, :] = model01[:, :]
+        model[0, 1, :, 0, :] = model10[:, :]
+        # chan, stand, pol, stand, pol
+        dummy_jones0 = np.array([[1, 0], [0, 1]]).astype(np.complex64)
+        dummy_jones1 = np.array([[1, 0], [0, 1]]).astype(np.complex64)
+        initial_jones = np.zeros([1, 2, 2, 2]).astype(np.complex64)
+        initial_jones[0, :, 0, :] = dummy_jones0[:, :]
+        initial_jones[0, :, 1, :] = dummy_jones1[:, :]
         blocks = []
-        blocks.append((TestingBlock(model.astype(np.complex64), complex_numbers=True), [], ['model']))
-        blocks.append((TestingBlock(data.astype(np.complex64), complex_numbers=True), [], ['data']))
-        blocks.append((TestingBlock(starting_jones.astype(np.complex64), complex_numbers=True), [], ['jones_in']))
-        blocks.append([GainSolveBlock(flags=flags, eps=0.001, max_iterations=10, l2reg=0.0), {
+        blocks.append((TestingBlock(model, complex_numbers=True), [], ['model']))
+        blocks.append((TestingBlock(data, complex_numbers=True), [], ['data']))
+        blocks.append((TestingBlock(initial_jones, complex_numbers=True), [], ['jones_in']))
+        blocks.append([GainSolveBlock(flags=flags, eps=0.001, max_iterations=1000, l2reg=0.0), {
             'in_data': 'data', 'in_model': 'model', 'in_jones': 'jones_in',
             'out_data': 'calibrated_data', 'out_jones': 'jones_out'}])
         blocks.append([NumpyBlock(assert_good_jones, outputs=0), {'in_1':'jones_out'}])
