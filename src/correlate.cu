@@ -257,6 +257,17 @@ BFstatus bfSolveGains(BFconstarray V,      // Observed data. [nchan,nstand^,npol
     //printf ("Returned \n");
         cudaMemcpy((void*) jones_before, (const void*)G.data, sizeof(BFcomplex64)*nchan*npol*nstand*npol, cudaMemcpyDeviceToHost);
         printf("After: %f+j%f\n", jones_before[0].r, jones_before[0].i);
+        if (isnan(sqrt(-1.0)))
+        {
+                printf("Starting NaN search\n");
+        }
+        for (int i = 0; i < nchan*npol*npol*nstand; i++){
+                if (isnan(jones_before[0].r)    || isnan(jones_before[0].i) ||
+                    isinf(jones_before[0].i)    || isinf(jones_before[0].i))
+                {
+                        printf("Here!\n");
+                }
+        }
 	return BF_STATUS_SUCCESS;
 }
 
