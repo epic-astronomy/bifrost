@@ -525,8 +525,6 @@ class TestGainSolveBlock(unittest.TestCase):
                     singular += 1
                     continue
                 try:
-                    print new_out_jones[0, :, i, :]
-                    print self.jones[0, :, i, :]
                     np.testing.assert_almost_equal(
                         new_out_jones[0, :, i, :],
                         self.jones[0, :, i, :],
@@ -579,7 +577,7 @@ class TestGainSolveBlock(unittest.TestCase):
         blocks.append((TestingBlock(model, complex_numbers=True), [], ['model']))
         blocks.append((TestingBlock(data, complex_numbers=True), [], ['data']))
         blocks.append((TestingBlock(initial_jones, complex_numbers=True), [], ['jones_in']))
-        blocks.append([GainSolveBlock(flags=flags, eps=0.001, max_iterations=1000, l2reg=0.0), {
+        blocks.append([GainSolveBlock(flags=flags, eps=1e-7, max_iterations=1000, l2reg=0.0), {
             'in_data': 'data', 'in_model': 'model', 'in_jones': 'jones_in',
             'out_data': 'calibrated_data', 'out_jones': 'jones_out'}])
         blocks.append([NumpyBlock(assert_good_jones, outputs=0), {'in_1':'jones_out'}])
