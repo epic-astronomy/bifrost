@@ -732,6 +732,30 @@ class TestGainSolveBlock(unittest.TestCase):
         blocks.append([
             ImagingBlock('sky.png', np.abs, log=True), {'in': 'calibrated_data_image'}])
         Pipeline(blocks).main()
+    def test_calibration_l2regzero(self):
+        """Test a calibration with l2reg set to zero, and make sure the results are 
+            not nan"""
+        from bifrost.addon.leda.blocks import BAD_STANDS, ImagingBlock
+        def assert_no_nans(array):
+            """Make sure that GainSolveBlock is setting flagged stands to zero"""
+            array = array.ravel()
+            for i in range(array.size):
+                self.assertTrue(numpy.isnan(array[i]))
+        flags = 2*np.ones(shape=[1, self.nstand]).astype(np.int8)
+        for stand in BAD_STANDS:
+            flags[0, stand] = 1
+        blocks = self.setup_dada_calibration()
+        blocks[6] = (
+            GainSolveBlock(flags=flags, eps=0.0005, max_iterations=80, l2reg=0.005),
+            {'in_data': 'formatted_visibilities', 'in_model': 'model',
+             'in_jones': 'jones_in', 'out_data': 'calibrated_data',
+             'out_jones': 'jones_out'})
+        blocks.append([
+            NumpyBlock(assert_no_nans, outputs=0),
+            {'in_1':'calibrated_data'}])
+        blocks.append([
+            ImagingBlock('sky.png', np.abs, log=True), {'in': 'calibrated_data_image'}])
+        Pipeline(blocks).main()
 class TestMultiTransformBlock(unittest.TestCase):
     """Test call syntax and function of a multi transform block"""
     def test_add_block(self):
