@@ -534,8 +534,20 @@ class TestGainSolveBlock(unittest.TestCase):
                 except AssertionError:
                     incorrect += 1
             assert incorrect+singular < 0.5*self.nstand
+        def assert_good_calibration(out_calibration):
+            """Make sure the output image is very close to the model"""
+            incorrect = 0
+            for i in range(self.nstand):
+                for j in range(self.nstand):
+                    try:
+                        np.testing.assert_almost_equal(
+                            out_calibration[0, i, :, j, :],
+                            self.model[0, i, :, j, :],
+                            5)
+                    except AssertionError:
+                        incorrect += 1
         nchan = 1
-        self.nstand = 1
+        self.nstand = 2
         flags = np.array([[2, 2]]).astype(np.int8)
         model00 = np.array([[0, 0], [0, 0]]).astype(np.complex64)
         model11 = np.array([[0, 0], [0, 0]]).astype(np.complex64)
@@ -556,6 +568,7 @@ class TestGainSolveBlock(unittest.TestCase):
         data[0, 1, :, 0, :] = data10[:, :]
         model[0, 0, :, 1, :] = model01[:, :]
         model[0, 1, :, 0, :] = model10[:, :]
+        self.model = np.copy(model)
         # chan, stand, pol, stand, pol
         dummy_jones0 = np.array([[1, 0], [0, 1]]).astype(np.complex64)
         dummy_jones1 = np.array([[1, 0], [0, 1]]).astype(np.complex64)
@@ -570,6 +583,7 @@ class TestGainSolveBlock(unittest.TestCase):
             'in_data': 'data', 'in_model': 'model', 'in_jones': 'jones_in',
             'out_data': 'calibrated_data', 'out_jones': 'jones_out'}])
         blocks.append([NumpyBlock(assert_good_jones, outputs=0), {'in_1':'jones_out'}])
+        blocks.append([NumpyBlock(assert_good_calibration, outputs=0), {'in_1':'calibrated_data'}])
         Pipeline(blocks).main()
     def test_solving_to_skymodel(self):
         """Attempt to solve a sky model to itself"""
