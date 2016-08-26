@@ -711,7 +711,7 @@ class TestGainSolveBlock(unittest.TestCase):
         Pipeline(blocks).main()
     def test_calibration_flagging(self):
         """Perform the above calibration, but with stand flags set"""
-        from bifrost.addon.leda.blocks import BAD_STANDS
+        from bifrost.addon.leda.blocks import BAD_STANDS, ImagingBlock
         def assert_stands_flagged(array):
             """Make sure that GainSolveBlock is setting flagged stands to zero"""
             np.testing.assert_almost_equal(
@@ -722,13 +722,15 @@ class TestGainSolveBlock(unittest.TestCase):
             flags[0, stand] = 1
         blocks = self.setup_dada_calibration()
         blocks[6] = (
-            GainSolveBlock(flags=flags, eps=0.05, max_iterations=8),
+            GainSolveBlock(flags=flags, eps=0.0005, max_iterations=80, l2reg=0.005),
             {'in_data': 'formatted_visibilities', 'in_model': 'model',
              'in_jones': 'jones_in', 'out_data': 'calibrated_data',
              'out_jones': 'jones_out'})
         blocks.append([
             NumpyBlock(assert_stands_flagged, outputs=0),
             {'in_1':'calibrated_data'}])
+        blocks.append([
+            ImagingBlock('sky.png', np.abs, log=True), {'in': 'calibrated_data_image'}])
         Pipeline(blocks).main()
 class TestMultiTransformBlock(unittest.TestCase):
     """Test call syntax and function of a multi transform block"""
