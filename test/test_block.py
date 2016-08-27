@@ -725,7 +725,10 @@ class TestGainSolveBlock(unittest.TestCase):
             flags[0, stand] = 1
         blocks = self.setup_dada_calibration()
         blocks[6] = (
-            GainSolveBlock(flags=flags, eps=0.005, max_iterations=500, l2reg=0.005),
+            GainSolveBlock(flags=flags, eps=0.035, max_iterations=50, l2reg=0.85),
+            #GOOD \/
+            #GainSolveBlock(flags=flags, eps=0.05, max_iterations=20, l2reg=0.5),
+            #GainSolveBlock(flags=flags, eps=0.05, max_iterations=20, l2reg=0.05),
             #GainSolveBlock(flags=flags, eps=0.005, max_iterations=500, l2reg=0.005),
             {'in_data': 'formatted_visibilities', 'in_model': 'model',
              'in_jones': 'jones_in', 'out_data': 'calibrated_data',
