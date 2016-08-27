@@ -199,7 +199,7 @@ struct __attribute__((aligned(32))) JonesMat {
 	inline __host__ __device__ complex_type det()   const { return (x.x*y.y).msub(x.y,y.x); }
 	inline __host__ __device__ bool is_singular(real_type eps=10*std::numeric_limits<real_type>::epsilon()) const {
 		real_type fnorm = this->mag2();
-		real_type inv_condition = fnorm*fnorm / this->det().mag2();
+		real_type inv_condition = fnorm*fnorm/this->det().mag2();
 		// TODO: Does eps need to be squared?
 		return inv_condition <= eps;
 	}

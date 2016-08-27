@@ -239,7 +239,7 @@ BFstatus bfSolveGains(BFconstarray V,      // Observed data. [nchan,nstand^,npol
         
 	BFcomplex64 *jones_before = (BFcomplex64*)malloc(sizeof(BFcomplex64)*nchan*npol*nstand*npol);
     cudaMemcpy((void*) jones_before, (const void*)G.data, sizeof(BFcomplex64)*nchan*npol*nstand*npol, cudaMemcpyDeviceToHost);
-    printf("Before: %f+j%f\n", jones_before[0].r, jones_before[0].i);
+    printf("Before:%f+j%f\n", jones_before[0].r, jones_before[0].i);
 	int convergence_status = bfSolveGains_old(
                          nchan,
                          nstand,
@@ -257,15 +257,15 @@ BFstatus bfSolveGains(BFconstarray V,      // Observed data. [nchan,nstand^,npol
     //printf ("Returned \n");
         cudaMemcpy((void*) jones_before, (const void*)G.data, sizeof(BFcomplex64)*nchan*npol*nstand*npol, cudaMemcpyDeviceToHost);
         printf("After: %f+j%f\n", jones_before[0].r, jones_before[0].i);
+        printf("After2: %f+j%f\n", jones_before[1].r, jones_before[1].i);
         if (isnan(sqrt(-1.0)))
         {
                 printf("Starting NaN search\n");
         }
         for (int i = 0; i < nchan*npol*npol*nstand; i++){
-                if (isnan(jones_before[0].r)    || isnan(jones_before[0].i) ||
-                    isinf(jones_before[0].i)    || isinf(jones_before[0].i))
-                {
-                        printf("Here!\n");
+                if (isnan(jones_before[i].r) || isnan(jones_before[i].i) ||
+                    isinf(jones_before[i].i) || isinf(jones_before[i].i)){
+                        printf("NaN encountered!\n");
                 }
         }
 	return BF_STATUS_SUCCESS;

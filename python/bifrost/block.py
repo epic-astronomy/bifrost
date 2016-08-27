@@ -1035,6 +1035,8 @@ class GainSolveBlock(MultiTransformBlock):
                 True, self.l2reg, self.eps, self.max_iterations, num_unconverged)
             gpu_jones.buffer = jones_array.data
             jones = gpu_jones.get()
+            print jones[0, :, 0, :]
+            print jones[0, :, 1, :]
             for frequency_index in range(jones.shape[0]):
                 number_singular_matrices = 0
                 for stand in range(jones.shape[2]):

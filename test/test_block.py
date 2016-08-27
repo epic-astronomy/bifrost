@@ -577,7 +577,7 @@ class TestGainSolveBlock(unittest.TestCase):
         blocks.append((TestingBlock(model, complex_numbers=True), [], ['model']))
         blocks.append((TestingBlock(data, complex_numbers=True), [], ['data']))
         blocks.append((TestingBlock(initial_jones, complex_numbers=True), [], ['jones_in']))
-        blocks.append([GainSolveBlock(flags=flags, eps=1e-7, max_iterations=1000, l2reg=0.0), {
+        blocks.append([GainSolveBlock(flags=flags, eps=0.00001, max_iterations=100, l2reg=0.0), {
             'in_data': 'data', 'in_model': 'model', 'in_jones': 'jones_in',
             'out_data': 'calibrated_data', 'out_jones': 'jones_out'}])
         blocks.append([NumpyBlock(assert_good_jones, outputs=0), {'in_1':'jones_out'}])
@@ -610,7 +610,7 @@ class TestGainSolveBlock(unittest.TestCase):
         sources['cyg'] = {
             'ra':'19:59:28.4', 'dec':'+40:44:02.1', 'flux': 10571.0, 'frequency': 58e6,
             'spectral index': -0.2046}
-        frequencies = [40e6]
+        frequencies = [47e6]
         blocks = []
         blocks.append((
             ScalarSkyModelBlock(OVRO_EPHEM, coords, frequencies, sources), [], ['model+uv']))
@@ -654,6 +654,9 @@ class TestGainSolveBlock(unittest.TestCase):
         sources['cyg'] = {
             'ra':'19:59:28.4', 'dec':'+40:44:02.1', 'flux': 10571.0, 'frequency': 58e6,
             'spectral index': -0.2046}
+        sources['cas'] = {
+            'ra': '23:23:27.8', 'dec': '+58:48:34',
+            'flux': 6052.0, 'frequency': 58e6, 'spectral index':(+0.7581)}
         dada_file = '/data2/hg/interfits/lconverter/WholeSkyL64_47.004_d20150203_utc181702_test/2015-04-08-20_15_03_0001133593833216.dada'
         OVRO_EPHEM.date = '2015/04/09 14:34:51'
         frequencies = [47e6]
@@ -722,7 +725,8 @@ class TestGainSolveBlock(unittest.TestCase):
             flags[0, stand] = 1
         blocks = self.setup_dada_calibration()
         blocks[6] = (
-            GainSolveBlock(flags=flags, eps=0.0005, max_iterations=80, l2reg=0.005),
+            GainSolveBlock(flags=flags, eps=0.005, max_iterations=500, l2reg=0.005),
+            #GainSolveBlock(flags=flags, eps=0.005, max_iterations=500, l2reg=0.005),
             {'in_data': 'formatted_visibilities', 'in_model': 'model',
              'in_jones': 'jones_in', 'out_data': 'calibrated_data',
              'out_jones': 'jones_out'})
@@ -746,7 +750,7 @@ class TestGainSolveBlock(unittest.TestCase):
             flags[0, stand] = 1
         blocks = self.setup_dada_calibration()
         blocks[6] = (
-            GainSolveBlock(flags=flags, eps=0.0005, max_iterations=80, l2reg=0.0),
+            GainSolveBlock(flags=flags, eps=0.0005, max_iterations=80, l2reg=0.05),
             {'in_data': 'formatted_visibilities', 'in_model': 'model',
              'in_jones': 'jones_in', 'out_data': 'calibrated_data',
              'out_jones': 'jones_out'})
