@@ -121,6 +121,8 @@ class DadaFileRead(object):
         nchan = self.dada_header['NCHAN']
         npol = self.dada_header['NPOL']
         navg = self.dada_header['NAVG']
+        for key in self.dada_header:
+            print key, self.dada_header[key]
         frequency_channel_width = self.dada_header['BW']*1e6 / float(nchan)
         assert self.dada_header['DATA_ORDER'] == "TIME_SUBSET_CHAN_TRIANGULAR_POL_POL_COMPLEX"
         nbaseline = LEDA_NSTATIONS*(LEDA_NSTATIONS+1)//2
