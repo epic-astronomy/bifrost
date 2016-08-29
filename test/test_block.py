@@ -629,7 +629,7 @@ class TestGainSolveBlock(unittest.TestCase):
         blocks.append((TestingBlock(actual_jones, complex_numbers=True), [], ['toy_jones']))
         blocks.append((NumpyBlock(perturb_gains, inputs=2), {'in_1': 'toy_jones', 'in_2': 'model', 'out_1': 'data'}))
         blocks.append((TestingBlock(init_jones, complex_numbers=True), [], ['jones_in']))
-        blocks.append([GainSolveBlock(flags=flags, eps=0.025, max_iterations=300, l2reg=10.0), {
+        blocks.append([GainSolveBlock(flags=flags, eps=0.025, max_iterations=30, l2reg=10.0), {
             'in_data': 'data', 'in_model': 'model', 'in_jones': 'jones_in',
             'out_data': 'calibrated_data', 'out_jones': 'jones_out'}])
         blocks.append([NumpyBlock(assert_good_jones, outputs=0), {'in_1':'jones_out'}])

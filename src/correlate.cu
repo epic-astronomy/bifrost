@@ -338,9 +338,12 @@ BFstatus bfSolveGains_old(BFsize             nchan,
             return 0;
             //return BF_STATUS_SUCCESS;
 		}
-                if ( it%(int(maxiter/10.0)+1) == 0 ){
+                //if ( it%(int(maxiter/10.0)+1) == 0 ){
+                        BFcomplex64 *jones_before = (BFcomplex64*)malloc(sizeof(BFcomplex64)*nchan*npol*nstand*npol);
+                        cudaMemcpy((void*) jones_before, (const void*)G, sizeof(BFcomplex64)*nchan*npol*nstand*npol, cudaMemcpyDeviceToHost);
 		                std::cout << "Iteration " << it << ", num_unconverged = " << num_unconverged << std::endl;
-                }
+                        printf("Current jones:%f+j%f\n", jones_before[0].r, jones_before[0].i);
+                //}
                 if ( it == maxiter ){
                         //std::cout << "Reached max iterations of " << it << std::endl;
                 }
