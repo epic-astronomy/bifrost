@@ -1029,6 +1029,9 @@ class GainSolveBlock(MultiTransformBlock):
                 ctypes.POINTER(ctypes.c_int))
             print "Data in GainSolve:"
             print gpu_data.get()[0, 0, :, 1, :]
+            print "Jones in GainSolve:"
+            print gpu_jones.get()[0, :, 0, :]
+            print gpu_jones.get()[0, :, 1, :]
             _bf.SolveGains(
                 gpu_data.as_BFconstarray(100),
                 gpu_model.as_BFconstarray(100),
@@ -1037,6 +1040,7 @@ class GainSolveBlock(MultiTransformBlock):
                 True, self.l2reg, self.eps, self.max_iterations, num_unconverged)
             gpu_jones.buffer = jones_array.data
             jones = gpu_jones.get()
+            print "Jones in GainSolve:"
             print jones[0, :, 0, :]
             print jones[0, :, 1, :]
             for frequency_index in range(jones.shape[0]):

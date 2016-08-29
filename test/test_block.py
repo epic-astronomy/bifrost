@@ -622,10 +622,13 @@ class TestGainSolveBlock(unittest.TestCase):
             print "Stand", i, "and stand", j
             print fake_model[0, i, :, j, :]
         self.jones = np.copy(actual_jones)
+        init_jones = np.ones_like(actual_jones).astype(np.complex64)
+        init_jones[0, 0, :, 1] = 0
+        init_jones[0, 1, :, 0] = 0
         blocks.append((TestingBlock(fake_model, complex_numbers=True), [], ['model']))
         blocks.append((TestingBlock(actual_jones, complex_numbers=True), [], ['toy_jones']))
         blocks.append((NumpyBlock(perturb_gains, inputs=2), {'in_1': 'toy_jones', 'in_2': 'model', 'out_1': 'data'}))
-        blocks.append((TestingBlock(np.ones_like(actual_jones), complex_numbers=True), [], ['jones_in']))
+        blocks.append((TestingBlock(init_jones, complex_numbers=True), [], ['jones_in']))
         blocks.append([GainSolveBlock(flags=flags, eps=0.025, max_iterations=300, l2reg=10.0), {
             'in_data': 'data', 'in_model': 'model', 'in_jones': 'jones_in',
             'out_data': 'calibrated_data', 'out_jones': 'jones_out'}])
