@@ -556,6 +556,22 @@ class TestGainSolveBlock(unittest.TestCase):
         """Set up a test with a 5 random stand sky model, and try to solve for known gains"""
         from bifrost.addon.leda.blocks import ScalarSkyModelBlock
         from bifrost.addon.leda.blocks import load_telescope, LEDA_SETTINGS_FILE, OVRO_EPHEM
+        def slice_away_uv(model_and_uv):
+            """Cut off the uv coordinates from the ScalarSkyModelBlock and reshape to GainSolve"""
+            number_stands = model_and_uv.shape[1]
+            model = np.zeros(shape=[1, number_stands, 2, number_stands, 2]).astype(np.complex64)
+            model[0, :, 0, :, 0] = model_and_uv[0, :, :, 2]+1j*model_and_uv[0, :, :, 3]
+            model[0, :, 1, :, 1] = model_and_uv[0, :, :, 2]+1j*model_and_uv[0, :, :, 3]
+            return model
+        def perturb_gains(jones, model):
+            """Apply the gains to the model"""
+            data = np.empty_like(model)
+            for i in range(self.nstand):
+                for j in range(self.nstand):
+                    #if i==0 and j==0:
+                        #print jones[0, :, i, :], model[0, i, :, j, :], jones[0, :, j, :]
+                    data[0, i, :, j, :] = np.dot(jones[0, :, i, :], np.dot(model[0, i, :, j, :], np.transpose(jones[0, :, j, :]).conj()))
+            return data
         def assert_good_jones(out_jones):
             """Make sure the jones matrices have been calculated within reason"""
             new_out_jones = np.copy(out_jones)
@@ -569,67 +585,53 @@ class TestGainSolveBlock(unittest.TestCase):
                     continue
                 norm_residual = np.sqrt(np.sum(np.square(np.abs(new_out_jones[0, :, i, :]-self.jones[0, :, i, :]))))
                 if norm_residual > 1:
-                    print norm_residual
+                    #print norm_residual
                     incorrect += 1
-            print incorrect, "Incorrect", singular, "Singular"
-            #assert singular+incorrect < 0.5*self.nstand
-        def slice_away_uv(model_and_uv):
-            """Cut off the uv coordinates from the ScalarSkyModelBlock and reshape to GainSolve"""
-            number_stands = model_and_uv.shape[1]
-            model = np.zeros(shape=[1, number_stands, 2, number_stands, 2]).astype(np.complex64)
-            model[0, :, 0, :, 0] = model_and_uv[0, :, :, 2]+1j*model_and_uv[0, :, :, 3]
-            model[0, :, 1, :, 1] = model_and_uv[0, :, :, 2]+1j*model_and_uv[0, :, :, 3]
-            return model
-        def assert_good_calibration(out_calibration):
+            #print incorrect+singular, "Incorrect out of", self.nstand
+            assert incorrect+singular < 0.5*self.nstand
+        def assert_good_calibration(model, out_calibration):
             """Make sure the output image is very close to the model"""
             incorrect = 0
             for i in range(self.nstand):
-                for j in range(self.nstand):
+                for j in range(i, self.nstand):
                     if i==j:
                         continue
                     try:
                         np.testing.assert_almost_equal(
                             out_calibration[0, i, :, j, :],
-                            self.model[0, i, :, j, :],
+                            model[0, i, :, j, :],
                             1)
                     except AssertionError:
                         incorrect += 1
-            print incorrect, "incorrect models out of", self.nstand*(self.nstand-1)/2
-        def perturb_gains(jones, model):
-            """Apply the gains to the model"""
-            data = np.empty_like(model)
-            for i in range(self.nstand):
-                for j in range(self.nstand):
-                    data[0, i, :, j, :] = np.dot(jones[0, :, i, :], np.dot(model[0, i, :, j, :], np.transpose(jones[0, :, j, :]).conj()))
-            return data
+            #print incorrect, "incorrect models out of", self.nstand*(self.nstand-1)/2
+            assert incorrect < 0.5*self.nstand*(self.nstand-1)/2
         nchan = 1
-        self.nstand = 5
-        flags = np.array([[2, 2, 2, 2, 2]]).astype(np.int8)
+        self.nstand = 10
+        flags = 2*np.ones(shape=[nchan, self.nstand]).astype(np.int8)
         blocks = []
         sources = {}
         sources['cyg'] = {
             'ra':'19:59:28.4', 'dec':'+40:44:02.1', 'flux': 10571.0, 'frequency': 58e6,
             'spectral index': -0.2046}
-        frequencies = [40e6]
-        actual_jones = 10*(np.random.rand(1, 2, self.nstand, 2)+1j*np.random.rand(1, 2, self.nstand, 2)).astype(np.complex64)-5-5j
-        self.jones = actual_jones
+        frequencies = [47.7e6]
+        actual_jones = 10*(np.random.rand(nchan, 2, self.nstand, 2)+1j*np.random.rand(nchan, 2, self.nstand, 2)).astype(np.complex64)-5-5j
+        self.jones = np.copy(actual_jones)
         coords = load_telescope(LEDA_SETTINGS_FILE)[1]
-        coords = coords[:5]
+        coords = coords[:self.nstand]
         blocks.append((
             ScalarSkyModelBlock(OVRO_EPHEM, coords, frequencies, sources), [], ['model+uv']))
         blocks.append((NumpyBlock(slice_away_uv), {'in_1': 'model+uv', 'out_1': 'model'}))
-        blocks.append((NumpyBlock(perturb_gains, inputs=2), {'in_1': 'toy_jones', 'in_2': 'model', 'out_1': 'data'}))
         blocks.append((TestingBlock(actual_jones, complex_numbers=True), [], ['toy_jones']))
+        blocks.append((NumpyBlock(perturb_gains, inputs=2), {'in_1': 'toy_jones', 'in_2': 'model', 'out_1': 'data'}))
         blocks.append((TestingBlock(np.ones_like(actual_jones), complex_numbers=True), [], ['jones_in']))
-        blocks.append([GainSolveBlock(flags=flags, eps=0.02, max_iterations=60, l2reg=8), {
+        blocks.append([GainSolveBlock(flags=flags, eps=0.0000001, max_iterations=60000, l2reg=20.0), {
             'in_data': 'data', 'in_model': 'model', 'in_jones': 'jones_in',
             'out_data': 'calibrated_data', 'out_jones': 'jones_out'}])
         blocks.append([NumpyBlock(assert_good_jones, outputs=0), {'in_1':'jones_out'}])
-        blocks.append([NumpyBlock(assert_good_calibration, outputs=0), {'in_1':'calibrated_data'}])
+        blocks.append([NumpyBlock(assert_good_calibration, inputs=2, outputs=0), {'in_1':'model', 'in_2':'calibrated_data'}])
         Pipeline(blocks).main()
     def setup_dada_calibration(self):
         """Set up a pipeline to calibrate jones matrices to a dada file"""
-        #TODO: This relies on LEDA-specific blocks.
         from bifrost.addon.leda.blocks import (
             ScalarSkyModelBlock, DELAYS, COORDINATES, DISPERSIONS, UVCoordinateBlock,
             load_telescope, LEDA_SETTINGS_FILE, OVRO_EPHEM, NewDadaReadBlock, CableDelayBlock)
