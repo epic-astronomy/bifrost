@@ -554,23 +554,18 @@ class TestGainSolveBlock(unittest.TestCase):
         Pipeline(blocks).main()
     def test_solve_arbitrary_jones(self):
         """Set up a test with a 5 random stand sky model, and try to solve for known gains"""
-        from bifrost.addon.leda.blocks import ScalarSkyModelBlock
-        from bifrost.addon.leda.blocks import load_telescope, LEDA_SETTINGS_FILE, OVRO_EPHEM
-        def slice_away_uv(model_and_uv):
-            """Cut off the uv coordinates from the ScalarSkyModelBlock and reshape to GainSolve"""
-            number_stands = model_and_uv.shape[1]
-            model = np.zeros(shape=[1, number_stands, 2, number_stands, 2]).astype(np.complex64)
-            model[0, :, 0, :, 0] = model_and_uv[0, :, :, 2]+1j*model_and_uv[0, :, :, 3]
-            model[0, :, 1, :, 1] = model_and_uv[0, :, :, 2]+1j*model_and_uv[0, :, :, 3]
-            return model
         def perturb_gains(jones, model):
             """Apply the gains to the model"""
             data = np.empty_like(model)
+            print "DATA:"
             for i in range(self.nstand):
                 for j in range(self.nstand):
                     #if i==0 and j==0:
                         #print jones[0, :, i, :], model[0, i, :, j, :], jones[0, :, j, :]
                     data[0, i, :, j, :] = np.dot(jones[0, :, i, :], np.dot(model[0, i, :, j, :], np.transpose(jones[0, :, j, :]).conj()))
+                    if i==0 and j!= 0:
+                        print "Stand", i, "and stand", j
+                        print data[0, i, :, j, :]
             return data
         def assert_good_jones(out_jones):
             """Make sure the jones matrices have been calculated within reason"""
@@ -610,11 +605,6 @@ class TestGainSolveBlock(unittest.TestCase):
         self.nstand = 4
         flags = 2*np.ones(shape=[nchan, self.nstand]).astype(np.int8)
         blocks = []
-        sources = {}
-        sources['cyg'] = {
-            'ra':'19:59:28.4', 'dec':'+40:44:02.1', 'flux': 10571.0, 'frequency': 58e6,
-            'spectral index': -0.2046}
-        frequencies = [47.7e6]
         np.random.seed(4)
         actual_jones = (np.round(10*np.random.rand(nchan, 2, self.nstand, 2))+1j*np.round(10*np.random.rand(nchan, 2, self.nstand, 2))).astype(np.complex64)+1+1j
         actual_jones[0, 0, :, 1] = 0
@@ -632,8 +622,6 @@ class TestGainSolveBlock(unittest.TestCase):
             print "Stand", i, "and stand", j
             print fake_model[0, i, :, j, :]
         self.jones = np.copy(actual_jones)
-        coords = load_telescope(LEDA_SETTINGS_FILE)[1]
-        coords = coords[:self.nstand]
         blocks.append((TestingBlock(fake_model, complex_numbers=True), [], ['model']))
         blocks.append((TestingBlock(actual_jones, complex_numbers=True), [], ['toy_jones']))
         blocks.append((NumpyBlock(perturb_gains, inputs=2), {'in_1': 'toy_jones', 'in_2': 'model', 'out_1': 'data'}))

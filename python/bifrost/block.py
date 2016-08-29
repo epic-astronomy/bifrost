@@ -1027,6 +1027,8 @@ class GainSolveBlock(MultiTransformBlock):
             num_unconverged = ctypes.cast(
                 ctypes.addressof(ctypes.c_int(0)),
                 ctypes.POINTER(ctypes.c_int))
+            print "Data in GainSolve:"
+            print gpu_data.get()[0, 0, :, 1, :]
             _bf.SolveGains(
                 gpu_data.as_BFconstarray(100),
                 gpu_model.as_BFconstarray(100),
