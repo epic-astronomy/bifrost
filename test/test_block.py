@@ -511,107 +511,6 @@ class TestGainSolveBlock(unittest.TestCase):
                 'out_data': 'calibrated_data', 'out_jones': 'jones_out'}])
             blocks.append([NumpyBlock(test_jones, outputs=0), {'in_1':'jones_out'}])
             Pipeline(blocks).main()
-    def test_solve_arbitrary_jones(self):
-        """Set up a test with random gains, and try to find those gains"""
-        def assert_good_jones(out_jones):
-            """Make sure the jones matrices have been calculated within reason"""
-            new_out_jones = np.copy(out_jones)
-            singular = 0
-            incorrect = 0
-            for i in range(self.nstand):
-                try:
-                    new_out_jones[0, :, i, :] = np.linalg.inv(out_jones[0, :, i, :])
-                except np.linalg.LinAlgError:
-                    singular += 1
-                    continue
-                """
-                np.testing.assert_almost_equal(
-                    new_out_jones[0, :, i, :],
-                    self.jones[0, :, i, :],
-                    0)
-                """
-            assert singular < 0.5*self.nstand
-        def assert_good_calibration(out_calibration):
-            """Make sure the output image is very close to the model"""
-            incorrect = 0
-            for i in range(self.nstand):
-                for j in range(self.nstand):
-                    if i==j:
-                        continue
-                    #try:
-                    np.testing.assert_almost_equal(
-                            out_calibration[0, i, :, j, :],
-                            self.model[0, i, :, j, :],
-                            1)
-                    #except AssertionError:
-                        #incorrect += 1
-            print incorrect, "incorrect models out of", self.nstand*(self.nstand-1)/2
-        nchan = 1
-        self.nstand = 3
-        flags = np.array([[2, 2, 2]]).astype(np.int8)
-
-        model00 = np.array([[0, 0], [0, 0]]).astype(np.complex64)
-        model11 = np.array([[0, 0], [0, 0]]).astype(np.complex64)
-        model22 = np.array([[0, 0], [0, 0]]).astype(np.complex64)
-        model01 = np.array([[1, 1], [0, 1]]).astype(np.complex64)
-        model02 = np.array([[1, 1], [-1, 1]]).astype(np.complex64)
-        model12 = np.array([[1, 0], [0, 10]]).astype(np.complex64)
-        model10 = np.transpose(model01).conj()
-        model20 = np.transpose(model02).conj()
-        model21 = np.transpose(model12).conj()
-        model = np.zeros([1, 3, 2, 3, 2]).astype(np.complex64)
-        model[0, 0, :, 1, :] = model01[:, :]
-        model[0, 1, :, 0, :] = model10[:, :]
-        model[0, 0, :, 2, :] = model02[:, :]
-        model[0, 2, :, 0, :] = model20[:, :]
-        model[0, 1, :, 2, :] = model12[:, :]
-        model[0, 2, :, 1, :] = model12[:, :]
-        self.model = np.copy(model)
-
-        test_jones0 = np.array([[1, 4.5], [10, -1j]]).astype(np.complex64)
-        test_jones1 = np.array([[-10j, 1], [-1, 1]]).astype(np.complex64)
-        test_jones2 = np.array([[1, 1], [0, 1]]).astype(np.complex64)
-        self.jones = np.zeros([1, 2, 3, 2]).astype(np.complex64)
-        self.jones[0, :, 0, :] = test_jones0[:, :]
-        self.jones[0, :, 1, :] = test_jones1[:, :]
-        self.jones[0, :, 2, :] = test_jones2[:, :]
-
-        data00 = np.array([[0, 0], [0, 0]]).astype(np.complex64)
-        data11 = np.array([[0, 0], [0, 0]]).astype(np.complex64)
-        data22 = np.array([[0, 0], [0, 0]]).astype(np.complex64)
-        data01 = np.dot(test_jones0, np.dot(model01, np.transpose(test_jones1).conj()))
-        data02 = np.dot(test_jones0, np.dot(model02, np.transpose(test_jones2).conj()))
-        data12 = np.dot(test_jones1, np.dot(model12, np.transpose(test_jones2).conj()))
-        data10 = np.transpose(data01).conj()
-        data20 = np.transpose(data02).conj()
-        data21 = np.transpose(data12).conj()
-        data = np.zeros([1, 3, 2, 3, 2]).astype(np.complex64)
-        data[0, 0, :, 1, :] = data01[:, :]
-        data[0, 1, :, 0, :] = data10[:, :]
-        data[0, 0, :, 2, :] = data02[:, :]
-        data[0, 2, :, 0, :] = data20[:, :]
-        data[0, 1, :, 2, :] = data12[:, :]
-        data[0, 2, :, 1, :] = data21[:, :]
-
-        # chan, stand, pol, stand, pol
-        dummy_jones0 = np.array([[1, 0], [0, 1]]).astype(np.complex64)
-        dummy_jones1 = np.array([[1, 0], [0, 1]]).astype(np.complex64)
-        dummy_jones2 = np.array([[1, 0], [0, 1]]).astype(np.complex64)
-        initial_jones = np.zeros([1, 2, 3, 2]).astype(np.complex64)
-        initial_jones[0, :, 0, :] = dummy_jones0[:, :]
-        initial_jones[0, :, 1, :] = dummy_jones1[:, :]
-        initial_jones[0, :, 2, :] = dummy_jones2[:, :]
-
-        blocks = []
-        blocks.append((TestingBlock(model, complex_numbers=True), [], ['model']))
-        blocks.append((TestingBlock(data, complex_numbers=True), [], ['data']))
-        blocks.append((TestingBlock(initial_jones, complex_numbers=True), [], ['jones_in']))
-        blocks.append([GainSolveBlock(flags=flags, eps=0.025, max_iterations=30, l2reg=0.5), {
-            'in_data': 'data', 'in_model': 'model', 'in_jones': 'jones_in',
-            'out_data': 'calibrated_data', 'out_jones': 'jones_out'}])
-        blocks.append([NumpyBlock(assert_good_jones, outputs=0), {'in_1':'jones_out'}])
-        blocks.append([NumpyBlock(assert_good_calibration, outputs=0), {'in_1':'calibrated_data'}])
-        Pipeline(blocks).main()
     def test_solving_to_skymodel(self):
         """Attempt to solve a sky model to itself"""
         #TODO: This relies on LEDA-specific blocks.
@@ -652,6 +551,81 @@ class TestGainSolveBlock(unittest.TestCase):
             'in_data': 'same_model', 'in_model': 'model', 'in_jones': 'jones_in',
             'out_data': 'calibrated_data', 'out_jones': 'jones_out'}])
         blocks.append((NumpyBlock(assert_almost_unity, outputs=0), {'in_1': 'jones_out'}))
+        Pipeline(blocks).main()
+    def test_solve_arbitrary_jones(self):
+        """Set up a test with a 5 random stand sky model, and try to solve for known gains"""
+        from bifrost.addon.leda.blocks import ScalarSkyModelBlock
+        from bifrost.addon.leda.blocks import load_telescope, LEDA_SETTINGS_FILE, OVRO_EPHEM
+        def assert_good_jones(out_jones):
+            """Make sure the jones matrices have been calculated within reason"""
+            new_out_jones = np.copy(out_jones)
+            singular = 0
+            incorrect = 0
+            for i in range(self.nstand):
+                try:
+                    new_out_jones[0, :, i, :] = np.linalg.inv(out_jones[0, :, i, :])
+                except np.linalg.LinAlgError:
+                    singular += 1
+                    continue
+                norm_residual = np.sqrt(np.sum(np.square(np.abs(new_out_jones[0, :, i, :]-self.jones[0, :, i, :]))))
+                if norm_residual > 1:
+                    print norm_residual
+                    incorrect += 1
+            print incorrect, "Incorrect", singular, "Singular"
+            #assert singular+incorrect < 0.5*self.nstand
+        def slice_away_uv(model_and_uv):
+            """Cut off the uv coordinates from the ScalarSkyModelBlock and reshape to GainSolve"""
+            number_stands = model_and_uv.shape[1]
+            model = np.zeros(shape=[1, number_stands, 2, number_stands, 2]).astype(np.complex64)
+            model[0, :, 0, :, 0] = model_and_uv[0, :, :, 2]+1j*model_and_uv[0, :, :, 3]
+            model[0, :, 1, :, 1] = model_and_uv[0, :, :, 2]+1j*model_and_uv[0, :, :, 3]
+            return model
+        def assert_good_calibration(out_calibration):
+            """Make sure the output image is very close to the model"""
+            incorrect = 0
+            for i in range(self.nstand):
+                for j in range(self.nstand):
+                    if i==j:
+                        continue
+                    try:
+                        np.testing.assert_almost_equal(
+                            out_calibration[0, i, :, j, :],
+                            self.model[0, i, :, j, :],
+                            1)
+                    except AssertionError:
+                        incorrect += 1
+            print incorrect, "incorrect models out of", self.nstand*(self.nstand-1)/2
+        def perturb_gains(jones, model):
+            """Apply the gains to the model"""
+            data = np.empty_like(model)
+            for i in range(self.nstand):
+                for j in range(self.nstand):
+                    data[0, i, :, j, :] = np.dot(jones[0, :, i, :], np.dot(model[0, i, :, j, :], np.transpose(jones[0, :, j, :]).conj()))
+            return data
+        nchan = 1
+        self.nstand = 5
+        flags = np.array([[2, 2, 2, 2, 2]]).astype(np.int8)
+        blocks = []
+        sources = {}
+        sources['cyg'] = {
+            'ra':'19:59:28.4', 'dec':'+40:44:02.1', 'flux': 10571.0, 'frequency': 58e6,
+            'spectral index': -0.2046}
+        frequencies = [40e6]
+        actual_jones = 10*(np.random.rand(1, 2, self.nstand, 2)+1j*np.random.rand(1, 2, self.nstand, 2)).astype(np.complex64)-5-5j
+        self.jones = actual_jones
+        coords = load_telescope(LEDA_SETTINGS_FILE)[1]
+        coords = coords[:5]
+        blocks.append((
+            ScalarSkyModelBlock(OVRO_EPHEM, coords, frequencies, sources), [], ['model+uv']))
+        blocks.append((NumpyBlock(slice_away_uv), {'in_1': 'model+uv', 'out_1': 'model'}))
+        blocks.append((NumpyBlock(perturb_gains, inputs=2), {'in_1': 'toy_jones', 'in_2': 'model', 'out_1': 'data'}))
+        blocks.append((TestingBlock(actual_jones, complex_numbers=True), [], ['toy_jones']))
+        blocks.append((TestingBlock(np.ones_like(actual_jones), complex_numbers=True), [], ['jones_in']))
+        blocks.append([GainSolveBlock(flags=flags, eps=0.02, max_iterations=60, l2reg=8), {
+            'in_data': 'data', 'in_model': 'model', 'in_jones': 'jones_in',
+            'out_data': 'calibrated_data', 'out_jones': 'jones_out'}])
+        blocks.append([NumpyBlock(assert_good_jones, outputs=0), {'in_1':'jones_out'}])
+        blocks.append([NumpyBlock(assert_good_calibration, outputs=0), {'in_1':'calibrated_data'}])
         Pipeline(blocks).main()
     def setup_dada_calibration(self):
         """Set up a pipeline to calibrate jones matrices to a dada file"""
