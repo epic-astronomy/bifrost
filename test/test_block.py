@@ -615,7 +615,8 @@ class TestGainSolveBlock(unittest.TestCase):
             'ra':'19:59:28.4', 'dec':'+40:44:02.1', 'flux': 10571.0, 'frequency': 58e6,
             'spectral index': -0.2046}
         frequencies = [47.7e6]
-        actual_jones = 10*(np.random.rand(nchan, 2, self.nstand, 2)+1j*np.random.rand(nchan, 2, self.nstand, 2)).astype(np.complex64)-5-5j
+        np.random.seed(4)
+        actual_jones = (np.round(10*np.random.rand(nchan, 2, self.nstand, 2))+1j*np.round(10*np.random.rand(nchan, 2, self.nstand, 2))).astype(np.complex64)-5-5j
         self.jones = np.copy(actual_jones)
         coords = load_telescope(LEDA_SETTINGS_FILE)[1]
         coords = coords[:self.nstand]
