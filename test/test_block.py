@@ -580,14 +580,15 @@ class TestGainSolveBlock(unittest.TestCase):
             for i in range(self.nstand):
                 try:
                     new_out_jones[0, :, i, :] = np.linalg.inv(out_jones[0, :, i, :])
+                    pass
                 except np.linalg.LinAlgError:
                     singular += 1
                     continue
                 norm_residual = np.sqrt(np.sum(np.square(np.abs(new_out_jones[0, :, i, :]-self.jones[0, :, i, :]))))
                 if norm_residual > 1:
-                    #print norm_residual
+                    print norm_residual
                     incorrect += 1
-            #print incorrect+singular, "Incorrect out of", self.nstand
+            print incorrect+singular, "Incorrect out of", self.nstand
             assert incorrect+singular < 0.5*self.nstand
         def assert_good_calibration(model, out_calibration):
             """Make sure the output image is very close to the model"""
@@ -603,10 +604,10 @@ class TestGainSolveBlock(unittest.TestCase):
                             1)
                     except AssertionError:
                         incorrect += 1
-            #print incorrect, "incorrect models out of", self.nstand*(self.nstand-1)/2
+            print incorrect, "incorrect models out of", self.nstand*(self.nstand-1)/2
             assert incorrect < 0.5*self.nstand*(self.nstand-1)/2
         nchan = 1
-        self.nstand = 10
+        self.nstand = 4
         flags = 2*np.ones(shape=[nchan, self.nstand]).astype(np.int8)
         blocks = []
         sources = {}
@@ -624,7 +625,7 @@ class TestGainSolveBlock(unittest.TestCase):
         blocks.append((TestingBlock(actual_jones, complex_numbers=True), [], ['toy_jones']))
         blocks.append((NumpyBlock(perturb_gains, inputs=2), {'in_1': 'toy_jones', 'in_2': 'model', 'out_1': 'data'}))
         blocks.append((TestingBlock(np.ones_like(actual_jones), complex_numbers=True), [], ['jones_in']))
-        blocks.append([GainSolveBlock(flags=flags, eps=0.0000001, max_iterations=60000, l2reg=20.0), {
+        blocks.append([GainSolveBlock(flags=flags, eps=0.01, max_iterations=60, l2reg=10.0), {
             'in_data': 'data', 'in_model': 'model', 'in_jones': 'jones_in',
             'out_data': 'calibrated_data', 'out_jones': 'jones_out'}])
         blocks.append([NumpyBlock(assert_good_jones, outputs=0), {'in_1':'jones_out'}])
