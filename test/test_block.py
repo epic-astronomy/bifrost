@@ -570,9 +570,7 @@ class TestGainSolveBlock(unittest.TestCase):
             data = np.empty_like(model)
             for i in range(self.nstand):
                 for j in range(self.nstand):
-                    #if i==0 and j==0:
-                        #print jones[0, :, i, :], model[0, i, :, j, :], jones[0, :, j, :]
-                    data[0, i, :, j, :] = np.dot(jones[0, :, i, :], np.dot(model[0, i, :, j, :], np.transpose(jones[0, :, j, :]).conj()))
+                    data[0, i, :, j, :] = np.dot(jones[0, :, i, :], np.dot(model[0, i, :, j, :], np.conj(np.transpose(jones[0, :, j, :]))))
             return data
         def assert_good_jones(out_jones):
             """Make sure the jones matrices have been calculated within reason"""
@@ -585,28 +583,19 @@ class TestGainSolveBlock(unittest.TestCase):
                 except np.linalg.LinAlgError:
                     singular += 1
                     continue
-                norm_residual = np.sqrt(np.sum(np.square(np.abs(new_out_jones[0, :, i, :]-self.jones[0, :, i, :]))))
-                if norm_residual > 1:
-                    #print norm_residual
+                residual = np.sqrt(np.sum(np.square(np.abs(new_out_jones[0, :, i, :]-self.jones[0, :, i, :]))))
+                if residual > 0.5*np.sqrt(np.sum(np.square(np.abs(self.jones[0, :, i, :])))):
                     incorrect += 1
-            #print incorrect+singular, "Incorrect out of", self.nstand
             assert incorrect+singular < 0.5*self.nstand
+            self.assertLess(incorrect+singular, 0.5*self.nstand)
         def assert_good_calibration(model, out_calibration):
-            """Make sure the output image is very close to the model"""
+            """Make sure the output image is fairly close to the model"""
             incorrect = 0
+            residual = model - out_calibration
             for i in range(self.nstand):
-                for j in range(i, self.nstand):
-                    if i==j:
-                        continue
-                    try:
-                        np.testing.assert_almost_equal(
-                            out_calibration[0, i, :, j, :],
-                            model[0, i, :, j, :],
-                            1)
-                    except AssertionError:
-                        incorrect += 1
-            #print incorrect, "incorrect models out of", self.nstand*(self.nstand-1)/2
-            assert incorrect < 0.5*self.nstand*(self.nstand-1)/2
+                residual[0, i, :, i, :] = 0
+            l2norm_residual = np.sqrt(np.sum(np.square(np.abs(residual))))/np.sqrt(np.sum(np.square(np.abs(model))))
+            self.assertLess(l2norm_residual, 0.25)
         nchan = 1
         self.nstand = 10
         flags = 2*np.ones(shape=[nchan, self.nstand]).astype(np.int8)
