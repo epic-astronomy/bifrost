@@ -485,6 +485,8 @@ class TestGainSolveBlock(unittest.TestCase):
         self.jones = np.ones(shape=[
             1, self.npol,
             self.nstand, self.npol]).astype(np.complex64)
+        self.jones[0, 0, :, 1] = 0
+        self.jones[0, 1, :, 0] = 0
     def test_throughput(self):
         """Test shapes are compatible and output is indeed different"""
         def test_jones(out_jones):
