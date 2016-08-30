@@ -597,7 +597,7 @@ class TestGainSolveBlock(unittest.TestCase):
             l2norm_residual = np.sqrt(np.sum(np.square(np.abs(residual))))/np.sqrt(np.sum(np.square(np.abs(model))))
             self.assertLess(l2norm_residual, 0.25)
         nchan = 1
-        self.nstand = 10
+        self.nstand = 256
         flags = 2*np.ones(shape=[nchan, self.nstand]).astype(np.int8)
         blocks = []
         sources = {}
