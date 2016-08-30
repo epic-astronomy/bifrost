@@ -607,14 +607,14 @@ class TestGainSolveBlock(unittest.TestCase):
         frequencies = [47.7e6]
         actual_jones = 10*(np.random.rand(nchan, 2, self.nstand, 2)+1j*np.random.rand(nchan, 2, self.nstand, 2)).astype(np.complex64)+1+1j
         coords = load_telescope(LEDA_SETTINGS_FILE)[1]
-        coords = coords[:self.nstand]
         blocks.append((
             ScalarSkyModelBlock(OVRO_EPHEM, coords, frequencies, sources), [], ['model+uv']))
         blocks.append((NumpyBlock(slice_away_uv), {'in_1': 'model+uv', 'out_1': 'model'}))
         blocks.append((TestingBlock(actual_jones, complex_numbers=True), [], ['toy_jones']))
         blocks.append((NumpyBlock(perturb_gains, inputs=2), {'in_1': 'toy_jones', 'in_2': 'model', 'out_1': 'data'}))
-        blocks.append((TestingBlock(np.ones_like(actual_jones), complex_numbers=True), [], ['jones_in']))
-        blocks.append([GainSolveBlock(flags=flags, eps=0.0000001, max_iterations=60000, l2reg=20.0), {
+        blocks.append((TestingBlock(np.copy(self.jones), complex_numbers=True), [], ['jones_in']))
+        self.jones = np.copy(actual_jones)
+        blocks.append([GainSolveBlock(flags=flags, eps=0.025, max_iterations=600, l2reg=0.0), {
             'in_data': 'data', 'in_model': 'model', 'in_jones': 'jones_in',
             'out_data': 'calibrated_data', 'out_jones': 'jones_out'}])
         blocks.append([NumpyBlock(assert_good_jones, outputs=0), {'in_1':'jones_out'}])
