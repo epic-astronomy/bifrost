@@ -34,6 +34,41 @@ from bifrost.addon.leda.blocks import (
     load_telescope, LEDA_SETTINGS_FILE, OVRO_EPHEM, NewDadaReadBlock, CableDelayBlock,
     BAD_STANDS, ImagingBlock)
 
+def load_sources():
+    sources = {}
+    with open('/data1/mcranmer/data/real/vlssr_catalog.txt', 'r') as file_in:
+        iterator = 0
+        for line in file_in:
+            iterator += 1
+            if iterator == 17:
+                break
+        iterator = 0
+        number_sources = 100000
+        total_flux = 1e-10
+        for line in file_in:
+            iterator += 1
+            if iterator > number_sources:
+                #break
+                pass
+            if line[0].isspace():
+                continue
+            try:
+                flux = float(line[29:36].replace(" ",""))
+            except:
+                break
+            if flux > 1:
+                source_string = line[:-1]
+                ra = line[:2]+':'+line[3:5]+':'+line[6:11]
+                ra = ra.replace(" ", "")
+                dec = line[12:15]+':'+line[16:18]+':'+line[19:23]
+                dec = dec.replace(" ", "")
+                total_flux += flux
+                sources[str(iterator)] = {
+                    'ra': ra, 'dec': dec,
+                    'flux': flux, 'frequency': 58e6, 
+                    'spectral index': -0.2046}
+    return sources
+
 def slice_away_uv(model_and_uv):
     """Cut off the uv coordinates from the ScalarSkyModelBlock and reshape to GainSolve"""
     number_stands = model_and_uv.shape[1]
@@ -109,12 +144,14 @@ blocks.append((
 blocks.append((IFFT2Block(), [view+'_grid'], [view+'_image']))
 blocks.append([ImagingBlock('sky.png', np.abs, log=True), {'in': view+'_image'}])
 
-def baseline_flagger(model, data):
+def baseline_flagger(allmodel, model, data):
     if np.median(np.abs(model)) == 0: 
         return model, data
     data = data/np.median(np.abs(data))
     model = model/np.median(np.abs(model))
-    flags = np.abs(data[:, :, 0, :, 0]) > 10
+    allmodel = allmodel/np.median(np.abs(allmodel))
+    flags = np.abs(data[:, :, 0, :, 0]) > 10*np.abs(allmodel[:, :, 0, :, 0])
+    print np.sum(flags)
     flagged_model = np.copy(model)
     flagged_data = np.copy(data)
     for x, y in [(0, 0), (0, 1), (1, 0), (1, 1)]:
@@ -122,9 +159,18 @@ def baseline_flagger(model, data):
         flagged_data[:, :, x, :, y][flags] = 0
     return flagged_model, flagged_data
 
+#Load all sources
+allsources = load_sources()
+blocks.append((
+    ScalarSkyModelBlock(OVRO_EPHEM, COORDINATES, frequencies, allsources),
+    [], ['allmodel+uv']))
+blocks.append((
+    NumpyBlock(slice_away_uv, outputs=2),
+    {'in_1': 'allmodel+uv', 'out_1': 'allmodel', 'out_2': 'trash1'}))
+#flag single source baselines based on full model
 blocks.append([
-    NumpyBlock(baseline_flagger, inputs=2, outputs=2),
-    {'in_1': 'model', 'in_2': 'formatted_visibilities',
+    NumpyBlock(baseline_flagger, inputs=3, outputs=2),
+    {'in_1': 'all_model', 'in_2':'model', 'in_3': 'formatted_visibilities',
     'out_1': 'flagged_model', 'out_2': 'flagged_visibilities'}])
 blocks.append([
     GainSolveBlock(flags=flags, eps=0.05, max_iterations=10),
