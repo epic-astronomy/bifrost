@@ -25,3 +25,89 @@
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import numpy as np
+from bifrost.block import (
+        NumpyBlock, TestingBlock, GainSolveBlock, NearestNeighborGriddingBlock,
+        IFFT2Block, Pipeline)
+from bifrost.addon.leda.blocks import (
+    ScalarSkyModelBlock, DELAYS, COORDINATES, DISPERSIONS, UVCoordinateBlock,
+    load_telescope, LEDA_SETTINGS_FILE, OVRO_EPHEM, NewDadaReadBlock, CableDelayBlock,
+    BAD_STANDS, ImagingBlock)
+
+def slice_away_uv(model_and_uv):
+    """Cut off the uv coordinates from the ScalarSkyModelBlock and reshape to GainSolve"""
+    number_stands = model_and_uv.shape[1]
+    model = np.zeros(shape=[1, number_stands, 2, number_stands, 2]).astype(np.complex64)
+    uv_coords = np.zeros(shape=[number_stands, number_stands, 2]).astype(np.float32)
+    model[0, :, 0, :, 0] = model_and_uv[0, :, :, 2]+1j*model_and_uv[0, :, :, 3]
+    model[0, :, 1, :, 1] = model[0, :, 0, :, 0]
+    uv_coords[:, :, 0:2] = model_and_uv[0, :, :, 0:2]
+    return model, uv_coords
+def reformat_data_for_gridding(visibilities, uv_coordinates):
+    """Reshape visibility data for gridding on UV plane"""
+    reformatted_data = np.zeros(shape=[256, 256, 4], dtype=np.float32)
+    reformatted_data[:, :, 0] = uv_coordinates[:, :, 0]
+    reformatted_data[:, :, 1] = uv_coordinates[:, :, 1]
+    reformatted_data[:, :, 2] = np.real(visibilities[0, :, 0, :, 0])
+    reformatted_data[:, :, 3] = np.imag(visibilities[0, :, 0, :, 0])
+    return reformatted_data
+def transpose_to_gain_solve(data_array):
+    """Transpose the DADA data to the gain_solve format"""
+    return data_array.transpose((0, 1, 3, 2, 4))
+sources = {}
+sources['cyg'] = {
+    'ra':'19:59:28.4', 'dec':'+40:44:02.1', 'flux': 10571.0, 'frequency': 58e6,
+    'spectral index': -0.2046}
+sources['cas'] = {
+    'ra': '23:23:27.8', 'dec': '+58:48:34',
+    'flux': 6052.0, 'frequency': 58e6, 'spectral index':(+0.7581)}
+dada_file = '/data2/hg/interfits/lconverter/WholeSkyL64_47.004_d20150203_utc181702_test/2015-04-08-20_15_03_0001133593833216.dada'
+OVRO_EPHEM.date = '2015/04/09 14:34:51'
+cfreq = 47.004e6
+bandwidth = 2.616e6
+df = bandwidth/109.0
+output_channels = np.array([85])
+nstand = 256
+nchan = 1
+npol = 2
+frequencies = cfreq - bandwidth/2 + df*output_channels
+flags = 2*np.ones(shape=[1, nstand]).astype(np.int8)
+for stand in BAD_STANDS:
+    flags[0, stand] = 1
+jones = np.ones([nchan, npol, nstand, npol]).astype(np.complex64)
+jones[:, 0, :, 1] = 0
+jones[:, 1, :, 0] = 0
+
+blocks = []
+blocks.append((
+    NewDadaReadBlock(dada_file, output_chans=output_channels, time_steps=1),
+    {'out': 'raw_visibilities'}))
+blocks.append((
+    CableDelayBlock(frequencies, DELAYS, DISPERSIONS),
+    {'in':'raw_visibilities', 'out':'visibilities'}))
+blocks.append((
+    NumpyBlock(transpose_to_gain_solve),
+    {'in_1': 'visibilities', 'out_1': 'formatted_visibilities'}))
+blocks.append((
+    ScalarSkyModelBlock(OVRO_EPHEM, COORDINATES, frequencies, sources),
+    [], ['model+uv']))
+blocks.append((
+    NumpyBlock(slice_away_uv, outputs=2),
+    {'in_1': 'model+uv', 'out_1': 'model', 'out_2': 'uv_coords'}))
+blocks.append((TestingBlock(jones), [], ['jones_in']))
+blocks.append([
+    GainSolveBlock(flags=flags, eps=0.05, max_iterations=10),
+    {'in_data': 'formatted_visibilities', 'in_model': 'model',
+     'in_jones': 'jones_in', 'out_data': 'calibrated_data',
+     'out_jones': 'jones_out'}])
+view = 'calibrated_data'
+blocks.append((
+    NumpyBlock(reformat_data_for_gridding, inputs=2),
+    {'in_1': view, 'in_2': 'uv_coords', 'out_1': view+'_data_for_gridding'}))
+blocks.append((
+    NearestNeighborGriddingBlock((256, 256)),
+    [view+'_data_for_gridding'], [view+'_grid']))
+blocks.append((IFFT2Block(), [view+'_grid'], [view+'_image']))
+blocks.append([ImagingBlock('sky.png', np.abs, log=True), {'in': view+'_image'}])
+
+Pipeline(blocks).main()
