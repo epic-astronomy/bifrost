@@ -33,6 +33,7 @@ from bifrost.addon.leda.blocks import (
     ScalarSkyModelBlock, DELAYS, COORDINATES, DISPERSIONS, UVCoordinateBlock,
     load_telescope, LEDA_SETTINGS_FILE, OVRO_EPHEM, NewDadaReadBlock, CableDelayBlock,
     BAD_STANDS, ImagingBlock)
+import hickle as hkl
 
 def load_sources():
     sources = {}
@@ -66,7 +67,7 @@ def load_sources():
                 sources[str(iterator)] = {
                     'ra': ra, 'dec': dec,
                     'flux': flux, 'frequency': 58e6, 
-                    'spectral index': -0.2046}
+                    'spectral index': 0.0}
     return sources
 
 def slice_away_uv(model_and_uv):
@@ -134,7 +135,7 @@ blocks.append((
     NumpyBlock(slice_away_uv, outputs=2),
     {'in_1': 'model+uv', 'out_1': 'model', 'out_2': 'uv_coords'}))
 blocks.append((TestingBlock(jones), [], ['jones_in']))
-view = 'calibrated_data'
+view = 'allmodel'
 blocks.append((
     NumpyBlock(reformat_data_for_gridding, inputs=2),
     {'in_1': view, 'in_2': 'uv_coords', 'out_1': view+'_data_for_gridding'}))
@@ -150,7 +151,7 @@ def baseline_flagger(allmodel, model, data):
     data = data/np.median(np.abs(data))
     model = model/np.median(np.abs(model))
     allmodel = allmodel/np.median(np.abs(allmodel))
-    flags = np.abs(data[:, :, 0, :, 0]) > 10*np.abs(allmodel[:, :, 0, :, 0])
+    flags = np.abs(data[:, :, 0, :, 0]) > 10#*np.abs(allmodel[:, :, 0, :, 0])
     print np.sum(flags)
     flagged_model = np.copy(model)
     flagged_data = np.copy(data)
@@ -159,18 +160,27 @@ def baseline_flagger(allmodel, model, data):
         flagged_data[:, :, x, :, y][flags] = 0
     return flagged_model, flagged_data
 
+
 #Load all sources
+"""
 allsources = load_sources()
 blocks.append((
     ScalarSkyModelBlock(OVRO_EPHEM, COORDINATES, frequencies, allsources),
     [], ['allmodel+uv']))
+def dump_to_file(all_vis):
+    hkl.dump(all_vis, 'all_sources.hkl', 'w')
+blocks.append((NumpyBlock(dump_to_file, outputs=0), {'in_1': 'allmodel'}))
 blocks.append((
     NumpyBlock(slice_away_uv, outputs=2),
     {'in_1': 'allmodel+uv', 'out_1': 'allmodel', 'out_2': 'trash1'}))
+"""
+blocks.append((
+    TestingBlock(hkl.load('all_sources.hkl'), complex_numbers=True),
+    [], ['allmodel']))
 #flag single source baselines based on full model
 blocks.append([
     NumpyBlock(baseline_flagger, inputs=3, outputs=2),
-    {'in_1': 'all_model', 'in_2':'model', 'in_3': 'formatted_visibilities',
+    {'in_1': 'allmodel', 'in_2':'model', 'in_3': 'formatted_visibilities',
     'out_1': 'flagged_model', 'out_2': 'flagged_visibilities'}])
 blocks.append([
     GainSolveBlock(flags=flags, eps=0.05, max_iterations=10),
