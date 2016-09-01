@@ -173,6 +173,31 @@ def apply_gains(data, jones):
             calibrated_data[0, i, :, j, :] = np.dot(np.conj(np.transpose(jones[0, :, i, :])), np.dot(calibrated_data[0, i, :, j, :], jones[0, :, j, :]))
     return calibrated_data
 
+def apply_inverse_gains(data, jones):
+    """Apply the inverse solutions to model data"""
+    calibrated_data = np.copy(data)
+    invjones = np.copy(jones)
+    for i in range(256):
+        try:
+            invjones[0, :, i, :] = np.linalg.inv(jones[0, :, i, :])
+        except:
+            invjones[0, :, i, :] = 0
+    for i in range(256):
+        for j in range(256):
+            calibrated_data[0, i, :, j, :] = np.dot(np.conj(np.transpose(invjones[0, :, i, :])), np.dot(calibrated_data[0, i, :, j, :], invjones[0, :, j, :]))
+    return calibrated_data
+
+def baseline_length_flagger(model, data):
+    baselines = np.sqrt(np.square(COORDINATES[:, None] - COORDINATES[None, :]).sum(axis=2))
+    wavelengths = SPEED_OF_LIGHT/np.array(frequencies[0])
+    flags = baselines < 10*wavelengths
+    flagged_data = np.copy(data)
+    flagged_model = np.copy(model)
+    print np.sum(flags), "baselines thresholded by length"
+    for x, y in [(0, 0), (0, 1), (1, 0), (1, 1)]:
+        flagged_model[0, :, x, :, y][flags] = 0
+        flagged_data[0, :, x, :, y][flags] = 0
+    return flagged_model, flagged_data
 
 #Load all sources
 """
@@ -190,7 +215,6 @@ blocks.append((
 blocks.append((
     TestingBlock(hkl.load('all_sources.hkl'), complex_numbers=True),
     [], ['allmodel']))
-#flag single source baselines based on full model
 blocks.append([
     NumpyBlock(baseline_threshold_flagger, inputs=3, outputs=2),
     {'in_1': 'allmodel', 'in_2':'model', 'in_3': 'formatted_visibilities',
@@ -200,22 +224,27 @@ blocks.append([
     {'in_data': 'long_visibilities', 'in_model': 'long_model',
      'in_jones': 'jones_in', 'out_data': 'trash2',
      'out_jones': 'jones_out'}])
+
+def subtract_source(vis, model):
+    return vis-model
+    #return vis
+
+blocks.append([
+    NumpyBlock(subtract_source, inputs=2),
+    {'in_1': 'thresholded_visibilities', 'in_2': 'adjusted_model',
+     'out_1': 'cleaned_visibilities'}])
+
 blocks.append([
     NumpyBlock(apply_gains, inputs=2),
-    {'in_1': 'thresholded_visibilities', 'in_2': 'jones_out',
+    {'in_1': 'cleaned_visibilities', 'in_2': 'jones_out',
      'out_1': 'calibrated_data'}])
 
-def baseline_length_flagger(model, data):
-    baselines = np.sqrt(np.square(COORDINATES[:, None] - COORDINATES[None, :]).sum(axis=2))
-    wavelengths = SPEED_OF_LIGHT/np.array(frequencies[0])
-    flags = baselines < 10*wavelengths
-    flagged_data = np.copy(data)
-    flagged_model = np.copy(model)
-    print np.sum(flags), "baselines thresholded by length"
-    for x, y in [(0, 0), (0, 1), (1, 0), (1, 1)]:
-        flagged_model[0, :, x, :, y][flags] = 0
-        flagged_data[0, :, x, :, y][flags] = 0
-    return flagged_model, flagged_data
+blocks.append([
+    NumpyBlock(apply_inverse_gains, inputs=2),
+    {'in_1': 'thresholded_model', 'in_2': 'jones_out',
+     'out_1': 'adjusted_model'}])
+
+
 
 blocks.append([
     NumpyBlock(baseline_length_flagger, inputs=2, outputs=2),
