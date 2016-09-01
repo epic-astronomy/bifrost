@@ -135,7 +135,7 @@ blocks.append((
     NumpyBlock(slice_away_uv, outputs=2),
     {'in_1': 'model+uv', 'out_1': 'model', 'out_2': 'uv_coords'}))
 blocks.append((TestingBlock(jones), [], ['jones_in']))
-view = 'allmodel'
+view = 'calibrated_data'
 blocks.append((
     NumpyBlock(reformat_data_for_gridding, inputs=2),
     {'in_1': view, 'in_2': 'uv_coords', 'out_1': view+'_data_for_gridding'}))
@@ -148,13 +148,13 @@ def print_stats(array):
     print "SNR:", np.max(np.abs(array))/np.average(np.abs(array))
 blocks.append([NumpyBlock(print_stats, outputs=0), {'in_1': view+'_image'}])
 
-def baseline_flagger(allmodel, model, data):
+def baseline_threshold_flagger(allmodel, model, data):
     if np.median(np.abs(model)) == 0: 
         return model, data
     data = data/np.median(np.abs(data[:, :, 0, :, 0]))
     model = model/np.median(np.abs(model[:, :, 0, :, 0]))
     allmodel = allmodel/np.median(np.abs(allmodel[:, :, 0, :, 0]))
-    flags = np.abs(data[:, :, 0, :, 0]) > 25*np.abs(allmodel[:, :, 0, :, 0])
+    flags = np.abs(data[:, :, 0, :, 0]) > 10#15*np.abs(allmodel[:, :, 0, :, 0])
     print np.sum(flags)
     flagged_model = np.copy(model)
     flagged_data = np.copy(data)
@@ -177,16 +177,17 @@ blocks.append((
     NumpyBlock(slice_away_uv, outputs=2),
     {'in_1': 'allmodel+uv', 'out_1': 'allmodel', 'out_2': 'trash1'}))
 """
+del sources['cyg']
 blocks.append((
     TestingBlock(hkl.load('all_sources.hkl'), complex_numbers=True),
     [], ['allmodel']))
 #flag single source baselines based on full model
 blocks.append([
-    NumpyBlock(baseline_flagger, inputs=3, outputs=2),
+    NumpyBlock(baseline_threshold_flagger, inputs=3, outputs=2),
     {'in_1': 'allmodel', 'in_2':'model', 'in_3': 'formatted_visibilities',
     'out_1': 'flagged_model', 'out_2': 'flagged_visibilities'}])
 blocks.append([
-    GainSolveBlock(flags=flags, eps=0.05, max_iterations=10),
+    GainSolveBlock(flags=flags, eps=0.5, max_iterations=20, l2reg=0.0),
     {'in_data': 'flagged_visibilities', 'in_model': 'flagged_model',
      'in_jones': 'jones_in', 'out_data': 'calibrated_data',
      'out_jones': 'jones_out'}])
