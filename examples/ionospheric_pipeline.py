@@ -142,27 +142,6 @@ blocks.append((
 ########################################
 
 ########################################
-#Imaging
-view = 'calibrated_data'
-blocks.append((
-    NumpyBlock(reformat_data_for_gridding, inputs=2),
-    {'in_1': view, 'in_2': 'uv_coords', 'out_1': view+'_data_for_gridding'}))
-blocks.append((
-    NearestNeighborGriddingBlock((256, 256)),
-    [view+'_data_for_gridding'], [view+'_grid']))
-blocks.append((IFFT2Block(), [view+'_grid'], [view+'_image']))
-blocks.append([ImagingBlock('sky.png', np.abs, log=False), {'in': view+'_image'}])
-########################################
-
-
-########################################
-#Image stats
-def print_stats(array):
-    print "SNR:", np.max(np.abs(array))/np.average(np.abs(array))
-blocks.append([NumpyBlock(print_stats, outputs=0), {'in_1': view+'_image'}])
-########################################
-
-########################################
 #Flagging functions
 def baseline_threshold_flagger(allmodel, model, data):
     """Flag a visibility against calibration if it is above a threshold value"""
@@ -299,32 +278,64 @@ while current_ring < 1:
 
     current_ring += 1
 
+
+########################################
+#Get the UV coordinates
 blocks.append((
     NumpyBlock(slice_away_uv, outputs=2),
     {'in_1': 'model+uv0', 'out_1': 'trash-1',
      'out_2': 'uv_coords'}))
+########################################
 
 ########################################
 #Average the jones matrices
 jones_in = {'in_%d'%(i+1): 'jones_out'+str(i) for i in range(current_ring)}
 jones_average_block_rings = dict(jones_in)
 jones_average_block_rings['out_1'] = 'jones_out_average'
+def average(*args):
+    """Do an average of all arrays"""
+    arrays = list(args)
+    for i in range(len(arrays)):
+        arrays[i] = np.copy(arrays[i])*1
+    return np.average(arrays, axis=0)
 
-blocks.append([NumpyBlock(np.average, inputs=current_ring), jones_average_block_rings])
+blocks.append([NumpyBlock(average, inputs=current_ring), jones_average_block_rings])
 ########################################
 
 ########################################
 #Subtract all of the sources into a final calibrated visibilities
 models_in = {'in_%d'%(i+2): 'adjusted_model'+str(i) for i in range(current_ring)}
 peeling_block_rings = dict(models_in)
-peeling_block_rings['in_1'] = 'thresholded_visibilities'
-peeling_block_rings['out_1'] = 'clean_visibilities'
+#TODO: This formatted visibilities needs to be thresholded.
+peeling_block_rings['in_1'] = 'thresholded_visibilities0'
+peeling_block_rings['out_1'] = 'cleaned_visibilities'
 
 blocks.append([NumpyBlock(subtract_sources, inputs=1+current_ring), peeling_block_rings])
 blocks.append([
     NumpyBlock(apply_gains, inputs=2),
     {'in_1': 'cleaned_visibilities', 'in_2': 'jones_out_average',
      'out_1': 'calibrated_data'}])
+########################################
+
+########################################
+#Imaging
+view = 'calibrated_data'
+blocks.append((
+    NumpyBlock(reformat_data_for_gridding, inputs=2),
+    {'in_1': view, 'in_2': 'uv_coords', 'out_1': view+'_data_for_gridding'}))
+blocks.append((
+    NearestNeighborGriddingBlock((256, 256)),
+    [view+'_data_for_gridding'], [view+'_grid']))
+blocks.append((IFFT2Block(), [view+'_grid'], [view+'_image']))
+blocks.append([ImagingBlock('sky.png', np.abs, log=False), {'in': view+'_image'}])
+########################################
+
+
+########################################
+#Image stats
+def print_stats(array):
+    print "SNR:", np.max(np.abs(array))/np.average(np.abs(array))
+blocks.append([NumpyBlock(print_stats, outputs=0), {'in_1': view+'_image'}])
 ########################################
 
 Pipeline(blocks).main()
