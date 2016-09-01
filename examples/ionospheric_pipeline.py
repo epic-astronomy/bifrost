@@ -25,6 +25,7 @@
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import operator
 import numpy as np
 import ephem
 from bifrost.block import (
@@ -104,7 +105,7 @@ sources['cas'] = {
     'ra': '23:23:27.8', 'dec': '+58:48:34',
     'flux': 6052.0, 'frequency': 58e6, 'spectral index':(+0.7581)}
 del sources['cas']
-
+blocks = []
 dada_file = '/data2/hg/interfits/lconverter/WholeSkyL64_47.004_d20150203_utc181702_test/2015-04-08-20_15_03_0001133593833216.dada'
 OVRO_EPHEM.date = '2015/04/09 14:34:51'
 cfreq = 47.004e6
@@ -118,11 +119,17 @@ frequencies = cfreq - bandwidth/2 + df*output_channels
 flags = 2*np.ones(shape=[1, nstand]).astype(np.int8)
 for stand in BAD_STANDS:
     flags[0, stand] = 1
+
+########################################
+#Dummy jones
 jones = np.ones([nchan, npol, nstand, npol]).astype(np.complex64)
 jones[:, 0, :, 1] = 0
 jones[:, 1, :, 0] = 0
+blocks.append((TestingBlock(jones), [], ['jones_in']))
+########################################
 
-blocks = []
+########################################
+#Load in data and apply cable delays
 blocks.append((
     NewDadaReadBlock(dada_file, output_chans=output_channels, time_steps=1),
     {'out': 'raw_visibilities'}))
@@ -132,13 +139,10 @@ blocks.append((
 blocks.append((
     NumpyBlock(transpose_to_gain_solve),
     {'in_1': 'visibilities', 'out_1': 'formatted_visibilities'}))
-blocks.append((
-    ScalarSkyModelBlock(OVRO_EPHEM, COORDINATES, frequencies, sources),
-    [], ['model+uv']))
-blocks.append((
-    NumpyBlock(slice_away_uv, outputs=2),
-    {'in_1': 'model+uv', 'out_1': 'model', 'out_2': 'uv_coords'}))
-blocks.append((TestingBlock(jones), [], ['jones_in']))
+########################################
+
+########################################
+#Imaging
 view = 'calibrated_data'
 blocks.append((
     NumpyBlock(reformat_data_for_gridding, inputs=2),
@@ -148,10 +152,18 @@ blocks.append((
     [view+'_data_for_gridding'], [view+'_grid']))
 blocks.append((IFFT2Block(), [view+'_grid'], [view+'_image']))
 blocks.append([ImagingBlock('sky.png', np.abs, log=False), {'in': view+'_image'}])
+########################################
+
+
+########################################
+#Image stats
 def print_stats(array):
     print "SNR:", np.max(np.abs(array))/np.average(np.abs(array))
 blocks.append([NumpyBlock(print_stats, outputs=0), {'in_1': view+'_image'}])
+########################################
 
+########################################
+#Flagging functions
 def baseline_threshold_flagger(allmodel, model, data):
     """Flag a visibility against calibration if it is above a threshold value"""
     if np.median(np.abs(model)) == 0: 
@@ -168,6 +180,22 @@ def baseline_threshold_flagger(allmodel, model, data):
         flagged_data[:, :, x, :, y][flags] = 0
     return flagged_model, flagged_data
 
+def baseline_length_flagger(model, data):
+    """Flag visibilities if the corresponding baseline is too short"""
+    baselines = np.sqrt(np.square(COORDINATES[:, None] - COORDINATES[None, :]).sum(axis=2))
+    wavelengths = SPEED_OF_LIGHT/np.array(frequencies[0])
+    flags = baselines < 10*wavelengths
+    flagged_data = np.copy(data)
+    flagged_model = np.copy(model)
+    print np.sum(flags), "baselines thresholded by length"
+    for x, y in [(0, 0), (0, 1), (1, 0), (1, 1)]:
+        flagged_model[0, :, x, :, y][flags] = 0
+        flagged_data[0, :, x, :, y][flags] = 0
+    return flagged_model, flagged_data
+########################################
+
+########################################
+#Use of gain solution functions
 def apply_gains(data, jones):
     """Apply the solutions to uncalibrated data"""
     calibrated_data = np.copy(data)
@@ -189,72 +217,23 @@ def apply_inverse_gains(data, jones):
         for j in range(256):
             calibrated_data[0, i, :, j, :] = np.dot(np.conj(np.transpose(invjones[0, :, i, :])), np.dot(calibrated_data[0, i, :, j, :], invjones[0, :, j, :]))
     return calibrated_data
+########################################
 
-def baseline_length_flagger(model, data):
-    baselines = np.sqrt(np.square(COORDINATES[:, None] - COORDINATES[None, :]).sum(axis=2))
-    wavelengths = SPEED_OF_LIGHT/np.array(frequencies[0])
-    flags = baselines < 10*wavelengths
-    flagged_data = np.copy(data)
-    flagged_model = np.copy(model)
-    print np.sum(flags), "baselines thresholded by length"
-    for x, y in [(0, 0), (0, 1), (1, 0), (1, 1)]:
-        flagged_model[0, :, x, :, y][flags] = 0
-        flagged_data[0, :, x, :, y][flags] = 0
-    return flagged_model, flagged_data
+########################################
+#Source configuration routines
+def subtract_source(visibilities, source):
+    """Remove the source from the data set"""
+    return visibilities-source
 
-#Load all sources
-allsources = load_sources()
-"""
-blocks.append((
-    ScalarSkyModelBlock(OVRO_EPHEM, COORDINATES, frequencies, allsources),
-    [], ['allmodel+uv']))
-def dump_to_file(all_vis):
-    hkl.dump(all_vis, 'all_sources.hkl', 'w')
-blocks.append((NumpyBlock(dump_to_file, outputs=0), {'in_1': 'allmodel'}))
-blocks.append((
-    NumpyBlock(slice_away_uv, outputs=2),
-    {'in_1': 'allmodel+uv', 'out_1': 'allmodel', 'out_2': 'trash1'}))
-"""
-blocks.append((
-    TestingBlock(hkl.load('all_sources.hkl'), complex_numbers=True),
-    [], ['allmodel']))
-blocks.append([
-    NumpyBlock(baseline_threshold_flagger, inputs=3, outputs=2),
-    {'in_1': 'allmodel', 'in_2':'model', 'in_3': 'formatted_visibilities',
-    'out_1': 'thresholded_model', 'out_2': 'thresholded_visibilities'}])
-blocks.append([
-    GainSolveBlock(flags=flags, eps=0.5, max_iterations=10, l2reg=0.0),
-    {'in_data': 'long_visibilities', 'in_model': 'long_model',
-     'in_jones': 'jones_in', 'out_data': 'trash2',
-     'out_jones': 'jones_out0'}])
-
-def subtract_source(vis, model):
-    return vis-model
-    #return vis
-
-blocks.append([
-    NumpyBlock(subtract_source, inputs=2),
-    {'in_1': 'thresholded_visibilities', 'in_2': 'adjusted_model',
-     'out_1': 'cleaned_visibilities0'}])
-
-"""
-blocks.append([
-    NumpyBlock(apply_gains, inputs=2),
-    {'in_1': 'cleaned_visibilities0', 'in_2': 'jones_out0',
-     'out_1': 'calibrated_data'}])
-"""
-
-blocks.append([
-    NumpyBlock(apply_inverse_gains, inputs=2),
-    {'in_1': 'thresholded_model', 'in_2': 'jones_out0',
-     'out_1': 'adjusted_model'}])
-
-blocks.append([
-    NumpyBlock(baseline_length_flagger, inputs=2, outputs=2),
-    {'in_1': 'thresholded_model', 'in_2': 'thresholded_visibilities',
-    'out_1': 'long_model', 'out_2': 'long_visibilities'}])
+def subtract_sources(visibilities, *sources):
+    """Remove multiple sources from the data set"""
+    clean_visibilities = np.copy(visibilities)
+    for source in sources:
+        clean_visibilities -= source
+    return clean_visibilities
 
 def below_horizon(source):
+    """Say if the source is below the horizon for LEDA"""
     source_position = ephem.FixedBody()
     source_position_ra = source['ra']
     source_position_dec = source['dec']
@@ -263,27 +242,26 @@ def below_horizon(source):
     source_position.compute(OVRO_EPHEM)
     altitude = np.float(repr(source_position.alt))
     return (altitude < 0)
+########################################
 
+
+
+
+
+########################################
+#Perform an initial calibration to every source
+allsources = load_sources()
 fluxes_list = {str(i):allsources[str(i)]['flux'] for i in range(len(allsources))}
-#print fluxes_list
-import operator
 sorted_fluxes = sorted(fluxes_list.items(), key=operator.itemgetter(1))[-1::-1]
-del sorted_fluxes[0]
-current_ring = 1
+current_ring = 0
 i = 0
-while current_ring < 3:
+while current_ring < 1:
     current_source = allsources[sorted_fluxes[i][0]]
     i+=1
-    #Only produce model is above horizon!
+    ####################################
+    #Generate the source model
     if below_horizon(current_source):
         continue
-    print current_source
-    """
-    ['cas'] = {
-        'ra': '23:23:27.8', 'dec': '+58:48:34',
-        'flux': 6052.0, 'frequency': 58e6, 'spectral index':(+0.7581)}
-        """
-
     blocks.append((
         ScalarSkyModelBlock(OVRO_EPHEM, COORDINATES, frequencies, {'1':current_source}),
         [], ['model+uv'+str(current_ring)]))
@@ -291,15 +269,23 @@ while current_ring < 3:
         NumpyBlock(slice_away_uv, outputs=2),
         {'in_1': 'model+uv'+str(current_ring), 'out_1': 'model'+str(current_ring),
          'out_2': 'trash'+str(10.5*current_ring)}))
+    ####################################
 
+    ####################################
+    #Flag the model and visibilities
     blocks.append([
         NumpyBlock(baseline_threshold_flagger, inputs=3, outputs=2),
-        {'in_1': 'allmodel', 'in_2':'model'+str(current_ring), 'in_3': 'cleaned_visibilities'+str(current_ring - 1),
+        {'in_1': 'model'+str(current_ring), 'in_2':'model'+str(current_ring), 'in_3': 'formatted_visibilities',
         'out_1': 'thresholded_model'+str(current_ring), 'out_2': 'thresholded_visibilities'+str(current_ring)}])
     blocks.append([
         NumpyBlock(baseline_length_flagger, inputs=2, outputs=2),
         {'in_1': 'thresholded_model'+str(current_ring), 'in_2': 'thresholded_visibilities'+str(current_ring),
         'out_1': 'long_model'+str(current_ring), 'out_2': 'long_visibilities'+str(current_ring)}])
+    ####################################
+
+
+    ####################################
+    #Solve for gains and apply to source model
     blocks.append([
         GainSolveBlock(flags=flags, eps=0.5, max_iterations=10, l2reg=0.0),
         {'in_data': 'long_visibilities'+str(current_ring), 'in_model': 'long_model'+str(current_ring),
@@ -309,16 +295,36 @@ while current_ring < 3:
         NumpyBlock(apply_inverse_gains, inputs=2),
         {'in_1': 'thresholded_model'+str(current_ring), 'in_2': 'jones_out'+str(current_ring),
          'out_1': 'adjusted_model'+str(current_ring)}])
+    ####################################
 
-    blocks.append([
-        NumpyBlock(subtract_source, inputs=2),
-        {'in_1': 'thresholded_visibilities'+str(current_ring), 'in_2': 'adjusted_model'+str(current_ring),
-         'out_1': 'cleaned_visibilities'+str(current_ring)}])
     current_ring += 1
 
+blocks.append((
+    NumpyBlock(slice_away_uv, outputs=2),
+    {'in_1': 'model+uv0', 'out_1': 'trash-1',
+     'out_2': 'uv_coords'}))
+
+########################################
+#Average the jones matrices
+jones_in = {'in_%d'%(i+1): 'jones_out'+str(i) for i in range(current_ring)}
+jones_average_block_rings = dict(jones_in)
+jones_average_block_rings['out_1'] = 'jones_out_average'
+
+blocks.append([NumpyBlock(np.average, inputs=current_ring), jones_average_block_rings])
+########################################
+
+########################################
+#Subtract all of the sources into a final calibrated visibilities
+models_in = {'in_%d'%(i+2): 'adjusted_model'+str(i) for i in range(current_ring)}
+peeling_block_rings = dict(models_in)
+peeling_block_rings['in_1'] = 'thresholded_visibilities'
+peeling_block_rings['out_1'] = 'clean_visibilities'
+
+blocks.append([NumpyBlock(subtract_sources, inputs=1+current_ring), peeling_block_rings])
 blocks.append([
     NumpyBlock(apply_gains, inputs=2),
-    {'in_1': 'cleaned_visibilities1', 'in_2': 'jones_out2',
+    {'in_1': 'cleaned_visibilities', 'in_2': 'jones_out_average',
      'out_1': 'calibrated_data'}])
+########################################
 
 Pipeline(blocks).main()
