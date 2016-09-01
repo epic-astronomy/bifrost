@@ -100,6 +100,7 @@ sources['cyg'] = {
 sources['cas'] = {
     'ra': '23:23:27.8', 'dec': '+58:48:34',
     'flux': 6052.0, 'frequency': 58e6, 'spectral index':(+0.7581)}
+del sources['cyg']
 
 dada_file = '/data2/hg/interfits/lconverter/WholeSkyL64_47.004_d20150203_utc181702_test/2015-04-08-20_15_03_0001133593833216.dada'
 OVRO_EPHEM.date = '2015/04/09 14:34:51'
@@ -149,6 +150,7 @@ def print_stats(array):
 blocks.append([NumpyBlock(print_stats, outputs=0), {'in_1': view+'_image'}])
 
 def baseline_threshold_flagger(allmodel, model, data):
+    """Flag a visibility against calibration if it is above a threshold value"""
     if np.median(np.abs(model)) == 0: 
         return model, data
     data = data/np.median(np.abs(data[:, :, 0, :, 0]))
@@ -162,6 +164,14 @@ def baseline_threshold_flagger(allmodel, model, data):
         flagged_model[:, :, x, :, y][flags] = 0
         flagged_data[:, :, x, :, y][flags] = 0
     return flagged_model, flagged_data
+
+def apply_gains(data, jones):
+    """Apply the solutions to uncalibrated data"""
+    calibrated_data = np.copy(data)
+    for i in range(256):
+        for j in range(256):
+            calibrated_data[0, i, :, j, :] = np.dot(np.conj(np.transpose(jones[0, :, i, :])), np.dot(calibrated_data[0, i, :, j, :], jones[0, :, j, :]))
+    return calibrated_data
 
 
 #Load all sources
@@ -177,7 +187,6 @@ blocks.append((
     NumpyBlock(slice_away_uv, outputs=2),
     {'in_1': 'allmodel+uv', 'out_1': 'allmodel', 'out_2': 'trash1'}))
 """
-del sources['cyg']
 blocks.append((
     TestingBlock(hkl.load('all_sources.hkl'), complex_numbers=True),
     [], ['allmodel']))
@@ -185,11 +194,15 @@ blocks.append((
 blocks.append([
     NumpyBlock(baseline_threshold_flagger, inputs=3, outputs=2),
     {'in_1': 'allmodel', 'in_2':'model', 'in_3': 'formatted_visibilities',
-    'out_1': 'flagged_model', 'out_2': 'flagged_visibilities'}])
+    'out_1': 'flagged_model', 'out_2': 'thresholded_visibilities'}])
 blocks.append([
     GainSolveBlock(flags=flags, eps=0.5, max_iterations=50, l2reg=0.0),
-    {'in_data': 'flagged_visibilities', 'in_model': 'flagged_model',
-     'in_jones': 'jones_in', 'out_data': 'calibrated_data',
+    {'in_data': 'thresholded_visibilities', 'in_model': 'flagged_model',
+     'in_jones': 'jones_in', 'out_data': 'trash2',
      'out_jones': 'jones_out'}])
+blocks.append([
+    NumpyBlock(apply_gains, inputs=2),
+    {'in_1': 'thresholded_visibilities', 'in_2': 'jones_out',
+     'out_1': 'calibrated_data'}])
 
 Pipeline(blocks).main()
