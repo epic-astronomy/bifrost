@@ -143,7 +143,10 @@ blocks.append((
     NearestNeighborGriddingBlock((256, 256)),
     [view+'_data_for_gridding'], [view+'_grid']))
 blocks.append((IFFT2Block(), [view+'_grid'], [view+'_image']))
-blocks.append([ImagingBlock('sky.png', np.abs, log=True), {'in': view+'_image'}])
+blocks.append([ImagingBlock('sky.png', np.abs, log=False), {'in': view+'_image'}])
+def print_stats(array):
+    print "SNR:", np.max(np.abs(array))/np.average(np.abs(array))
+blocks.append([NumpyBlock(print_stats, outputs=0), {'in_1': view+'_image'}])
 
 def baseline_flagger(allmodel, model, data):
     if np.median(np.abs(model)) == 0: 
