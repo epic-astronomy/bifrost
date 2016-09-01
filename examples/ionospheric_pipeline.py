@@ -148,10 +148,10 @@ blocks.append([ImagingBlock('sky.png', np.abs, log=True), {'in': view+'_image'}]
 def baseline_flagger(allmodel, model, data):
     if np.median(np.abs(model)) == 0: 
         return model, data
-    data = data/np.median(np.abs(data))
-    model = model/np.median(np.abs(model))
-    allmodel = allmodel/np.median(np.abs(allmodel))
-    flags = np.abs(data[:, :, 0, :, 0]) > 10#*np.abs(allmodel[:, :, 0, :, 0])
+    data = data/np.median(np.abs(data[:, :, 0, :, 0]))
+    model = model/np.median(np.abs(model[:, :, 0, :, 0]))
+    allmodel = allmodel/np.median(np.abs(allmodel[:, :, 0, :, 0]))
+    flags = np.abs(data[:, :, 0, :, 0]) > 25*np.abs(allmodel[:, :, 0, :, 0])
     print np.sum(flags)
     flagged_model = np.copy(model)
     flagged_data = np.copy(data)
