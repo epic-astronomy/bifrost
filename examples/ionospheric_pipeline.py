@@ -32,7 +32,7 @@ from bifrost.block import (
 from bifrost.addon.leda.blocks import (
     ScalarSkyModelBlock, DELAYS, COORDINATES, DISPERSIONS, UVCoordinateBlock,
     load_telescope, LEDA_SETTINGS_FILE, OVRO_EPHEM, NewDadaReadBlock, CableDelayBlock,
-    BAD_STANDS, ImagingBlock)
+    BAD_STANDS, ImagingBlock, SPEED_OF_LIGHT)
 import hickle as hkl
 
 def load_sources():
@@ -157,7 +157,7 @@ def baseline_threshold_flagger(allmodel, model, data):
     model = model/np.median(np.abs(model[:, :, 0, :, 0]))
     allmodel = allmodel/np.median(np.abs(allmodel[:, :, 0, :, 0]))
     flags = np.abs(data[:, :, 0, :, 0]) > 10#15*np.abs(allmodel[:, :, 0, :, 0])
-    print np.sum(flags)
+    print np.sum(flags), "baselines thresholded by amplitude"
     flagged_model = np.copy(model)
     flagged_data = np.copy(data)
     for x, y in [(0, 0), (0, 1), (1, 0), (1, 1)]:
@@ -194,15 +194,32 @@ blocks.append((
 blocks.append([
     NumpyBlock(baseline_threshold_flagger, inputs=3, outputs=2),
     {'in_1': 'allmodel', 'in_2':'model', 'in_3': 'formatted_visibilities',
-    'out_1': 'flagged_model', 'out_2': 'thresholded_visibilities'}])
+    'out_1': 'thresholded_model', 'out_2': 'thresholded_visibilities'}])
 blocks.append([
-    GainSolveBlock(flags=flags, eps=0.5, max_iterations=50, l2reg=0.0),
-    {'in_data': 'thresholded_visibilities', 'in_model': 'flagged_model',
+    GainSolveBlock(flags=flags, eps=0.5, max_iterations=10, l2reg=0.0),
+    {'in_data': 'long_visibilities', 'in_model': 'long_model',
      'in_jones': 'jones_in', 'out_data': 'trash2',
      'out_jones': 'jones_out'}])
 blocks.append([
     NumpyBlock(apply_gains, inputs=2),
     {'in_1': 'thresholded_visibilities', 'in_2': 'jones_out',
      'out_1': 'calibrated_data'}])
+
+def baseline_length_flagger(model, data):
+    baselines = np.sqrt(np.square(COORDINATES[:, None] - COORDINATES[None, :]).sum(axis=2))
+    wavelengths = SPEED_OF_LIGHT/np.array(frequencies[0])
+    flags = baselines < 10*wavelengths
+    flagged_data = np.copy(data)
+    flagged_model = np.copy(model)
+    print np.sum(flags), "baselines thresholded by length"
+    for x, y in [(0, 0), (0, 1), (1, 0), (1, 1)]:
+        flagged_model[0, :, x, :, y][flags] = 0
+        flagged_data[0, :, x, :, y][flags] = 0
+    return flagged_model, flagged_data
+
+blocks.append([
+    NumpyBlock(baseline_length_flagger, inputs=2, outputs=2),
+    {'in_1': 'thresholded_model', 'in_2': 'thresholded_visibilities',
+    'out_1': 'long_model', 'out_2': 'long_visibilities'}])
 
 Pipeline(blocks).main()
