@@ -234,8 +234,10 @@ fluxes_list = {str(i):allsources[str(i)]['flux'] for i in range(len(allsources))
 sorted_fluxes = sorted(fluxes_list.items(), key=operator.itemgetter(1))[-1::-1]
 current_ring = 0
 i = 0
-while current_ring < 1:
+total_sources = 5
+while current_ring < total_sources:
     current_source = allsources[sorted_fluxes[i][0]]
+    print current_source
     i+=1
     ####################################
     #Generate the source model
@@ -265,10 +267,11 @@ while current_ring < 1:
 
     ####################################
     #Solve for gains and apply to source model
+    blocks.append([NumpyBlock(np.copy), {'in_1': 'jones_in', 'out_1': 'jones_in'+str(current_ring)}])
     blocks.append([
         GainSolveBlock(flags=flags, eps=0.5, max_iterations=10, l2reg=0.0),
         {'in_data': 'long_visibilities'+str(current_ring), 'in_model': 'long_model'+str(current_ring),
-         'in_jones': 'jones_in', 'out_data': 'trash'+str(10.5*current_ring+1),
+         'in_jones': 'jones_in'+str(current_ring), 'out_data': 'trash'+str(10.5*current_ring+1),
          'out_jones': 'jones_out'+str(current_ring)}])
     blocks.append([
         NumpyBlock(apply_inverse_gains, inputs=2),
