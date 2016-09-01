@@ -26,6 +26,7 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import numpy as np
+import ephem
 from bifrost.block import (
         NumpyBlock, TestingBlock, GainSolveBlock, NearestNeighborGriddingBlock,
         IFFT2Block, Pipeline)
@@ -46,6 +47,7 @@ def load_sources():
         iterator = 0
         number_sources = 100000
         total_flux = 1e-10
+        used = 0
         for line in file_in:
             iterator += 1
             if iterator > number_sources:
@@ -64,10 +66,11 @@ def load_sources():
                 dec = line[12:15]+':'+line[16:18]+':'+line[19:23]
                 dec = dec.replace(" ", "")
                 total_flux += flux
-                sources[str(iterator)] = {
+                sources[str(used)] = {
                     'ra': ra, 'dec': dec,
                     'flux': flux, 'frequency': 74e6, 
                     'spectral index': -0.7}
+                used += 1
     return sources
 
 def slice_away_uv(model_and_uv):
@@ -100,7 +103,7 @@ sources['cyg'] = {
 sources['cas'] = {
     'ra': '23:23:27.8', 'dec': '+58:48:34',
     'flux': 6052.0, 'frequency': 58e6, 'spectral index':(+0.7581)}
-del sources['cyg']
+del sources['cas']
 
 dada_file = '/data2/hg/interfits/lconverter/WholeSkyL64_47.004_d20150203_utc181702_test/2015-04-08-20_15_03_0001133593833216.dada'
 OVRO_EPHEM.date = '2015/04/09 14:34:51'
@@ -200,8 +203,8 @@ def baseline_length_flagger(model, data):
     return flagged_model, flagged_data
 
 #Load all sources
-"""
 allsources = load_sources()
+"""
 blocks.append((
     ScalarSkyModelBlock(OVRO_EPHEM, COORDINATES, frequencies, allsources),
     [], ['allmodel+uv']))
@@ -223,7 +226,7 @@ blocks.append([
     GainSolveBlock(flags=flags, eps=0.5, max_iterations=10, l2reg=0.0),
     {'in_data': 'long_visibilities', 'in_model': 'long_model',
      'in_jones': 'jones_in', 'out_data': 'trash2',
-     'out_jones': 'jones_out'}])
+     'out_jones': 'jones_out0'}])
 
 def subtract_source(vis, model):
     return vis-model
@@ -232,23 +235,90 @@ def subtract_source(vis, model):
 blocks.append([
     NumpyBlock(subtract_source, inputs=2),
     {'in_1': 'thresholded_visibilities', 'in_2': 'adjusted_model',
-     'out_1': 'cleaned_visibilities'}])
+     'out_1': 'cleaned_visibilities0'}])
 
+"""
 blocks.append([
     NumpyBlock(apply_gains, inputs=2),
-    {'in_1': 'cleaned_visibilities', 'in_2': 'jones_out',
+    {'in_1': 'cleaned_visibilities0', 'in_2': 'jones_out0',
      'out_1': 'calibrated_data'}])
+"""
 
 blocks.append([
     NumpyBlock(apply_inverse_gains, inputs=2),
-    {'in_1': 'thresholded_model', 'in_2': 'jones_out',
+    {'in_1': 'thresholded_model', 'in_2': 'jones_out0',
      'out_1': 'adjusted_model'}])
-
-
 
 blocks.append([
     NumpyBlock(baseline_length_flagger, inputs=2, outputs=2),
     {'in_1': 'thresholded_model', 'in_2': 'thresholded_visibilities',
     'out_1': 'long_model', 'out_2': 'long_visibilities'}])
+
+def below_horizon(source):
+    source_position = ephem.FixedBody()
+    source_position_ra = source['ra']
+    source_position_dec = source['dec']
+    source_position._ra = source_position_ra
+    source_position._dec = source_position_dec
+    source_position.compute(OVRO_EPHEM)
+    altitude = np.float(repr(source_position.alt))
+    return (altitude < 0)
+
+fluxes_list = {str(i):allsources[str(i)]['flux'] for i in range(len(allsources))}
+#print fluxes_list
+import operator
+sorted_fluxes = sorted(fluxes_list.items(), key=operator.itemgetter(1))[-1::-1]
+del sorted_fluxes[0]
+current_ring = 1
+i = 0
+while current_ring < 3:
+    current_source = allsources[sorted_fluxes[i][0]]
+    i+=1
+    #Only produce model is above horizon!
+    if below_horizon(current_source):
+        continue
+    print current_source
+    """
+    ['cas'] = {
+        'ra': '23:23:27.8', 'dec': '+58:48:34',
+        'flux': 6052.0, 'frequency': 58e6, 'spectral index':(+0.7581)}
+        """
+
+    blocks.append((
+        ScalarSkyModelBlock(OVRO_EPHEM, COORDINATES, frequencies, {'1':current_source}),
+        [], ['model+uv'+str(current_ring)]))
+    blocks.append((
+        NumpyBlock(slice_away_uv, outputs=2),
+        {'in_1': 'model+uv'+str(current_ring), 'out_1': 'model'+str(current_ring),
+         'out_2': 'trash'+str(10.5*current_ring)}))
+
+    blocks.append([
+        NumpyBlock(baseline_threshold_flagger, inputs=3, outputs=2),
+        {'in_1': 'allmodel', 'in_2':'model'+str(current_ring), 'in_3': 'cleaned_visibilities'+str(current_ring - 1),
+        'out_1': 'thresholded_model'+str(current_ring), 'out_2': 'thresholded_visibilities'+str(current_ring)}])
+    blocks.append([
+        NumpyBlock(baseline_length_flagger, inputs=2, outputs=2),
+        {'in_1': 'thresholded_model'+str(current_ring), 'in_2': 'thresholded_visibilities'+str(current_ring),
+        'out_1': 'long_model'+str(current_ring), 'out_2': 'long_visibilities'+str(current_ring)}])
+    blocks.append([
+        GainSolveBlock(flags=flags, eps=0.5, max_iterations=10, l2reg=0.0),
+        {'in_data': 'long_visibilities'+str(current_ring), 'in_model': 'long_model'+str(current_ring),
+         'in_jones': 'jones_in', 'out_data': 'trash'+str(10.5*current_ring+1),
+         'out_jones': 'jones_out'+str(current_ring)}])
+    blocks.append([
+        NumpyBlock(apply_inverse_gains, inputs=2),
+        {'in_1': 'thresholded_model'+str(current_ring), 'in_2': 'jones_out'+str(current_ring),
+         'out_1': 'adjusted_model'+str(current_ring)}])
+
+    blocks.append([
+        NumpyBlock(subtract_source, inputs=2),
+        {'in_1': 'thresholded_visibilities'+str(current_ring), 'in_2': 'adjusted_model'+str(current_ring),
+         'out_1': 'cleaned_visibilities'+str(current_ring)}])
+    current_ring += 1
+
+blocks.append([
+    NumpyBlock(apply_gains, inputs=2),
+    {'in_1': 'cleaned_visibilities1', 'in_2': 'jones_out2',
+     'out_1': 'calibrated_data'}])
 
 Pipeline(blocks).main()
