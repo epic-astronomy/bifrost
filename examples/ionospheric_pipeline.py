@@ -106,7 +106,7 @@ OVRO_EPHEM.date = '2015/04/09 14:34:51'
 cfreq = 47.004e6
 bandwidth = 2.616e6
 df = bandwidth/109.0
-output_channels = np.array([85])
+output_channels = np.array([5])
 nstand = 256
 nchan = 1
 npol = 2
@@ -147,6 +147,7 @@ blocks.append([ImagingBlock('sky.png', np.abs, log=False), {'in': view+'_image'}
 def print_stats(array):
     print "SNR:", np.max(np.abs(array))/np.average(np.abs(array))
 blocks.append([NumpyBlock(print_stats, outputs=0), {'in_1': view+'_image'}])
+#TODO: CableDelayBlock!
 
 def baseline_threshold_flagger(allmodel, model, data):
     if np.median(np.abs(model)) == 0: 
@@ -187,9 +188,43 @@ blocks.append([
     {'in_1': 'allmodel', 'in_2':'model', 'in_3': 'formatted_visibilities',
     'out_1': 'flagged_model', 'out_2': 'flagged_visibilities'}])
 blocks.append([
-    GainSolveBlock(flags=flags, eps=0.5, max_iterations=20, l2reg=0.0),
+    GainSolveBlock(flags=flags, eps=0.5, max_iterations=50, l2reg=0.0),
     {'in_data': 'flagged_visibilities', 'in_model': 'flagged_model',
      'in_jones': 'jones_in', 'out_data': 'calibrated_data',
      'out_jones': 'jones_out'}])
 
-Pipeline(blocks).main()
+#Pipeline(blocks).main()
+def load_sources_2():
+    sources = {}
+    with open('/data1/mcranmer/data/real/cuwarp_vlssr_catalog.txt', 'r') as file_in:
+        while True:
+            try:
+                lines = [file_in.next() for _ in range(4)]
+            except StopIteration:
+                break
+            print lines[0].split(' ')[2]
+        """
+        iterator += 1
+        if iterator > number_sources:
+            #break
+            pass
+        if line[0].isspace():
+            continue
+        try:
+            flux = float(line[29:36].replace(" ",""))
+        except:
+            break
+        if flux > 1:
+            source_string = line[:-1]
+            ra = line[:2]+':'+line[3:5]+':'+line[6:11]
+            ra = ra.replace(" ", "")
+            dec = line[12:15]+':'+line[16:18]+':'+line[19:23]
+            dec = dec.replace(" ", "")
+            total_flux += flux
+            sources[str(iterator)] = {
+                'ra': ra, 'dec': dec,
+                'flux': flux, 'frequency': 58e6, 
+                'spectral index': 0.0}
+                """
+    return sources
+print load_sources_2()
