@@ -144,6 +144,8 @@ blocks.append((
     {'in_1': 'visibilities', 'out_1': 'formatted_visibilities'}))
 ########################################
 
+def nonzero_median(array):
+    return np.median(array[np.nonzero(array)])
 ########################################
 #Zero bad stands in data
 def flag_bad_stands(data_visiblities):
@@ -160,9 +162,9 @@ def flag_bad_stands(data_visiblities):
 #Flagging functions
 def baseline_threshold_against_self(data):
     """Flag visibilities if above median of self"""
-    if np.median(np.abs(data)) == 0: 
+    if np.max(np.abs(data)) == 0: 
         return data
-    median_data = np.median(np.abs(data[:, :, 0, :, 0]))
+    median_data = nonzero_median(np.abs(data[:, :, 0, :, 0]))
     data = data/median_data
     flags = np.abs(data[:, :, 0, :, 0]) > 10
     print np.sum(flags), "baselines thresholded by amplitude"
@@ -173,10 +175,10 @@ def baseline_threshold_against_self(data):
 
 def baseline_threshold_against_model(model, data):
     """Flag a visibility against calibration if it is above a threshold value"""
-    if np.median(np.abs(model)) == 0: 
+    if np.max(np.abs(model)) == 0: 
         return model, data
-    data = data/np.median(np.abs(data[:, :, 0, :, 0]))
-    model = model/np.median(np.abs(model[:, :, 0, :, 0]))
+    data = data/nonzero_median(np.abs(data[:, :, 0, :, 0]))
+    model = model/nonzero_median(np.abs(model[:, :, 0, :, 0]))
     flags = np.abs(data[:, :, 0, :, 0]) > 5*np.abs(model[:, :, 0, :, 0])
     print np.sum(flags), "baselines thresholded against model"
     flagged_model = np.copy(model)
@@ -280,7 +282,7 @@ for i in range(200):
         sorted_fluxes.append(all_sorted_fluxes[i])
 current_ring = 0
 i = 0
-total_sources = 5
+total_sources = 10
 while current_ring < total_sources:
     current_source = {str(i):{}}
     current_source[str(i)]['flux'] = allsources[sorted_fluxes[i][0]]['flux']
@@ -340,11 +342,11 @@ while current_ring < total_sources:
 
     def renormalize_jones(normalized_jones, unnormalized_model, unnormalized_data):
         """Correct the solutions after calibration due to pre-cal normalization"""
-        median_model = np.median(np.abs(unnormalized_model[:, :, 0, :, 0]))
-        if median_model == 0:
+        if np.max(np.abs(normalized_jones)) == 0:
             # To preventoverflow during testing of function
             return normalized_jones
-        median_data = np.median(np.abs(unnormalized_data[:, :, 0, :, 0]))
+        median_model = nonzero_median(np.abs(unnormalized_model[:, :, 0, :, 0]))
+        median_data = nonzero_median(np.abs(unnormalized_data[:, :, 0, :, 0]))
         #Because GainSolveBlock solves for J (M/median) J = (D/median):
         return normalized_jones/np.sqrt(median_model/median_data)
     blocks.append([
