@@ -145,6 +145,18 @@ blocks.append((
 ########################################
 
 ########################################
+#Zero bad stands in data
+def flag_bad_stands(data_visiblities):
+    """Flag all of the bad stands"""
+    visibilities = np.copy(data_visiblities)
+    if np.max(np.abs(visibilities)) == 0:
+        return visibilities
+    visibilities[:, BAD_STANDS, :, :, :] = 0
+    visibilities[:, :, :, BAD_STANDS, :] = 0
+    return visibilities
+########################################
+
+########################################
 #Flagging functions
 def baseline_threshold_against_self(data):
     """Flag visibilities if above median of self"""
@@ -239,10 +251,13 @@ def below_horizon(source):
 ########################################
 
 ########################################
-#Initial flagging against RFI
+#Initial flagging against RFI and bad stands
 blocks.append([
     NumpyBlock(baseline_threshold_against_self),
-    {'in_1':'formatted_visibilities', 'out_1':'clean_formatted_visibilities'}])
+    {'in_1':'formatted_visibilities', 'out_1':'almost_clean_formatted_visibilities'}])
+blocks.append([
+    NumpyBlock(flag_bad_stands),
+    {'in_1':'almost_clean_formatted_visibilities', 'out_1':'clean_formatted_visibilities'}])
 ########################################
 
 ########################################
@@ -265,7 +280,7 @@ for i in range(200):
         sorted_fluxes.append(all_sorted_fluxes[i])
 current_ring = 0
 i = 0
-total_sources = 10
+total_sources = 5
 while current_ring < total_sources:
     current_source = {str(i):{}}
     current_source[str(i)]['flux'] = allsources[sorted_fluxes[i][0]]['flux']
@@ -295,8 +310,11 @@ while current_ring < total_sources:
             [], ['model+uv'+str(current_ring)]))
     blocks.append((
         NumpyBlock(slice_away_uv, outputs=2),
-        {'in_1': 'model+uv'+str(current_ring), 'out_1': 'model'+str(current_ring),
+        {'in_1': 'model+uv'+str(current_ring), 'out_1': 'initial_model'+str(current_ring),
          'out_2': 'trash'+str(10.5*current_ring)}))
+    blocks.append((
+        NumpyBlock(flag_bad_stands),
+        {'in_1': 'initial_model'+str(current_ring), 'out_1': 'model'+str(current_ring)}))
     ####################################
 
     ####################################
@@ -319,7 +337,8 @@ while current_ring < total_sources:
         {'in_data': 'long_visibilities'+str(current_ring), 'in_model': 'long_model'+str(current_ring),
          'in_jones': 'jones_in'+str(current_ring), 'out_data': 'trash'+str(10.5*current_ring+1),
          'out_jones': 'jones_out_normalized'+str(current_ring)}])
-    def correct_jones(normalized_jones, unnormalized_model, unnormalized_data):
+
+    def renormalize_jones(normalized_jones, unnormalized_model, unnormalized_data):
         """Correct the solutions after calibration due to pre-cal normalization"""
         median_model = np.median(np.abs(unnormalized_model[:, :, 0, :, 0]))
         if median_model == 0:
@@ -329,7 +348,7 @@ while current_ring < total_sources:
         #Because GainSolveBlock solves for J (M/median) J = (D/median):
         return normalized_jones/np.sqrt(median_model/median_data)
     blocks.append([
-        NumpyBlock(correct_jones, inputs=3, outputs=1),
+        NumpyBlock(renormalize_jones, inputs=3, outputs=1),
         {'in_1': 'jones_out_normalized'+str(current_ring),
         'in_2': 'model'+str(current_ring),
         'in_3': 'iterate_visibilities'+str(current_ring),
