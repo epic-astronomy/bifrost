@@ -106,12 +106,15 @@ sources['cas'] = {
     'flux': 6052.0, 'frequency': 58e6, 'spectral index':(+0.7581)}
 del sources['cas']
 blocks = []
-dada_file = '/data2/hg/interfits/lconverter/WholeSkyL64_47.004_d20150203_utc181702_test/2015-04-08-20_15_03_0001133593833216.dada'
+#dada_file = '/data2/hg/interfits/lconverter/WholeSkyL64_47.004_d20150203_utc181702_test/2015-04-08-20_15_03_0001133593833216.dada'
+dada_file = '/data1/mcranmer/data/real/leda/2015-04-08-20_15_03_0001133593833216.dada'
+
 OVRO_EPHEM.date = '2015/04/09 14:34:51'
-cfreq = 47.004e6
+#cfreq = 47.004e6
+cfreq = 36.54e6
 bandwidth = 2.616e6
 df = bandwidth/109.0
-output_channels = np.array([5])
+output_channels = np.array([85])
 nstand = 256
 nchan = 1
 npol = 2
