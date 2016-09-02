@@ -363,7 +363,7 @@ class ImagingBlock(MultiTransformBlock):
     ring_names = {
         'in': """Data to be imaged. Each input span will
             generate an image under the same name"""}
-    def __init__(self, filename, reduction=None, log=False):
+    def __init__(self, filename, reduction=None, log=False, cmap=None):
         """@param[in] filename Where to save the image
             @param[in] reduction A function to be applied to the matrix before imaging (e.g., abs)
             @param[in] log Whether or not to take an np.log of the matrix before imaging"""
@@ -372,6 +372,10 @@ class ImagingBlock(MultiTransformBlock):
         self.reduction = reduction
         self.log = log
         self.dtype = np.float32
+        if cmap is not None:
+            self.cmap = cmap
+        else:
+            self.cmap = None
     def load_settings(self):
         """Update gulp size settings based on inputted header"""
         self.gulp_size['in'] = int(np.product(self.header['in']['shape']))*\
@@ -385,9 +389,15 @@ class ImagingBlock(MultiTransformBlock):
             if callable(self.reduction):
                 data_to_plot = self.reduction(data_to_plot)
             if self.log:
-                plt.imshow(np.log(data_to_plot))
+                if self.cmap is None:
+                    plt.imshow(np.log(data_to_plot))
+                else:
+                    plt.imshow(np.log(data_to_plot), cmap=self.cmap)
             else:
-                plt.imshow(data_to_plot)
+                if self.cmap is None:
+                    plt.imshow(data_to_plot)
+                else:
+                    plt.imshow(data_to_plot, cmap=self.cmap)
             plt.colorbar()
             plt.savefig(self.filename)
 
