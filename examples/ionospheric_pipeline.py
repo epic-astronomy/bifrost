@@ -125,9 +125,9 @@ nchan = 1
 npol = 2
 frequencies = cfreq - bandwidth/2 + df*output_channels
 print frequencies
-flags = 2*np.ones(shape=[1, nstand]).astype(np.int8)
+stand_flags = 2*np.ones(shape=[1, nstand]).astype(np.int8)
 for stand in BAD_STANDS:
-    flags[0, stand] = 1
+    stand_flags[0, stand] = 1
 
 ########################################
 #Dummy jones
@@ -297,7 +297,7 @@ for i in range(200):
         sorted_fluxes.append(all_sorted_fluxes[i])
 current_ring = 0
 i = 0
-total_sources = 5
+total_sources = 2
 while current_ring < total_sources:
     current_source = {str(i):{}}
     current_source[str(i)]['flux'] = allsources[sorted_fluxes[i][0]]['flux']
@@ -350,7 +350,7 @@ while current_ring < total_sources:
     #Solve for gains and renormalize
     blocks.append([NumpyBlock(np.copy), {'in_1': 'jones_in', 'out_1': 'jones_in'+str(current_ring)}])
     blocks.append([
-        GainSolveBlock(flags=flags, eps=0.5, max_iterations=10, l2reg=0.0),
+        GainSolveBlock(flags=stand_flags, eps=0.6, max_iterations=10, l2reg=0.0),
         {'in_data': 'long_visibilities'+str(current_ring), 'in_model': 'long_model'+str(current_ring),
          'in_jones': 'jones_in'+str(current_ring), 'out_data': 'trash'+str(10.5*current_ring+1),
          'out_jones': 'jones_out'+str(current_ring)}])
@@ -410,6 +410,60 @@ while current_ring < total_sources:
     i+=1
     current_ring += 1
 
+blocks.append([NumpyBlock(np.copy), {'in_1': 'iterate_visibilities'+str(current_ring), 'out_1': 'peeled_sky'}])
+
+########################################
+#PEEL: Put back sources one at a time and calibrate new solutions
+current_ring = 0
+while current_ring < total_sources - 1:
+    ####################################
+    #Add the source back in
+    #TODO: Use flags from above here.
+    blocks.append([NumpyBlock(np.add, inputs=2),
+        {'in_1': 'peeled_sky', 'in_2': 'scaled_model'+str(current_ring),
+        'out_1': 'unpeeled_sky'+str(current_ring)}])
+    ####################################
+
+    ####################################
+    #Flag the model and visibilities
+    blocks.append([
+        NumpyBlock(baseline_threshold_against_model, inputs=2, outputs=2),
+        {'in_1':'model'+str(current_ring), 'in_2': 'unpeeled_sky'+str(current_ring),
+        'out_1': 'peeler_thres_model'+str(current_ring), 'out_2': 'unpeeled_thres_sky'+str(current_ring)}])
+    blocks.append([
+        NumpyBlock(baseline_length_flagger, inputs=2, outputs=2),
+        {'in_1': 'peeler_thres_model'+str(current_ring), 'in_2': 'unpeeled_thres_sky'+str(current_ring),
+        'out_1': 'long_peeler_model'+str(current_ring), 'out_2': 'long_unpeeled_sky'+str(current_ring)}])
+    ####################################
+
+    ####################################
+    #Solve for gains
+    blocks.append([
+        GainSolveBlock(flags=stand_flags, eps=0.5, max_iterations=10, l2reg=0.0),
+        {'in_data': 'long_peeler_model'+str(current_ring), 'in_model': 'long_unpeeled_sky'+str(current_ring),
+         'in_jones': 'jones_out'+str(current_ring), 'out_data': 'trash_peel'+str(current_ring),
+         'out_jones': 'peeled_jones_out'+str(current_ring)}])
+    ####################################
+    current_ring += 1
+
+########################################
+#Average all solutions and apply to raw data
+def array_average(*arrays):
+    """Average all arrays inputted"""
+    return np.average(arrays, axis=0)
+
+solution_rings = {'in_%d'%(i+1): 'peeled_jones_out'+str(i) for i in range(total_sources-1)}
+solution_rings['in_%d'%(total_sources)] = 'jones_out'+str(total_sources-1)
+print solution_rings
+averaging_rings = solution_rings
+averaging_rings['out_1'] = 'average_jones'
+blocks.append([NumpyBlock(array_average, inputs=total_sources), averaging_rings])
+blocks.append([
+    NumpyBlock(apply_gains, inputs=2),
+    {'in_1': 'clean_formatted_visibilities', 'in_2': 'average_jones',
+     'out_1': 'calibrated_peeled_solution'}])
+########################################
+
 ########################################
 #Get the UV coordinates
 blocks.append((
@@ -420,29 +474,14 @@ blocks.append((
 
 ########################################
 #Image the visibilities
-for view_i in range(current_ring+1):
-    view = 'iterate_visibilities' + str(view_i)
-    print view
-    blocks.append((
-        NumpyBlock(reformat_data_for_gridding, inputs=2),
-        {'in_1': view, 'in_2': 'uv_coords', 'out_1': view+'_data_for_gridding'}))
-    blocks.append((
-        NearestNeighborGriddingBlock((256, 256)),
-        [view+'_data_for_gridding'], [view+'_grid']))
-    blocks.append((IFFT2Block(), [view+'_grid'], [view+'_image']))
-
-"""
-for view_i in range(current_ring):
-    view = 'calibrated_visibilities' + str(view_i)
-    print view
-    blocks.append((
-        NumpyBlock(reformat_data_for_gridding, inputs=2),
-        {'in_1': view, 'in_2': 'uv_coords', 'out_1': view+'_data_for_gridding'}))
-    blocks.append((
-        NearestNeighborGriddingBlock((256, 256)),
-        [view+'_data_for_gridding'], [view+'_grid']))
-    blocks.append((IFFT2Block(), [view+'_grid'], [view+'_image']))
-"""
+view = 'calibrated_peeled_solution'
+blocks.append((
+    NumpyBlock(reformat_data_for_gridding, inputs=2),
+    {'in_1': view, 'in_2': 'uv_coords', 'out_1': view+'_data_for_gridding'}))
+blocks.append((
+    NearestNeighborGriddingBlock((256, 256)),
+    [view+'_data_for_gridding'], [view+'_grid']))
+blocks.append((IFFT2Block(), [view+'_grid'], [view+'_image']))
 ########################################
 
 ########################################
@@ -460,9 +499,6 @@ def image_horizon(image_array):
     superimposed_array[horizon] = np.max(np.abs(image_array))
     return superimposed_array
 
-step = 4
-#view = 'calibrated_visibilities' + str(step)
-view = 'iterate_visibilities' + str(step)
 blocks.append([NumpyBlock(image_horizon), {'in_1': view+'_image', 'out_1': 'final_image'}])
 blocks.append([ImagingBlock('sky.png', np.abs, log=True, cmap='gray'), {'in': 'final_image'}])
 ########################################
@@ -473,7 +509,7 @@ def print_stats(array):
     print "SNR:", np.max(np.abs(array))/np.average(np.abs(array))
 
 def print_all_stats(*arrays):
-    assert np.average(arrays[0]) != np.average(arrays[1])
+    #assert np.average(arrays[0]) != np.average(arrays[1])
     for i in range(len(arrays)):
         array = np.abs(arrays[i].ravel())
         foreground_array = np.sort(array)[int(0.75*array.size):]
@@ -493,7 +529,7 @@ def print_all_stats(*arrays):
 
 blocks.append([NumpyBlock(print_stats, outputs=0), {'in_1': view+'_image'}])
 blocks.append([NumpyBlock(print_all_stats, inputs=current_ring+1, outputs=0),
-    {'in_%d'%(i+1): 'iterate_visibilities'+str(i)+'_image' for i in range(current_ring+1)}])
+    {'in_1': view+'_image'}])
 ########################################
 
 Pipeline(blocks).main()
