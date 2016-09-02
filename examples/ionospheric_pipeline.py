@@ -234,6 +234,8 @@ def apply_inverse_gains(data, jones):
 #Source configuration routines
 def subtract_source(visibilities, source):
     """Remove the source from the data set"""
+    if np.max(np.abs(visibilities)) == 0:
+        return visibilities
     return visibilities-source
 
 def subtract_sources(visibilities, *sources):
@@ -266,9 +268,13 @@ blocks.append([
 ########################################
 
 ########################################
-#Copy in the visibilities to the iterate
+#Normalize the visibilities into the first iteration
+def normalize_median(array):
+    if np.max(np.abs(array))== 0:
+        return array
+    return array/nonzero_median(np.abs(array[:, :, 0, :, 0]))
 blocks.append([
-    NumpyBlock(np.copy),
+    NumpyBlock(normalize_median),
     {'in_1':'clean_formatted_visibilities', 'out_1': 'iterate_visibilities0'}])
 ########################################
 
@@ -341,23 +347,7 @@ while current_ring < total_sources:
         GainSolveBlock(flags=flags, eps=0.5, max_iterations=10, l2reg=0.0),
         {'in_data': 'long_visibilities'+str(current_ring), 'in_model': 'long_model'+str(current_ring),
          'in_jones': 'jones_in'+str(current_ring), 'out_data': 'trash'+str(10.5*current_ring+1),
-         'out_jones': 'jones_out_normalized'+str(current_ring)}])
-
-    def renormalize_jones(normalized_jones, unnormalized_model, unnormalized_data):
-        """Correct the solutions after calibration due to pre-cal normalization"""
-        if np.max(np.abs(normalized_jones)) == 0:
-            # To preventoverflow during testing of function
-            return normalized_jones
-        median_model = nonzero_median(np.abs(unnormalized_model[:, :, 0, :, 0]))
-        median_data = nonzero_median(np.abs(unnormalized_data[:, :, 0, :, 0]))
-        #Because GainSolveBlock solves for J (M/median) J = (D/median):
-        return normalized_jones/np.sqrt(median_model/median_data)
-    blocks.append([
-        NumpyBlock(renormalize_jones, inputs=3, outputs=1),
-        {'in_1': 'jones_out_normalized'+str(current_ring),
-        'in_2': 'model'+str(current_ring),
-        'in_3': 'iterate_visibilities'+str(current_ring),
-        'out_1': 'jones_out'+str(current_ring)}])
+         'out_jones': 'jones_out'+str(current_ring)}])
     ####################################
 
     ####################################
@@ -369,11 +359,39 @@ while current_ring < total_sources:
     ####################################
 
     ####################################
+    #Scale source to brightest point.
+    for view_base in ['adjusted_model', 'thresholded_visibilities']:
+        view = view_base + str(current_ring) + 'working'
+        blocks.append((
+            NumpyBlock(reformat_data_for_gridding, inputs=2),
+            {'in_1': view_base+str(current_ring), 'in_2': 'uv_coords', 'out_1': view+'_data_for_gridding'}))
+        blocks.append((
+            NearestNeighborGriddingBlock((512, 512)),
+            [view+'_data_for_gridding'], [view+'_grid']))
+        blocks.append((IFFT2Block(), [view+'_grid'], [view+'_image']))
+
+    def scale_ninety_ninth(reference_dst, reference_src, array):
+        """Scale the 99th percentile pixel to equality"""
+        if np.max(np.abs(reference_dst)) == 0:
+            return array
+        reference_pixel = np.percentile(np.abs(reference_dst), 99)
+        amplitude_fraction = reference_pixel/np.percentile(np.abs(reference_src), 99)
+        return array*amplitude_fraction
+
+    blocks.append([
+        NumpyBlock(scale_ninety_ninth, inputs=3),
+        {'in_1': 'thresholded_visibilities'+str(current_ring)+'working_image',
+        'in_2': 'adjusted_model'+str(current_ring)+'working_image',
+        'in_3': 'adjusted_model'+str(current_ring),
+        'out_1': 'scaled_model'+str(current_ring)}])
+    ####################################
+
+    ####################################
     #Subtract 'uncalibrated' source model from visibilities
     blocks.append([
-        NumpyBlock(subtract_sources, inputs=2),
+        NumpyBlock(subtract_source, inputs=2),
         {'in_1': 'iterate_visibilities'+str(current_ring),
-        'in_2': 'adjusted_model'+str(current_ring),
+        'in_2': 'scaled_model'+str(current_ring),
         'out_1': 'iterate_visibilities'+str(current_ring+1)}])
     ####################################
     i+=1
@@ -389,6 +407,7 @@ blocks.append((
 
 ########################################
 #Imaging
+"""
 view = 'iterate_visibilities'+str(current_ring)
 blocks.append([NumpyBlock(np.copy),
     {'in_1': 'iterate_visibilities'+str(current_ring), 'out_1': 'calibrated_data'}])
@@ -400,13 +419,68 @@ blocks.append((
     [view+'_data_for_gridding'], [view+'_grid']))
 blocks.append((IFFT2Block(), [view+'_grid'], [view+'_image']))
 blocks.append([ImagingBlock('sky.png', np.abs, log=False), {'in': view+'_image'}])
+"""
 ########################################
 
+for view_i in range(current_ring+1):
+    view = 'iterate_visibilities' + str(view_i)
+    print view
+    blocks.append((
+        NumpyBlock(reformat_data_for_gridding, inputs=2),
+        {'in_1': view, 'in_2': 'uv_coords', 'out_1': view+'_data_for_gridding'}))
+    blocks.append((
+        NearestNeighborGriddingBlock((512, 512)),
+        [view+'_data_for_gridding'], [view+'_grid']))
+    blocks.append((IFFT2Block(), [view+'_grid'], [view+'_image']))
+
+"""
+NumpyBlock(subtract_source, inputs=2),
+{'in_1': 'iterate_visibilities'+str(current_ring),
+'in_2': 'scaled_model'+str(current_ring),
+'out_1': 'iterate_visibilities'+str(current_ring+1)}])
+view = 'iterate_visibilities' + str(current_ring)
+"""
+blocks.append((NumpyBlock(np.copy), {'in_1': view, 'out_1': 'background'}))
+#blocks.append((NumpyBlock(np.copy), {'in_1': view, 'out_1' 'background'}))
+"""
+blocks.append((
+    NumpyBlock(reformat_data_for_gridding, inputs=2),
+    {'in_1': view, 'in_2': 'uv_coords', 'out_1': view+'_data_for_gridding'}))
+blocks.append((
+    NearestNeighborGriddingBlock((256, 256)),
+    [view+'_data_for_gridding'], [view+'_grid']))
+blocks.append((IFFT2Block(), [view+'_grid'], [view+'_image']))
+"""
+
+
+blocks.append([ImagingBlock('sky.png', np.abs, log=False), {'in': 'iterate_visibilities'+str(current_ring)+'_image'}])
 ########################################
 #Image stats
 def print_stats(array):
     print "SNR:", np.max(np.abs(array))/np.average(np.abs(array))
 blocks.append([NumpyBlock(print_stats, outputs=0), {'in_1': view+'_image'}])
 ########################################
+
+def print_all_stats(*arrays):
+    assert np.average(arrays[0]) != np.average(arrays[1])
+    for i in range(len(arrays)):
+        array = np.abs(arrays[i].ravel())
+        foreground_array = np.sort(array)[int(0.75*array.size):]
+        background_array = np.sort(array)[:int(0.75*array.size)]
+        print "Stats for %d peel"%(i)
+        print "Max of foreground:", np.max(np.abs(foreground_array))
+        print "Min of foreground:", np.min(np.abs(foreground_array))
+        print "Mean of foreground:", np.average(np.abs(foreground_array))
+        print "Stdev of foreground:", np.std(np.abs(foreground_array))
+        print "RMS of foreground:", np.sum(np.square(np.abs(foreground_array))/foreground_array.size)
+        print "Max of background:", np.max(np.abs(background_array))
+        print "Min of background:", np.min(np.abs(background_array))
+        print "Mean of background:", np.average(np.abs(background_array))
+        print "Stdev of background:", np.std(np.abs(background_array))
+        print "RMS of background:", np.sqrt(np.sum(np.square(np.abs(background_array))/background_array.size))
+        print " "
+
+blocks.append([NumpyBlock(print_all_stats, inputs=current_ring+1, outputs=0),
+    {'in_%d'%(i+1): 'iterate_visibilities'+str(i)+'_image' for i in range(current_ring+1)}])
 
 Pipeline(blocks).main()
