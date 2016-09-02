@@ -147,13 +147,14 @@ def baseline_threshold_against_self(data):
     """Flag visibilities if above median of self"""
     if np.median(np.abs(data)) == 0: 
         return data
-    data = data/np.median(np.abs(data[:, :, 0, :, 0]))
+    median_data = np.median(np.abs(data[:, :, 0, :, 0]))
+    data = data/median_data
     flags = np.abs(data[:, :, 0, :, 0]) > 10
     print np.sum(flags), "baselines thresholded by amplitude"
     flagged_data = np.copy(data)
     for x, y in [(0, 0), (0, 1), (1, 0), (1, 1)]:
         flagged_data[:, :, x, :, y][flags] = 0
-    return flagged_data
+    return flagged_data*median_data
 
 def baseline_threshold_against_model(model, data):
     """Flag a visibility against calibration if it is above a threshold value"""
@@ -308,13 +309,32 @@ while current_ring < total_sources:
     ####################################
 
     ####################################
-    #Solve for gains and apply to source model
+    #Solve for gains and renormalize
     blocks.append([NumpyBlock(np.copy), {'in_1': 'jones_in', 'out_1': 'jones_in'+str(current_ring)}])
     blocks.append([
         GainSolveBlock(flags=flags, eps=0.5, max_iterations=10, l2reg=0.0),
         {'in_data': 'long_visibilities'+str(current_ring), 'in_model': 'long_model'+str(current_ring),
          'in_jones': 'jones_in'+str(current_ring), 'out_data': 'trash'+str(10.5*current_ring+1),
-         'out_jones': 'jones_out'+str(current_ring)}])
+         'out_jones': 'jones_out_normalized'+str(current_ring)}])
+    def correct_jones(normalized_jones, unnormalized_model, unnormalized_data):
+        """Correct the solutions after calibration due to pre-cal normalization"""
+        median_model = np.median(np.abs(unnormalized_model[:, :, 0, :, 0]))
+        if median_model == 0:
+            # To preventoverflow during testing of function
+            return normalized_jones
+        median_data = np.median(np.abs(unnormalized_data[:, :, 0, :, 0]))
+        print np.sqrt(median_model/median_data)
+        return normalized_jones*np.sqrt(median_model/median_data)
+    blocks.append([
+        NumpyBlock(correct_jones, inputs=3, outputs=1),
+        {'in_1': 'jones_out_normalized'+str(current_ring),
+        'in_2': 'model'+str(current_ring),
+        'in_3': 'iterate_visibilities'+str(current_ring),
+        'out_1': 'jones_out'+str(current_ring)}])
+    ####################################
+
+    ####################################
+    #Apply the gains to the model
     blocks.append([
         NumpyBlock(apply_inverse_gains, inputs=2),
         {'in_1': 'thresholded_model'+str(current_ring), 'in_2': 'jones_out'+str(current_ring),
