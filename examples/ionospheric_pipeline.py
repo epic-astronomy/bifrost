@@ -111,15 +111,19 @@ sources['cas'] = {
     'flux': 6052.0, 'frequency': 58e6, 'spectral index':(+0.7581)}
 del sources['cas']
 blocks = []
-dada_file = '/data2/hg/interfits/lconverter/WholeSkyL64_47.004_d20150203_utc181702_test/2015-04-08-20_15_03_0001133593833216.dada'
+dada_file = '/data2/hg/interfits/dada_converter/WholeSkyL64_47.004_d20150203_utc181702/2015-02-03-18:17:02_0000000000000000.000000.dada'
+#dada_file = '/data2/hg/interfits/lconverter/WholeSkyL64_47.004_d20150203_utc181702_test/2015-04-08-20_15_03_0001133593833216.dada'
 #dada_file = '/data1/mcranmer/data/real/leda/2015-04-08-20_15_03_0001133593833216.dada'
 
-OVRO_EPHEM.date = '2015/04/09 14:34:51'
+BAD_STANDS = [4, 5, 7, 15, 20, 21, 23, 31, 36, 37, 39, 43, 47, 49, 52, 53, 55, 63, 68, 69, 71, 72, 79, 83, 84, 85, 86, 87, 88, 89, 91, 95, 103, 104, 105, 106, 107, 108, 109, 110, 111, 116, 117, 119, 127, 132, 133, 135, 141, 143, 145, 148, 149, 150, 151, 158, 159, 163, 164, 165, 167, 168, 175, 180, 181, 183, 191, 196, 197, 199, 207, 212, 213, 215, 218, 219, 220, 221, 222, 223, 224, 225, 228, 229, 231, 239, 243, 244, 245, 246, 247, 248, 249, 250, 251, 252, 253, 254, 255]
+
+OVRO_EPHEM.date = '2015/02/03 18:17:02'
+#OVRO_EPHEM.date = '2015/04/09 14:34:51'
 cfreq = 47.004e6
 #cfreq = 36.54e6
 bandwidth = 2.616e6
 df = bandwidth/109.0
-output_channels = np.array([84])
+output_channels = np.array([99])
 nstand = 256
 nchan = 1
 npol = 2
@@ -170,7 +174,7 @@ def baseline_threshold_against_self(data):
     if np.max(np.abs(data)) == 0: 
         return data
     median_data = nonzero_median(np.abs(data[:, :, 0, :, 0]))
-    flags = np.abs(data[:, :, 0, :, 0]/median_data) > 10
+    flags = np.abs(data[:, :, 0, :, 0]/median_data) > 100
     print np.sum(flags), "baselines thresholded by amplitude"
     flagged_data = np.copy(data)
     for x, y in [(0, 0), (0, 1), (1, 0), (1, 1)]:
@@ -183,8 +187,8 @@ def baseline_threshold_against_model(model, data):
         return model, data
     normed_data = data/nonzero_median(np.abs(data[:, :, 0, :, 0]))
     normed_model = model/nonzero_median(np.abs(model[:, :, 0, :, 0]))
-    upper_threshold = 10
-    lower_threshold = 0.0001
+    upper_threshold = 100
+    lower_threshold = 0.00001
     flags1 = np.abs(normed_data[:, :, 0, :, 0]) > upper_threshold*np.abs(normed_model[:, :, 0, :, 0])
     flags2 = np.abs(normed_data[:, :, 0, :, 0]) < lower_threshold*np.abs(normed_model[:, :, 0, :, 0])
     flags3 = np.abs(normed_data[:, :, 1, :, 1]) > upper_threshold*np.abs(normed_model[:, :, 1, :, 1])
@@ -309,7 +313,7 @@ for i in range(200):
 current_ring = 0
 i = 0
 #Image Cyg and Cas at the same time!
-del sorted_fluxes[0]
+#del sorted_fluxes[0]
 total_sources = 3
 while current_ring < total_sources:
     current_source = {str(i):{}}
@@ -323,15 +327,17 @@ while current_ring < total_sources:
     if below_horizon(allsources[sorted_fluxes[i][0]]):
         i+=1
         continue
-    if i == 0:
+    if i == -1:
         # (Cas selected, so do a two source model)
         sources = {}
         sources['cyg'] = {
             'ra':'19:59:28.4', 'dec':'+40:44:02.1', 'flux': 10571.0, 'frequency': 58e6,
             'spectral index': -0.2046}
+        """
         sources['cas']= {
             'ra': '23:23:27.8', 'dec': '+58:48:34',
             'flux': 6052.0, 'frequency': 58e6, 'spectral index':(+0.7581)}
+        """
         blocks.append((
             ScalarSkyModelBlock(OVRO_EPHEM, COORDINATES, frequencies, sources),
             [], ['model+uv'+str(current_ring)]))
@@ -479,7 +485,11 @@ blocks.append([
 
 ########################################
 #Image the visibilities and get the uv coordinates
-view = 'calibrated_peeled_solution'
+view = 'sldkjflksdjf'
+blocks.append([
+    NumpyBlock(apply_gains, inputs=2),
+    {'in_1': 'iterate_visibilities0', 'in_2': 'jones_out0',
+     'out_1': view}])
 blocks.append((
     NumpyBlock(reformat_data_for_gridding, inputs=2),
     {'in_1': view, 'in_2': 'uv_coords', 'out_1': view+'_data_for_gridding'}))

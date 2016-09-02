@@ -182,6 +182,7 @@ class NewDadaReadBlock(DadaFileRead, MultiTransformBlock):
         self.interpret_header()
         nchan = self.dada_header['NCHAN']
         npol = self.dada_header['NPOL']
+        print self.dada_header
         nstand = LEDA_NSTATIONS
         output_shape = [
             len(self.output_chans),
