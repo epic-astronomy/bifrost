@@ -25,6 +25,9 @@
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+"""@module ionospheric_pipeline
+This program serves as an example of Bifrost's usage in an ionospheric sensing pipeline
+"""
 import operator
 import numpy as np
 import ephem
@@ -36,6 +39,8 @@ from bifrost.addon.leda.blocks import (
     load_telescope, LEDA_SETTINGS_FILE, OVRO_EPHEM, NewDadaReadBlock, CableDelayBlock,
     BAD_STANDS, ImagingBlock, SPEED_OF_LIGHT)
 import hickle as hkl
+
+PIXEL_DIAMETER_PER_MHZ = 4.8677
 
 def load_sources():
     sources = {}
@@ -119,6 +124,7 @@ nstand = 256
 nchan = 1
 npol = 2
 frequencies = cfreq - bandwidth/2 + df*output_channels
+print frequencies
 flags = 2*np.ones(shape=[1, nstand]).astype(np.int8)
 for stand in BAD_STANDS:
     flags[0, stand] = 1
@@ -366,7 +372,7 @@ while current_ring < total_sources:
             NumpyBlock(reformat_data_for_gridding, inputs=2),
             {'in_1': view_base+str(current_ring), 'in_2': 'uv_coords', 'out_1': view+'_data_for_gridding'}))
         blocks.append((
-            NearestNeighborGriddingBlock((512, 512)),
+            NearestNeighborGriddingBlock((256, 256)),
             [view+'_data_for_gridding'], [view+'_grid']))
         blocks.append((IFFT2Block(), [view+'_grid'], [view+'_image']))
 
@@ -429,7 +435,7 @@ for view_i in range(current_ring+1):
         NumpyBlock(reformat_data_for_gridding, inputs=2),
         {'in_1': view, 'in_2': 'uv_coords', 'out_1': view+'_data_for_gridding'}))
     blocks.append((
-        NearestNeighborGriddingBlock((512, 512)),
+        NearestNeighborGriddingBlock((256, 256)),
         [view+'_data_for_gridding'], [view+'_grid']))
     blocks.append((IFFT2Block(), [view+'_grid'], [view+'_image']))
 
@@ -452,8 +458,22 @@ blocks.append((
 blocks.append((IFFT2Block(), [view+'_grid'], [view+'_image']))
 """
 
+def cutoff_horizon(image_array):
+    """Cut off past the horizon of an image"""
+    center_pixel = np.array((image_array.shape[0]/2,)*2)
+    flagged_array = np.copy(image_array)
+    indices = np.indices(image_array.shape)
+    x_distance = indices[0, :, :] - center_pixel[0]
+    y_distance = indices[1, :, :] - center_pixel[1]
+    distance = np.abs(x_distance+1j*y_distance)
+    flags = distance > PIXEL_DIAMETER_PER_MHZ*frequencies[0]/2e6
+    print np.sum(flags)
+    flagged_array[flags] = 0
+    return flagged_array
 
-blocks.append([ImagingBlock('sky.png', np.abs, log=False), {'in': 'iterate_visibilities'+str(current_ring)+'_image'}])
+blocks.append([NumpyBlock(cutoff_horizon), {'in_1': 'iterate_visibilities'+str(current_ring)+'_image', 'out_1': 'final_image'}])
+
+blocks.append([ImagingBlock('sky.png', np.abs, log=False), {'in': 'final_image'}])
 ########################################
 #Image stats
 def print_stats(array):
