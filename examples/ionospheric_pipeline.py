@@ -262,7 +262,7 @@ for i in range(200):
         sorted_fluxes.append(all_sorted_fluxes[i])
 current_ring = 0
 i = 0
-total_sources = 6
+total_sources = 10
 while current_ring < total_sources:
     current_source = {str(i):{}}
     current_source[str(i)]['flux'] = allsources[sorted_fluxes[i][0]]['flux']
@@ -323,8 +323,8 @@ while current_ring < total_sources:
             # To preventoverflow during testing of function
             return normalized_jones
         median_data = np.median(np.abs(unnormalized_data[:, :, 0, :, 0]))
-        print np.sqrt(median_model/median_data)
-        return normalized_jones*np.sqrt(median_model/median_data)
+        #Because GainSolveBlock solves for J (M/median) J = (D/median):
+        return normalized_jones/np.sqrt(median_model/median_data)
     blocks.append([
         NumpyBlock(correct_jones, inputs=3, outputs=1),
         {'in_1': 'jones_out_normalized'+str(current_ring),
