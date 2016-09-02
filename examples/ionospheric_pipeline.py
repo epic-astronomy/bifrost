@@ -111,15 +111,15 @@ sources['cas'] = {
     'flux': 6052.0, 'frequency': 58e6, 'spectral index':(+0.7581)}
 del sources['cas']
 blocks = []
-#dada_file = '/data2/hg/interfits/lconverter/WholeSkyL64_47.004_d20150203_utc181702_test/2015-04-08-20_15_03_0001133593833216.dada'
-dada_file = '/data1/mcranmer/data/real/leda/2015-04-08-20_15_03_0001133593833216.dada'
+dada_file = '/data2/hg/interfits/lconverter/WholeSkyL64_47.004_d20150203_utc181702_test/2015-04-08-20_15_03_0001133593833216.dada'
+#dada_file = '/data1/mcranmer/data/real/leda/2015-04-08-20_15_03_0001133593833216.dada'
 
 OVRO_EPHEM.date = '2015/04/09 14:34:51'
-#cfreq = 47.004e6
-cfreq = 36.54e6
+cfreq = 47.004e6
+#cfreq = 36.54e6
 bandwidth = 2.616e6
 df = bandwidth/109.0
-output_channels = np.array([85])
+output_channels = np.array([84])
 nstand = 256
 nchan = 1
 npol = 2
@@ -297,7 +297,7 @@ for i in range(200):
         sorted_fluxes.append(all_sorted_fluxes[i])
 current_ring = 0
 i = 0
-total_sources = 3
+total_sources = 5
 while current_ring < total_sources:
     current_source = {str(i):{}}
     current_source[str(i)]['flux'] = allsources[sorted_fluxes[i][0]]['flux']
@@ -363,10 +363,12 @@ while current_ring < total_sources:
         {'in_1': 'thresholded_model'+str(current_ring), 'in_2': 'jones_out'+str(current_ring),
          'out_1': 'adjusted_model'+str(current_ring)}])
 
+    """
     blocks.append([
         NumpyBlock(apply_gains, inputs=2),
         {'in_1': 'thresholded_visibilities'+str(current_ring), 'in_2': 'jones_out'+str(current_ring),
          'out_1': 'calibrated_visibilities'+str(current_ring)}])
+         """
     ####################################
 
     ####################################
@@ -418,7 +420,6 @@ blocks.append((
 
 ########################################
 #Image the visibilities
-
 for view_i in range(current_ring+1):
     view = 'iterate_visibilities' + str(view_i)
     print view
@@ -430,6 +431,7 @@ for view_i in range(current_ring+1):
         [view+'_data_for_gridding'], [view+'_grid']))
     blocks.append((IFFT2Block(), [view+'_grid'], [view+'_image']))
 
+"""
 for view_i in range(current_ring):
     view = 'calibrated_visibilities' + str(view_i)
     print view
@@ -440,10 +442,11 @@ for view_i in range(current_ring):
         NearestNeighborGriddingBlock((256, 256)),
         [view+'_data_for_gridding'], [view+'_grid']))
     blocks.append((IFFT2Block(), [view+'_grid'], [view+'_image']))
+"""
 ########################################
 
 ########################################
-#Create an image with a horizon circle overlaid
+#Create an image with a horizon circle overlay'd
 def image_horizon(image_array):
     """Image the horizon of an image"""
     center_pixel = np.array((image_array.shape[0]/2,)*2)
@@ -452,15 +455,16 @@ def image_horizon(image_array):
     x_distance = indices[0, :, :] - center_pixel[0]
     y_distance = indices[1, :, :] - center_pixel[1]
     distance = np.abs(x_distance+1j*y_distance)
-    horizon = np.abs(distance - PIXEL_DIAMETER_PER_MHZ*frequencies[0]/2e6) < 1
+    horizon = np.abs(distance-PIXEL_DIAMETER_PER_MHZ*frequencies[0]/2e6) < 1
     print np.sum(horizon)
     superimposed_array[horizon] = np.max(np.abs(image_array))
     return superimposed_array
-step = 2
-view = 'calibrated_visibilities' + str(step)
-#view = 'iterate_visibilities' + str(current_ring)
+
+step = 4
+#view = 'calibrated_visibilities' + str(step)
+view = 'iterate_visibilities' + str(step)
 blocks.append([NumpyBlock(image_horizon), {'in_1': view+'_image', 'out_1': 'final_image'}])
-blocks.append([ImagingBlock('sky.png', np.abs, log=False), {'in': 'final_image'}])
+blocks.append([ImagingBlock('sky.png', np.abs, log=True, cmap='gray'), {'in': 'final_image'}])
 ########################################
 
 ########################################
@@ -479,7 +483,7 @@ def print_all_stats(*arrays):
         print "Min of foreground:", np.min(np.abs(foreground_array))
         print "Mean of foreground:", np.average(np.abs(foreground_array))
         print "Stdev of foreground:", np.std(np.abs(foreground_array))
-        print "RMS of foreground:", np.sum(np.square(np.abs(foreground_array))/foreground_array.size)
+        print "RMS of foreground:", np.sqrt(np.sum(np.square(np.abs(foreground_array))/foreground_array.size))
         print "Max of background:", np.max(np.abs(background_array))
         print "Min of background:", np.min(np.abs(background_array))
         print "Mean of background:", np.average(np.abs(background_array))
