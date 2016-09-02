@@ -183,7 +183,13 @@ def baseline_threshold_against_model(model, data):
         return model, data
     normed_data = data/nonzero_median(np.abs(data[:, :, 0, :, 0]))
     normed_model = model/nonzero_median(np.abs(model[:, :, 0, :, 0]))
-    flags = np.abs(normed_data[:, :, 0, :, 0]) > 10*np.abs(normed_model[:, :, 0, :, 0])
+    upper_threshold = 10
+    lower_threshold = 0.0001
+    flags1 = np.abs(normed_data[:, :, 0, :, 0]) > upper_threshold*np.abs(normed_model[:, :, 0, :, 0])
+    flags2 = np.abs(normed_data[:, :, 0, :, 0]) < lower_threshold*np.abs(normed_model[:, :, 0, :, 0])
+    flags3 = np.abs(normed_data[:, :, 1, :, 1]) > upper_threshold*np.abs(normed_model[:, :, 1, :, 1])
+    flags4 = np.abs(normed_data[:, :, 1, :, 1]) < lower_threshold*np.abs(normed_model[:, :, 1, :, 1])
+    flags = np.logical_or(np.logical_or(flags1, flags2), np.logical_or(flags3, flags4))
     print np.sum(flags), "baselines thresholded against model"
     flagged_model = np.copy(model)
     flagged_data = np.copy(data)
