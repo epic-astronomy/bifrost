@@ -221,7 +221,10 @@ def apply_gains(data, jones):
     calibrated_data = np.copy(data)
     for i in range(256):
         for j in range(256):
-            calibrated_data[0, i, :, j, :] = np.dot(np.conj(np.transpose(jones[0, :, i, :])), np.dot(calibrated_data[0, i, :, j, :], jones[0, :, j, :]))
+            if i in BAD_STANDS or j in BAD_STANDS:
+                calibrated_data[0, i, :, j, :] = 0
+            else:
+                calibrated_data[0, i, :, j, :] = np.dot(np.conj(np.transpose(jones[0, :, i, :])), np.dot(calibrated_data[0, i, :, j, :], jones[0, :, j, :]))
     return calibrated_data
 
 def apply_inverse_gains(data, jones):
@@ -237,7 +240,10 @@ def apply_inverse_gains(data, jones):
             invjones[0, :, i, :] = 0
     for i in range(256):
         for j in range(256):
-            calibrated_data[0, i, :, j, :] = np.dot(np.conj(np.transpose(invjones[0, :, i, :])), np.dot(calibrated_data[0, i, :, j, :], invjones[0, :, j, :]))
+            if i in BAD_STANDS or j in BAD_STANDS:
+                calibrated_data[0, i, :, j, :] = 0
+            else:
+                calibrated_data[0, i, :, j, :] = np.dot(np.conj(np.transpose(invjones[0, :, i, :])), np.dot(calibrated_data[0, i, :, j, :], invjones[0, :, j, :]))
     return calibrated_data
 ########################################
 
