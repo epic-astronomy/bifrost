@@ -297,7 +297,7 @@ for i in range(200):
         sorted_fluxes.append(all_sorted_fluxes[i])
 current_ring = 0
 i = 0
-total_sources = 5
+total_sources = 3
 while current_ring < total_sources:
     current_source = {str(i):{}}
     current_source[str(i)]['flux'] = allsources[sorted_fluxes[i][0]]['flux']
@@ -362,6 +362,11 @@ while current_ring < total_sources:
         NumpyBlock(apply_inverse_gains, inputs=2),
         {'in_1': 'thresholded_model'+str(current_ring), 'in_2': 'jones_out'+str(current_ring),
          'out_1': 'adjusted_model'+str(current_ring)}])
+
+    blocks.append([
+        NumpyBlock(apply_gains, inputs=2),
+        {'in_1': 'thresholded_visibilities'+str(current_ring), 'in_2': 'jones_out'+str(current_ring),
+         'out_1': 'calibrated_visibilities'+str(current_ring)}])
     ####################################
 
     ####################################
@@ -412,21 +417,7 @@ blocks.append((
 ########################################
 
 ########################################
-#Imaging
-"""
-view = 'iterate_visibilities'+str(current_ring)
-blocks.append([NumpyBlock(np.copy),
-    {'in_1': 'iterate_visibilities'+str(current_ring), 'out_1': 'calibrated_data'}])
-blocks.append((
-    NumpyBlock(reformat_data_for_gridding, inputs=2),
-    {'in_1': view, 'in_2': 'uv_coords', 'out_1': view+'_data_for_gridding'}))
-blocks.append((
-    NearestNeighborGriddingBlock((256, 256)),
-    [view+'_data_for_gridding'], [view+'_grid']))
-blocks.append((IFFT2Block(), [view+'_grid'], [view+'_image']))
-blocks.append([ImagingBlock('sky.png', np.abs, log=False), {'in': view+'_image'}])
-"""
-########################################
+#Image the visibilities
 
 for view_i in range(current_ring+1):
     view = 'iterate_visibilities' + str(view_i)
@@ -439,47 +430,43 @@ for view_i in range(current_ring+1):
         [view+'_data_for_gridding'], [view+'_grid']))
     blocks.append((IFFT2Block(), [view+'_grid'], [view+'_image']))
 
-"""
-NumpyBlock(subtract_source, inputs=2),
-{'in_1': 'iterate_visibilities'+str(current_ring),
-'in_2': 'scaled_model'+str(current_ring),
-'out_1': 'iterate_visibilities'+str(current_ring+1)}])
-view = 'iterate_visibilities' + str(current_ring)
-"""
-blocks.append((NumpyBlock(np.copy), {'in_1': view, 'out_1': 'background'}))
-#blocks.append((NumpyBlock(np.copy), {'in_1': view, 'out_1' 'background'}))
-"""
-blocks.append((
-    NumpyBlock(reformat_data_for_gridding, inputs=2),
-    {'in_1': view, 'in_2': 'uv_coords', 'out_1': view+'_data_for_gridding'}))
-blocks.append((
-    NearestNeighborGriddingBlock((256, 256)),
-    [view+'_data_for_gridding'], [view+'_grid']))
-blocks.append((IFFT2Block(), [view+'_grid'], [view+'_image']))
-"""
+for view_i in range(current_ring):
+    view = 'calibrated_visibilities' + str(view_i)
+    print view
+    blocks.append((
+        NumpyBlock(reformat_data_for_gridding, inputs=2),
+        {'in_1': view, 'in_2': 'uv_coords', 'out_1': view+'_data_for_gridding'}))
+    blocks.append((
+        NearestNeighborGriddingBlock((256, 256)),
+        [view+'_data_for_gridding'], [view+'_grid']))
+    blocks.append((IFFT2Block(), [view+'_grid'], [view+'_image']))
+########################################
 
-def cutoff_horizon(image_array):
-    """Cut off past the horizon of an image"""
+########################################
+#Create an image with a horizon circle overlaid
+def image_horizon(image_array):
+    """Image the horizon of an image"""
     center_pixel = np.array((image_array.shape[0]/2,)*2)
-    flagged_array = np.copy(image_array)
+    superimposed_array = np.copy(image_array)
     indices = np.indices(image_array.shape)
     x_distance = indices[0, :, :] - center_pixel[0]
     y_distance = indices[1, :, :] - center_pixel[1]
     distance = np.abs(x_distance+1j*y_distance)
-    flags = distance > PIXEL_DIAMETER_PER_MHZ*frequencies[0]/2e6
-    print np.sum(flags)
-    flagged_array[flags] = 0
-    return flagged_array
-
-blocks.append([NumpyBlock(cutoff_horizon), {'in_1': 'iterate_visibilities'+str(current_ring)+'_image', 'out_1': 'final_image'}])
-
+    horizon = np.abs(distance - PIXEL_DIAMETER_PER_MHZ*frequencies[0]/2e6) < 1
+    print np.sum(horizon)
+    superimposed_array[horizon] = np.max(np.abs(image_array))
+    return superimposed_array
+step = 2
+view = 'calibrated_visibilities' + str(step)
+#view = 'iterate_visibilities' + str(current_ring)
+blocks.append([NumpyBlock(image_horizon), {'in_1': view+'_image', 'out_1': 'final_image'}])
 blocks.append([ImagingBlock('sky.png', np.abs, log=False), {'in': 'final_image'}])
 ########################################
-#Image stats
+
+########################################
+#Print image statistics
 def print_stats(array):
     print "SNR:", np.max(np.abs(array))/np.average(np.abs(array))
-blocks.append([NumpyBlock(print_stats, outputs=0), {'in_1': view+'_image'}])
-########################################
 
 def print_all_stats(*arrays):
     assert np.average(arrays[0]) != np.average(arrays[1])
@@ -500,7 +487,9 @@ def print_all_stats(*arrays):
         print "RMS of background:", np.sqrt(np.sum(np.square(np.abs(background_array))/background_array.size))
         print " "
 
+blocks.append([NumpyBlock(print_stats, outputs=0), {'in_1': view+'_image'}])
 blocks.append([NumpyBlock(print_all_stats, inputs=current_ring+1, outputs=0),
     {'in_%d'%(i+1): 'iterate_visibilities'+str(i)+'_image' for i in range(current_ring+1)}])
+########################################
 
 Pipeline(blocks).main()
