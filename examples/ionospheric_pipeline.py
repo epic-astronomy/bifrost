@@ -124,7 +124,6 @@ nstand = 256
 nchan = 1
 npol = 2
 frequencies = cfreq - bandwidth/2 + df*output_channels
-print frequencies
 stand_flags = 2*np.ones(shape=[1, nstand]).astype(np.int8)
 for stand in BAD_STANDS:
     stand_flags[0, stand] = 1
@@ -184,7 +183,7 @@ def baseline_threshold_against_model(model, data):
         return model, data
     normed_data = data/nonzero_median(np.abs(data[:, :, 0, :, 0]))
     normed_model = model/nonzero_median(np.abs(model[:, :, 0, :, 0]))
-    flags = np.abs(normed_data[:, :, 0, :, 0]) > 5*np.abs(normed_model[:, :, 0, :, 0])
+    flags = np.abs(normed_data[:, :, 0, :, 0]) > 10*np.abs(normed_model[:, :, 0, :, 0])
     print np.sum(flags), "baselines thresholded against model"
     flagged_model = np.copy(model)
     flagged_data = np.copy(data)
@@ -297,7 +296,9 @@ for i in range(200):
         sorted_fluxes.append(all_sorted_fluxes[i])
 current_ring = 0
 i = 0
-total_sources = 2
+#Image Cyg and Cas at the same time!
+del sorted_fluxes[0]
+total_sources = 4
 while current_ring < total_sources:
     current_source = {str(i):{}}
     current_source[str(i)]['flux'] = allsources[sorted_fluxes[i][0]]['flux']
@@ -310,14 +311,15 @@ while current_ring < total_sources:
     if below_horizon(allsources[sorted_fluxes[i][0]]):
         i+=1
         continue
-    print current_source
-    if i == -1:
+    if i == 0:
         # (Cas selected, so do a two source model)
         sources = {}
         sources['cyg'] = {
             'ra':'19:59:28.4', 'dec':'+40:44:02.1', 'flux': 10571.0, 'frequency': 58e6,
             'spectral index': -0.2046}
-        sources['1'] = allsources[sorted_fluxes[i][0]]
+        sources['cas']= {
+            'ra': '23:23:27.8', 'dec': '+58:48:34',
+            'flux': 6052.0, 'frequency': 58e6, 'spectral index':(+0.7581)}
         blocks.append((
             ScalarSkyModelBlock(OVRO_EPHEM, COORDINATES, frequencies, sources),
             [], ['model+uv'+str(current_ring)]))
@@ -325,10 +327,14 @@ while current_ring < total_sources:
         blocks.append((
             ScalarSkyModelBlock(OVRO_EPHEM, COORDINATES, frequencies, {str(i): allsources[sorted_fluxes[i][0]]}),
             [], ['model+uv'+str(current_ring)]))
+    if current_ring == 0: 
+        coordinate_output = 'uv_coords'
+    else:
+        coordinate_output = 'trash'+str(10.5*current_ring+1.2423)
     blocks.append((
         NumpyBlock(slice_away_uv, outputs=2),
         {'in_1': 'model+uv'+str(current_ring), 'out_1': 'initial_model'+str(current_ring),
-         'out_2': 'trash'+str(10.5*current_ring)}))
+         'out_2': coordinate_output}))
     blocks.append((
         NumpyBlock(flag_bad_stands),
         {'in_1': 'initial_model'+str(current_ring), 'out_1': 'model'+str(current_ring)}))
@@ -350,7 +356,7 @@ while current_ring < total_sources:
     #Solve for gains and renormalize
     blocks.append([NumpyBlock(np.copy), {'in_1': 'jones_in', 'out_1': 'jones_in'+str(current_ring)}])
     blocks.append([
-        GainSolveBlock(flags=stand_flags, eps=0.6, max_iterations=10, l2reg=0.0),
+        GainSolveBlock(flags=stand_flags, eps=0.5, max_iterations=10, l2reg=0.0),
         {'in_data': 'long_visibilities'+str(current_ring), 'in_model': 'long_model'+str(current_ring),
          'in_jones': 'jones_in'+str(current_ring), 'out_data': 'trash'+str(10.5*current_ring+1),
          'out_jones': 'jones_out'+str(current_ring)}])
@@ -362,13 +368,6 @@ while current_ring < total_sources:
         NumpyBlock(apply_inverse_gains, inputs=2),
         {'in_1': 'thresholded_model'+str(current_ring), 'in_2': 'jones_out'+str(current_ring),
          'out_1': 'adjusted_model'+str(current_ring)}])
-
-    """
-    blocks.append([
-        NumpyBlock(apply_gains, inputs=2),
-        {'in_1': 'thresholded_visibilities'+str(current_ring), 'in_2': 'jones_out'+str(current_ring),
-         'out_1': 'calibrated_visibilities'+str(current_ring)}])
-         """
     ####################################
 
     ####################################
@@ -418,8 +417,13 @@ current_ring = 0
 while current_ring < total_sources - 1:
     ####################################
     #Add the source back in
+    def add_source(background, source):
+        print "background, source flux:"
+        print np.max(np.abs(background))
+        print np.max(np.abs(source))
+        return background + source
     #TODO: Use flags from above here.
-    blocks.append([NumpyBlock(np.add, inputs=2),
+    blocks.append([NumpyBlock(add_source, inputs=2),
         {'in_1': 'peeled_sky', 'in_2': 'scaled_model'+str(current_ring),
         'out_1': 'unpeeled_sky'+str(current_ring)}])
     ####################################
@@ -438,10 +442,11 @@ while current_ring < total_sources - 1:
 
     ####################################
     #Solve for gains
+    blocks.append([NumpyBlock(np.copy), {'in_1': 'jones_in', 'out_1': 'jones_in_peeler'+str(current_ring)}])
     blocks.append([
         GainSolveBlock(flags=stand_flags, eps=0.5, max_iterations=10, l2reg=0.0),
-        {'in_data': 'long_peeler_model'+str(current_ring), 'in_model': 'long_unpeeled_sky'+str(current_ring),
-         'in_jones': 'jones_out'+str(current_ring), 'out_data': 'trash_peel'+str(current_ring),
+        {'in_data': 'long_unpeeled_sky'+str(current_ring), 'in_model': 'long_peeler_model'+str(current_ring),
+         'in_jones': 'jones_in_peeler'+str(current_ring), 'out_data': 'trash_peel'+str(current_ring),
          'out_jones': 'peeled_jones_out'+str(current_ring)}])
     ####################################
     current_ring += 1
@@ -454,7 +459,6 @@ def array_average(*arrays):
 
 solution_rings = {'in_%d'%(i+1): 'peeled_jones_out'+str(i) for i in range(total_sources-1)}
 solution_rings['in_%d'%(total_sources)] = 'jones_out'+str(total_sources-1)
-print solution_rings
 averaging_rings = solution_rings
 averaging_rings['out_1'] = 'average_jones'
 blocks.append([NumpyBlock(array_average, inputs=total_sources), averaging_rings])
@@ -465,15 +469,7 @@ blocks.append([
 ########################################
 
 ########################################
-#Get the UV coordinates
-blocks.append((
-    NumpyBlock(slice_away_uv, outputs=2),
-    {'in_1': 'model+uv0', 'out_1': 'trash-1',
-     'out_2': 'uv_coords'}))
-########################################
-
-########################################
-#Image the visibilities
+#Image the visibilities and get the uv coordinates
 view = 'calibrated_peeled_solution'
 blocks.append((
     NumpyBlock(reformat_data_for_gridding, inputs=2),
@@ -495,12 +491,11 @@ def image_horizon(image_array):
     y_distance = indices[1, :, :] - center_pixel[1]
     distance = np.abs(x_distance+1j*y_distance)
     horizon = np.abs(distance-PIXEL_DIAMETER_PER_MHZ*frequencies[0]/2e6) < 1
-    print np.sum(horizon)
     superimposed_array[horizon] = np.max(np.abs(image_array))
     return superimposed_array
 
 blocks.append([NumpyBlock(image_horizon), {'in_1': view+'_image', 'out_1': 'final_image'}])
-blocks.append([ImagingBlock('sky.png', np.abs, log=True, cmap='gray'), {'in': 'final_image'}])
+blocks.append([ImagingBlock('sky.png', np.abs, log=False), {'in': 'final_image'}])
 ########################################
 
 ########################################
@@ -527,9 +522,9 @@ def print_all_stats(*arrays):
         print "RMS of background:", np.sqrt(np.sum(np.square(np.abs(background_array))/background_array.size))
         print " "
 
-blocks.append([NumpyBlock(print_stats, outputs=0), {'in_1': view+'_image'}])
-blocks.append([NumpyBlock(print_all_stats, inputs=current_ring+1, outputs=0),
-    {'in_1': view+'_image'}])
+#blocks.append([NumpyBlock(print_stats, outputs=0), {'in_1': view+'_image'}])
+#blocks.append([NumpyBlock(print_all_stats, inputs=1, outputs=0),
+    #{'in_1': view+'_image'}])
 ########################################
 
 Pipeline(blocks).main()
