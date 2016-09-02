@@ -52,13 +52,39 @@ class Pipeline(object):
         one ring for each input/output 'port' of each block,
         and running data through the rings."""
     def __init__(self, blocks):
+        """Load up all unique rings, and check them"""
         self.blocks = blocks
+        self.assert_unique_writer()
         self.rings = {}
         for index in self.unique_ring_names():
             if isinstance(index, Ring):
                 self.rings[str(index)] = index
             else:
                 self.rings[index] = Ring()
+    def assert_unique_writer(self):
+        """Check that each ring is outputted from some block"""
+        #TODO: Check not multiple writers.
+        ring_ins = []
+        ring_outs = []
+        for block in self.blocks:
+            if issubclass(type(block[0]), MultiTransformBlock):
+                for ring_name in block[1]:
+                    if ring_name[:2] == 'in':
+                        ring_ins.append((block, block[1][ring_name]))
+                    else:
+                        ring_outs.append((block, block[1][ring_name]))
+            else:
+                for ring_id in block[1]:
+                    ring_ins.append((block, ring_id))
+                for ring_id in block[2]:
+                    ring_outs.append((block, ring_id))
+        for ring_in in ring_ins:
+            ring_id = ring_in[1]
+            for ring_out in ring_outs:
+                if ring_id == ring_out[1]:
+                    break
+            else:
+                raise NameError("Ring %r in block %r does not have any writer."%(ring_id, ring_in[0]))
     def unique_ring_names(self):
         """Return a list of unique ring indices"""
         all_names = []
@@ -69,7 +95,8 @@ class Pipeline(object):
                     "Block %r has ring names %r,"%(block[0], block[0].ring_names) +\
                     "but only has %r entered" % (block[1])
                 for ring_name in block[0].ring_names:
-                    assert ring_name in block[1]
+                    assert ring_name in block[1], \
+                        "Block %r is missing ring %r"%(block[0], ring_name)
                 for param_name in block[1]:
                     ring_id = block[1][param_name]
                     if isinstance(ring_id, Ring):
