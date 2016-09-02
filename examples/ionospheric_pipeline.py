@@ -165,21 +165,20 @@ def baseline_threshold_against_self(data):
     if np.max(np.abs(data)) == 0: 
         return data
     median_data = nonzero_median(np.abs(data[:, :, 0, :, 0]))
-    data = data/median_data
-    flags = np.abs(data[:, :, 0, :, 0]) > 10
+    flags = np.abs(data[:, :, 0, :, 0]/median_data) > 10
     print np.sum(flags), "baselines thresholded by amplitude"
     flagged_data = np.copy(data)
     for x, y in [(0, 0), (0, 1), (1, 0), (1, 1)]:
         flagged_data[:, :, x, :, y][flags] = 0
-    return flagged_data*median_data
+    return flagged_data
 
 def baseline_threshold_against_model(model, data):
     """Flag a visibility against calibration if it is above a threshold value"""
     if np.max(np.abs(model)) == 0: 
         return model, data
-    data = data/nonzero_median(np.abs(data[:, :, 0, :, 0]))
-    model = model/nonzero_median(np.abs(model[:, :, 0, :, 0]))
-    flags = np.abs(data[:, :, 0, :, 0]) > 5*np.abs(model[:, :, 0, :, 0])
+    normed_data = data/nonzero_median(np.abs(data[:, :, 0, :, 0]))
+    normed_model = model/nonzero_median(np.abs(model[:, :, 0, :, 0]))
+    flags = np.abs(normed_data[:, :, 0, :, 0]) > 5*np.abs(normed_model[:, :, 0, :, 0])
     print np.sum(flags), "baselines thresholded against model"
     flagged_model = np.copy(model)
     flagged_data = np.copy(data)
@@ -190,6 +189,8 @@ def baseline_threshold_against_model(model, data):
 
 def baseline_length_flagger(model, data):
     """Flag visibilities if the corresponding baseline is too short"""
+    if np.max(np.abs(model)) == 0:
+        return model, data
     baselines = np.sqrt(np.square(COORDINATES[:, None] - COORDINATES[None, :]).sum(axis=2))
     wavelengths = SPEED_OF_LIGHT/np.array(frequencies[0])
     flags = baselines < 10*wavelengths
@@ -216,10 +217,12 @@ def apply_inverse_gains(data, jones):
     """Apply the inverse solutions to model data"""
     calibrated_data = np.copy(data)
     invjones = np.copy(jones)
+    if np.max(np.abs(data)) == 0:
+        return data
     for i in range(256):
         try:
             invjones[0, :, i, :] = np.linalg.inv(jones[0, :, i, :])
-        except:
+        except np.linalg.LinAlgError:
             invjones[0, :, i, :] = 0
     for i in range(256):
         for j in range(256):
@@ -282,7 +285,7 @@ for i in range(200):
         sorted_fluxes.append(all_sorted_fluxes[i])
 current_ring = 0
 i = 0
-total_sources = 10
+total_sources = 5
 while current_ring < total_sources:
     current_source = {str(i):{}}
     current_source[str(i)]['flux'] = allsources[sorted_fluxes[i][0]]['flux']
