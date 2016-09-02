@@ -143,15 +143,26 @@ blocks.append((
 
 ########################################
 #Flagging functions
-def baseline_threshold_flagger(allmodel, model, data):
+def baseline_threshold_against_self(data):
+    """Flag visibilities if above median of self"""
+    if np.median(np.abs(data)) == 0: 
+        return data
+    data = data/np.median(np.abs(data[:, :, 0, :, 0]))
+    flags = np.abs(data[:, :, 0, :, 0]) > 10
+    print np.sum(flags), "baselines thresholded by amplitude"
+    flagged_data = np.copy(data)
+    for x, y in [(0, 0), (0, 1), (1, 0), (1, 1)]:
+        flagged_data[:, :, x, :, y][flags] = 0
+    return flagged_data
+
+def baseline_threshold_against_model(model, data):
     """Flag a visibility against calibration if it is above a threshold value"""
     if np.median(np.abs(model)) == 0: 
         return model, data
     data = data/np.median(np.abs(data[:, :, 0, :, 0]))
     model = model/np.median(np.abs(model[:, :, 0, :, 0]))
-    allmodel = allmodel/np.median(np.abs(allmodel[:, :, 0, :, 0]))
-    flags = np.abs(data[:, :, 0, :, 0]) > 10#15*np.abs(allmodel[:, :, 0, :, 0])
-    print np.sum(flags), "baselines thresholded by amplitude"
+    flags = np.abs(data[:, :, 0, :, 0]) > 5*np.abs(model[:, :, 0, :, 0])
+    print np.sum(flags), "baselines thresholded against model"
     flagged_model = np.copy(model)
     flagged_data = np.copy(data)
     for x, y in [(0, 0), (0, 1), (1, 0), (1, 1)]:
@@ -223,29 +234,61 @@ def below_horizon(source):
     return (altitude < 0)
 ########################################
 
-
-
-
+########################################
+#Initial flagging against RFI
+blocks.append([
+    NumpyBlock(baseline_threshold_against_self),
+    {'in_1':'formatted_visibilities', 'out_1':'clean_formatted_visibilities'}])
+########################################
 
 ########################################
-#Perform an initial calibration to every source
+#Copy in the visibilities to the iterate
+blocks.append([
+    NumpyBlock(np.copy),
+    {'in_1':'clean_formatted_visibilities', 'out_1': 'iterate_visibilities0'}])
+########################################
+
+########################################
+#PREPEEL: Perform an initial calibration to every source, and subtract off.
 allsources = load_sources()
 fluxes_list = {str(i):allsources[str(i)]['flux'] for i in range(len(allsources))}
-sorted_fluxes = sorted(fluxes_list.items(), key=operator.itemgetter(1))[-1::-1]
+all_sorted_fluxes = sorted(fluxes_list.items(), key=operator.itemgetter(1))[-1::-1]
+#Delete overlapping sources:
+overlapping_sources = [2, 3, 4, 5, 6, 9, 12, 15, 16]
+sorted_fluxes = []
+for i in range(200):
+    if i not in overlapping_sources:
+        sorted_fluxes.append(all_sorted_fluxes[i])
 current_ring = 0
 i = 0
-total_sources = 5
+total_sources = 6
 while current_ring < total_sources:
-    current_source = allsources[sorted_fluxes[i][0]]
-    print current_source
-    i+=1
+    current_source = {str(i):{}}
+    current_source[str(i)]['flux'] = allsources[sorted_fluxes[i][0]]['flux']
+    current_source[str(i)]['ra'] = allsources[sorted_fluxes[i][0]]['ra']
+    current_source[str(i)]['dec'] = allsources[sorted_fluxes[i][0]]['dec']
+    current_source[str(i)]['spectral index'] = allsources[sorted_fluxes[i][0]]['spectral index']
+    current_source[str(i)]['frequency'] = allsources[sorted_fluxes[i][0]]['frequency']
     ####################################
     #Generate the source model
-    if below_horizon(current_source):
+    if below_horizon(allsources[sorted_fluxes[i][0]]):
+        i+=1
         continue
-    blocks.append((
-        ScalarSkyModelBlock(OVRO_EPHEM, COORDINATES, frequencies, {'1':current_source}),
-        [], ['model+uv'+str(current_ring)]))
+    print current_source
+    if i == -1:
+        # (Cas selected, so do a two source model)
+        sources = {}
+        sources['cyg'] = {
+            'ra':'19:59:28.4', 'dec':'+40:44:02.1', 'flux': 10571.0, 'frequency': 58e6,
+            'spectral index': -0.2046}
+        sources['1'] = allsources[sorted_fluxes[i][0]]
+        blocks.append((
+            ScalarSkyModelBlock(OVRO_EPHEM, COORDINATES, frequencies, sources),
+            [], ['model+uv'+str(current_ring)]))
+    else:
+        blocks.append((
+            ScalarSkyModelBlock(OVRO_EPHEM, COORDINATES, frequencies, {str(i): allsources[sorted_fluxes[i][0]]}),
+            [], ['model+uv'+str(current_ring)]))
     blocks.append((
         NumpyBlock(slice_away_uv, outputs=2),
         {'in_1': 'model+uv'+str(current_ring), 'out_1': 'model'+str(current_ring),
@@ -255,15 +298,14 @@ while current_ring < total_sources:
     ####################################
     #Flag the model and visibilities
     blocks.append([
-        NumpyBlock(baseline_threshold_flagger, inputs=3, outputs=2),
-        {'in_1': 'model'+str(current_ring), 'in_2':'model'+str(current_ring), 'in_3': 'formatted_visibilities',
+        NumpyBlock(baseline_threshold_against_model, inputs=2, outputs=2),
+        {'in_1':'model'+str(current_ring), 'in_2': 'iterate_visibilities'+str(current_ring),
         'out_1': 'thresholded_model'+str(current_ring), 'out_2': 'thresholded_visibilities'+str(current_ring)}])
     blocks.append([
         NumpyBlock(baseline_length_flagger, inputs=2, outputs=2),
         {'in_1': 'thresholded_model'+str(current_ring), 'in_2': 'thresholded_visibilities'+str(current_ring),
         'out_1': 'long_model'+str(current_ring), 'out_2': 'long_visibilities'+str(current_ring)}])
     ####################################
-
 
     ####################################
     #Solve for gains and apply to source model
@@ -279,8 +321,16 @@ while current_ring < total_sources:
          'out_1': 'adjusted_model'+str(current_ring)}])
     ####################################
 
+    ####################################
+    #Subtract 'uncalibrated' source model from visibilities
+    blocks.append([
+        NumpyBlock(subtract_sources, inputs=2),
+        {'in_1': 'iterate_visibilities'+str(current_ring),
+        'in_2': 'adjusted_model'+str(current_ring),
+        'out_1': 'iterate_visibilities'+str(current_ring+1)}])
+    ####################################
+    i+=1
     current_ring += 1
-
 
 ########################################
 #Get the UV coordinates
@@ -291,38 +341,10 @@ blocks.append((
 ########################################
 
 ########################################
-#Average the jones matrices
-jones_in = {'in_%d'%(i+1): 'jones_out'+str(i) for i in range(current_ring)}
-jones_average_block_rings = dict(jones_in)
-jones_average_block_rings['out_1'] = 'jones_out_average'
-def average(*args):
-    """Do an average of all arrays"""
-    arrays = list(args)
-    for i in range(len(arrays)):
-        arrays[i] = np.copy(arrays[i])*1
-    return np.average(arrays, axis=0)
-
-blocks.append([NumpyBlock(average, inputs=current_ring), jones_average_block_rings])
-########################################
-
-########################################
-#Subtract all of the sources into a final calibrated visibilities
-models_in = {'in_%d'%(i+2): 'adjusted_model'+str(i) for i in range(current_ring)}
-peeling_block_rings = dict(models_in)
-#TODO: This formatted visibilities needs to be thresholded.
-peeling_block_rings['in_1'] = 'thresholded_visibilities0'
-peeling_block_rings['out_1'] = 'cleaned_visibilities'
-
-blocks.append([NumpyBlock(subtract_sources, inputs=1+current_ring), peeling_block_rings])
-blocks.append([
-    NumpyBlock(apply_gains, inputs=2),
-    {'in_1': 'cleaned_visibilities', 'in_2': 'jones_out_average',
-     'out_1': 'calibrated_data'}])
-########################################
-
-########################################
 #Imaging
-view = 'calibrated_data'
+view = 'iterate_visibilities'+str(current_ring)
+blocks.append([NumpyBlock(np.copy),
+    {'in_1': 'iterate_visibilities'+str(current_ring), 'out_1': 'calibrated_data'}])
 blocks.append((
     NumpyBlock(reformat_data_for_gridding, inputs=2),
     {'in_1': view, 'in_2': 'uv_coords', 'out_1': view+'_data_for_gridding'}))
@@ -332,7 +354,6 @@ blocks.append((
 blocks.append((IFFT2Block(), [view+'_grid'], [view+'_image']))
 blocks.append([ImagingBlock('sky.png', np.abs, log=False), {'in': view+'_image'}])
 ########################################
-
 
 ########################################
 #Image stats
