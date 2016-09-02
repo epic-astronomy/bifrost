@@ -380,8 +380,10 @@ class ImagingBlock(MultiTransformBlock):
         """Update gulp size settings based on inputted header"""
         self.gulp_size['in'] = int(np.product(self.header['in']['shape']))*\
             self.header['in']['nbit']//8
-        self.dtype = np.dtype(
-            self.header['in']['dtype'].split()[1].split(".")[1].split("'")[0]).type
+        try:
+            self.dtype = np.dtype(self.header['in']['dtype']).type
+        except TypeError:
+            self.dtype = np.dtype(self.header['in']['dtype'].split()[1].split(".")[1].split("'")[0]).type
     def main(self):
         """Load in each span, and save them to the same file as an image (it will update)"""
         for in_span in self.read('in'):
