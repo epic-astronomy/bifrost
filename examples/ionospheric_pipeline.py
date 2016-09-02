@@ -261,7 +261,7 @@ for i in range(200):
         sorted_fluxes.append(all_sorted_fluxes[i])
 current_ring = 0
 i = 0
-total_sources = 6
+total_sources = 3
 while current_ring < total_sources:
     current_source = {str(i):{}}
     current_source[str(i)]['flux'] = allsources[sorted_fluxes[i][0]]['flux']
@@ -313,12 +313,16 @@ while current_ring < total_sources:
     blocks.append([
         GainSolveBlock(flags=flags, eps=0.5, max_iterations=10, l2reg=0.0),
         {'in_data': 'long_visibilities'+str(current_ring), 'in_model': 'long_model'+str(current_ring),
-         'in_jones': 'jones_in'+str(current_ring), 'out_data': 'trash'+str(10.5*current_ring+1),
+         'in_jones': 'jones_in'+str(current_ring), 'out_data': 'trash..'+str(10.5*current_ring),
          'out_jones': 'jones_out'+str(current_ring)}])
     blocks.append([
         NumpyBlock(apply_inverse_gains, inputs=2),
         {'in_1': 'thresholded_model'+str(current_ring), 'in_2': 'jones_out'+str(current_ring),
          'out_1': 'adjusted_model'+str(current_ring)}])
+    blocks.append([
+        NumpyBlock(apply_gains, inputs=2),
+        {'in_1': 'thresholded_visibilities'+str(current_ring), 'in_2': 'jones_out'+str(current_ring),
+         'out_1': 'calibrated_data_prime'+str(current_ring)}])
     ####################################
 
     ####################################
@@ -326,7 +330,8 @@ while current_ring < total_sources:
     blocks.append([
         NumpyBlock(subtract_sources, inputs=2),
         {'in_1': 'iterate_visibilities'+str(current_ring),
-        'in_2': 'adjusted_model'+str(current_ring),
+        'in_2': 'calibrated_data_prime'+str(current_ring),
+        #'in_2': 'adjusted_model'+str(current_ring),
         'out_1': 'iterate_visibilities'+str(current_ring+1)}])
     ####################################
     i+=1
