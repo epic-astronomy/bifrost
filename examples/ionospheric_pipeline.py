@@ -310,7 +310,7 @@ current_ring = 0
 i = 0
 #Image Cyg and Cas at the same time!
 del sorted_fluxes[0]
-total_sources = 4
+total_sources = 3
 while current_ring < total_sources:
     current_source = {str(i):{}}
     current_source[str(i)]['flux'] = allsources[sorted_fluxes[i][0]]['flux']
@@ -430,9 +430,6 @@ while current_ring < total_sources - 1:
     ####################################
     #Add the source back in
     def add_source(background, source):
-        print "background, source flux:"
-        print np.max(np.abs(background))
-        print np.max(np.abs(source))
         return background + source
     #TODO: Use flags from above here.
     blocks.append([NumpyBlock(add_source, inputs=2),
