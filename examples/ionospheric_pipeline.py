@@ -92,8 +92,8 @@ def slice_away_uv(model_and_uv):
 def reformat_data_for_gridding(visibilities, uv_coordinates):
     """Reshape visibility data for gridding on UV plane"""
     reformatted_data = np.zeros(shape=[256, 256, 4], dtype=np.float32)
-    reformatted_data[:, :, 0] = uv_coordinates[:, :, 0]
-    reformatted_data[:, :, 1] = uv_coordinates[:, :, 1]
+    reformatted_data[:, :, 0] = -uv_coordinates[:, :, 0]
+    reformatted_data[:, :, 1] = -uv_coordinates[:, :, 1]
     reformatted_data[:, :, 2] = np.real(visibilities[0, :, 0, :, 0])
     reformatted_data[:, :, 3] = np.imag(visibilities[0, :, 0, :, 0])
     return reformatted_data
@@ -115,7 +115,16 @@ dada_file = '/data2/hg/interfits/dada_converter/WholeSkyL64_47.004_d20150203_utc
 #dada_file = '/data2/hg/interfits/lconverter/WholeSkyL64_47.004_d20150203_utc181702_test/2015-04-08-20_15_03_0001133593833216.dada'
 #dada_file = '/data1/mcranmer/data/real/leda/2015-04-08-20_15_03_0001133593833216.dada'
 
-BAD_STANDS = [4, 5, 7, 15, 20, 21, 23, 31, 36, 37, 39, 43, 47, 49, 52, 53, 55, 63, 68, 69, 71, 72, 79, 83, 84, 85, 86, 87, 88, 89, 91, 95, 103, 104, 105, 106, 107, 108, 109, 110, 111, 116, 117, 119, 127, 132, 133, 135, 141, 143, 145, 148, 149, 150, 151, 158, 159, 163, 164, 165, 167, 168, 175, 180, 181, 183, 191, 196, 197, 199, 207, 212, 213, 215, 218, 219, 220, 221, 222, 223, 224, 225, 228, 229, 231, 239, 243, 244, 245, 246, 247, 248, 249, 250, 251, 252, 253, 254, 255]
+BAD_STANDS = [4, 5, 7, 15, 20, 21, 23, 31, 36, 37, 39, 43, 47, \
+              49, 52, 53, 55, 63, 68, 69, 71, 72, 79, 83, 84, \
+              85, 86, 87, 88, 89, 91, 95, 103, 104, 105, 106, \
+              107, 108, 109, 110, 111, 116, 117, 119, 127, 132, \
+              133, 135, 141, 143, 145, 148, 149, 150, 151, 158, \
+              159, 163, 164, 165, 167, 168, 175, 180, 181, 183, \
+              191, 196, 197, 199, 207, 212, 213, 215, 218, 219, \
+              220, 221, 222, 223, 224, 225, 228, 229, 231, 239, \
+              243, 244, 245, 246, 247, 248, 249, 250, 251, 252, \
+              253, 254, 255]
 
 OVRO_EPHEM.date = '2015/02/03 18:17:02'
 #OVRO_EPHEM.date = '2015/04/09 14:34:51'
@@ -187,8 +196,8 @@ def baseline_threshold_against_model(model, data):
         return model, data
     normed_data = data/nonzero_median(np.abs(data[:, :, 0, :, 0]))
     normed_model = model/nonzero_median(np.abs(model[:, :, 0, :, 0]))
-    upper_threshold = 100
-    lower_threshold = 0.00001
+    upper_threshold = 10
+    lower_threshold = 0.00000001
     flags1 = np.abs(normed_data[:, :, 0, :, 0]) > upper_threshold*np.abs(normed_model[:, :, 0, :, 0])
     flags2 = np.abs(normed_data[:, :, 0, :, 0]) < lower_threshold*np.abs(normed_model[:, :, 0, :, 0])
     flags3 = np.abs(normed_data[:, :, 1, :, 1]) > upper_threshold*np.abs(normed_model[:, :, 1, :, 1])
@@ -333,11 +342,9 @@ while current_ring < total_sources:
         sources['cyg'] = {
             'ra':'19:59:28.4', 'dec':'+40:44:02.1', 'flux': 10571.0, 'frequency': 58e6,
             'spectral index': -0.2046}
-        """
         sources['cas']= {
             'ra': '23:23:27.8', 'dec': '+58:48:34',
             'flux': 6052.0, 'frequency': 58e6, 'spectral index':(+0.7581)}
-        """
         blocks.append((
             ScalarSkyModelBlock(OVRO_EPHEM, COORDINATES, frequencies, sources),
             [], ['model+uv'+str(current_ring)]))
