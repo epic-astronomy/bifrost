@@ -64,6 +64,3 @@ class TestFFTHandles1DComplex(unittest.TestCase):
         local_data = self.output_data.get()
         self.assertAlmostEqual(local_data[1],-12.8455+4.33277j,places=4)
 
-
-
-

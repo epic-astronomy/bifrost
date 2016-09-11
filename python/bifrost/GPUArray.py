@@ -114,7 +114,7 @@ class GPUArray(object):
 		else:
 			raise RuntimeError("Copying with this data layout is unsupported")
 		return self
-        def as_BFarray(self, bf_max_dimensions):
+        def as_BFarray(self, bf_max_dimensions=100):
                 data_void_pointer = ctypes.cast(
                     self.buffer, ctypes.c_void_p)
                 cuda_space = 2
@@ -133,6 +133,28 @@ class GPUArray(object):
                 ndim = len(self.shape)
                 BFarray = _bf.BFarray(
                     data_void_pointer, cuda_space,
-                    1, 1,
+                    1, ndim,
+                    shape, strides)
+                return BFarray
+        def as_BFconstarray(self, bf_max_dimensions=100):
+                data_void_pointer = ctypes.cast(
+                    self.buffer, ctypes.c_void_p)
+                cuda_space = 2
+                #nelements = np.zeros(
+                #    shape=bf_max_dimensions)
+                #nelements[:len(self.shape)] += self.shape
+                #nelements = nelements.ctypes.data_as(
+                #    ctypes.c_ulong*bf_max_dimensions)
+                shape = self.shape
+                shape = (_bf.BFsize*bf_max_dimensions)(*list(shape))
+                #nelements = 
+                    #(ctypes.c_uint64*bf_max_dimensions)(*
+                #TODO: Fix this test code
+                strides = (_bf.BFsize*bf_max_dimensions)(*list(shape))
+                #dtype = _bf.BFsize(1)
+                ndim = len(self.shape)
+                BFarray = _bf.BFconstarray(
+                    data_void_pointer, cuda_space,
+                    1, ndim,
                     shape, strides)
                 return BFarray

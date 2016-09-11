@@ -31,10 +31,15 @@ This file tests all aspects of the Bifrost.block module.
 import unittest
 import numpy as np
 from bifrost.ring import Ring
+from bifrost.libbifrost import _bf
+from bifrost.GPUArray import GPUArray
 from bifrost.block import TestingBlock, WriteAsciiBlock, WriteHeaderBlock
 from bifrost.block import SigprocReadBlock, CopyBlock, KurtosisBlock, FoldBlock
 from bifrost.block import IFFTBlock, FFTBlock, Pipeline, MultiAddBlock
 from bifrost.block import SplitterBlock, NumpyBlock, NumpySourceBlock
+from bifrost.block import NearestNeighborGriddingBlock, IFFT2Block
+from bifrost.block import GainSolveBlock, MultiAddBlock
+from bifrost.block import DStackBlock, ReductionBlock
 
 class TestIterateRingWrite(unittest.TestCase):
     """Test the iterate_ring_write function of SourceBlocks/TransformBlocks"""
@@ -334,6 +339,120 @@ class TestIFFTBlock(unittest.TestCase):
         Pipeline(self.blocks).main()
         untouched_result = np.loadtxt(self.logfile).astype(np.float32)
         np.testing.assert_almost_equal(unfft_result, untouched_result, 2)
+class TestFakeVisBlock(unittest.TestCase):
+    """Performs tests of the fake visibility Block."""
+    def setUp(self):
+        self.datafile_name = "/data1/mcranmer/data/fake/mona_uvw.dat"
+        self.blocks = []
+        self.num_stands = 512
+        self.blocks.append(
+            (FakeVisBlock(self.datafile_name, self.num_stands), [], [0]))
+    def tearDown(self):
+        """Run the pipeline (which should have the asserts inside it)"""
+        Pipeline(self.blocks).main()
+    def test_output_size(self):
+        """Make sure the outputs are being sized appropriate to the file"""
+        def verify_ring_size(array):
+            """Check ring output size"""
+            self.assertAlmostEqual(
+                array.size,
+                6*self.num_stands*(self.num_stands+1)//2,
+                -2)
+        self.blocks.append([
+            NumpyBlock(function=verify_ring_size, outputs=0),
+            {'in_1': 0}])
+    def test_different_size_data(self):
+        """Assert that different data sizes are processed properly"""
+        self.num_stands = 256
+        def verify_ring_size(array):
+            """Check ring output size"""
+            self.assertAlmostEqual(
+                array.size,
+                6*self.num_stands*(self.num_stands+1)//2,
+                -2)
+        datafile_name = "/data1/mcranmer/data/fake/mona_uvw_half.dat"
+        self.blocks[0] = (FakeVisBlock(datafile_name, self.num_stands), [], [0])
+        self.blocks.append([
+            NumpyBlock(function=verify_ring_size, outputs=0),
+            {'in_1': 0}])
+class TestNearestNeighborGriddingBlock(unittest.TestCase):
+    """Test the functionality of the nearest neighbor gridding block"""
+    def setUp(self):
+        """Run a pipeline on a fake visibility set and grid it"""
+        self.datafile_name = "/data1/mcranmer/data/fake/mona_uvw.dat"
+        self.blocks = []
+        self.blocks.append((FakeVisBlock(self.datafile_name, 512), [], ['stand+uv+vis']))
+        def slice_away_stand_values(fake_vis_data):
+            """Cut away the stand numbers from the FakeVisBlock"""
+            return fake_vis_data[:, 2:]
+        self.blocks.append((
+            NumpyBlock(slice_away_stand_values),
+            {'in_1':'stand+uv+vis', 'out_1':'uv+vis'}))
+        self.blocks.append((NearestNeighborGriddingBlock(shape=(100, 100)), ['uv+vis'], [1]))
+        self.blocks.append((WriteAsciiBlock('.log.txt'), [1], []))
+    def test_output_size(self):
+        """Make sure that 10,000 grid points are created"""
+        Pipeline(self.blocks).main()
+        grid = np.loadtxt('.log.txt').astype(np.float32).view(np.complex64)
+        self.assertEqual(grid.size, 10000)
+    def test_same_magnitude(self):
+        Pipeline(self.blocks).main()
+        grid = np.loadtxt('.log.txt').astype(np.float32).view(np.complex64)
+        magnitudes = np.abs(grid)
+        self.assertGreater(magnitudes[magnitudes > 0.1].size, 100)
+    def test_makes_image(self):
+        """Make sure that the grid can be IFFT'd into a non-gaussian image"""
+        self.blocks[2] = (NearestNeighborGriddingBlock(shape=(512, 512)), ['uv+vis'], [1])
+        Pipeline(self.blocks).main()
+        grid = np.loadtxt('.log.txt').astype(np.float32).view(np.complex64)
+        grid = grid.reshape((512, 512))
+        image = np.real(np.fft.fftshift(np.fft.ifft2(np.fft.ifftshift(grid))))
+        #calculate histogram of image
+        histogram = np.histogram(image.ravel(), bins=100)[0]
+        #check if it is gaussian (and therefore probably just noise)
+        from scipy.stats import normaltest
+        probability_normal = normaltest(histogram)[1]
+        self.assertLess(probability_normal, 1e-2)
+class TestIFFT2Block(unittest.TestCase):
+    """Test the functionality of the 2D inverse fourier transform block"""
+    def setUp(self):
+        """Run a pipeline on a fake visibility set and IFFT it after gridding"""
+        self.datafile_name = "/data1/mcranmer/data/fake/mona_uvw.dat"
+        self.blocks = []
+        random_visibilities = np.zeros(shape=[256, 256, 4]).astype(np.float32)
+        random_visibilities[:, :, 0] = np.arange(256) - 128.0
+        random_visibilities[:, :, 1] = np.random.rand(256)*100 - 50.0
+        random_visibilities[:, :, 2] = np.random.rand(256)*10 - 5.0
+        random_visibilities[:, :, 3] = np.random.rand(256)*10 - 5.0
+        self.blocks.append((TestingBlock(random_visibilities), [], [0]))
+        self.blocks.append((NearestNeighborGriddingBlock(shape=(100, 100)), [0], [1]))
+        self.blocks.append((IFFT2Block(), [1], [2]))
+    def test_output_size(self):
+        """Make sure that the output is the same size as the input
+        The input size should be coming from the shape on the nearest neighbor"""
+        def assert_size(image):
+            """Test size is 10000"""
+            self.assertEqual(image.size, 10000)
+        self.blocks.append((NumpyBlock(assert_size, outputs=0), {'in_1': 2}))
+        Pipeline(self.blocks).main()
+    def test_same_magnitude(self):
+        """Make sure that many points are nonzero"""
+        def assert_nonzero(image):
+            """Test 100 elements bigger than 0.1"""
+            magnitude = np.abs(image)
+            self.assertGreater(magnitude[magnitude > 0.1].size, 100)
+        self.blocks.append((NumpyBlock(assert_nonzero, outputs=0), {'in_1': 2}))
+        Pipeline(self.blocks).main()
+    def test_ifft_correct_values(self):
+        """Make sure the IFFT produces values as if we were to do it without the block"""
+        def compare_ifft(non_ifft_array, ifft_array):
+            """Do an ifft here and see if it is the same"""
+            np.testing.assert_almost_equal(
+                ifft_array, 
+                np.fft.fftshift(np.fft.ifft2(np.fft.ifftshift(non_ifft_array))),
+                2)
+        self.blocks.append((NumpyBlock(compare_ifft, inputs=2, outputs=0), {'in_1': 1, 'in_2': 2}))
+        Pipeline(self.blocks).main()
 class TestPipeline(unittest.TestCase):
     """Test rigidity and features of the pipeline"""
     def test_naming_rings(self):
@@ -357,6 +476,292 @@ class TestPipeline(unittest.TestCase):
         Pipeline(block_set_two).main()
         result = np.loadtxt('.log.txt').astype(np.float32)
         np.testing.assert_almost_equal(result, [1, 2, 3])
+class TestGainSolveBlock(unittest.TestCase):
+    """Test the gain solve block, which calls the GPU kernel from correlate.cu"""
+    def setUp(self):
+        self.nchan = 1
+        self.nstand = 256
+        self.npol = 2
+        self.jones = np.ones(shape=[
+            1, self.npol,
+            self.nstand, self.npol]).astype(np.complex64)
+        self.jones[0, 0, :, 1] = 0
+        self.jones[0, 1, :, 0] = 0
+    def test_throughput(self):
+        """Test shapes are compatible and output is indeed different"""
+        def test_jones(out_jones):
+            """Make sure the jones matrices are changing"""
+            self.assertEqual(out_jones.size, self.jones.size)
+            self.assertGreater(np.max(np.abs(out_jones - self.jones)), 1e-3)
+        for nchan in range(5, 7):
+            blocks = []
+            flags = 2*np.ones(shape=[
+                nchan, self.nstand]).astype(np.int8)
+            model = 10*np.random.rand(
+                nchan, self.nstand, self.npol, self.nstand,
+                self.npol).astype(np.complex64)
+            data = 10*np.random.rand(
+                nchan, self.nstand, self.npol, self.nstand,
+                self.npol).astype(np.complex64)
+            self.jones = np.ones(shape=[
+                nchan, self.npol, self.nstand, self.npol]).astype(np.complex64)
+            blocks.append((TestingBlock(model), [], ['model']))
+            blocks.append((TestingBlock(data), [], ['data']))
+            blocks.append((TestingBlock(self.jones), [], ['jones_in']))
+            blocks.append([GainSolveBlock(flags=flags), {
+                'in_data': 'data', 'in_model': 'model', 'in_jones': 'jones_in',
+                'out_data': 'calibrated_data', 'out_jones': 'jones_out'}])
+            blocks.append([NumpyBlock(test_jones, outputs=0), {'in_1':'jones_out'}])
+            Pipeline(blocks).main()
+    def test_solving_to_skymodel(self):
+        """Attempt to solve a sky model to itself"""
+        #TODO: This relies on LEDA-specific blocks.
+        from bifrost.addon.leda.blocks import ScalarSkyModelBlock
+        from bifrost.addon.leda.blocks import load_telescope, LEDA_SETTINGS_FILE, OVRO_EPHEM
+        def slice_away_uv(model_and_uv):
+            """Cut off the uv coordinates from the ScalarSkyModelBlock and reshape to GainSolve"""
+            number_stands = model_and_uv.shape[1]
+            model = np.zeros(shape=[1, number_stands, 2, number_stands, 2]).astype(np.complex64)
+            model[0, :, 0, :, 0] = model_and_uv[0, :, :, 2]+1j*model_and_uv[0, :, :, 3]
+            model[0, :, 1, :, 1] = model[0, :, 0, :, 0]
+            return model
+        def assert_almost_unity(jones_matrices):
+            """Make sure that the jones have been calibrated to be identity"""
+            identity_jones = np.ones(shape=[
+                1, self.npol,
+                self.nstand, self.npol]).astype(np.complex64)
+            identity_jones[:, 0, :, 1] = 0
+            identity_jones[:, 1, :, 0] = 0
+            np.testing.assert_almost_equal(jones_matrices, identity_jones, 1)
+        # Change to a time when cyg is visible
+        OVRO_EPHEM.date = '2012/08/29 20:39:49' 
+        coords = load_telescope(LEDA_SETTINGS_FILE)[1]
+        sources = {}
+        sources['cyg'] = {
+            'ra':'19:59:28.4', 'dec':'+40:44:02.1', 'flux': 10571.0, 'frequency': 58e6,
+            'spectral index': -0.2046}
+        frequencies = [47e6]
+        blocks = []
+        blocks.append((
+            ScalarSkyModelBlock(OVRO_EPHEM, coords, frequencies, sources), [], ['model+uv']))
+        blocks.append((NumpyBlock(slice_away_uv), {'in_1': 'model+uv', 'out_1': 'model'}))
+        blocks.append((NumpyBlock(np.copy), {'in_1': 'model', 'out_1': 'same_model'}))
+        flags = 2*np.ones(shape=[
+            1, self.nstand]).astype(np.int8)
+        blocks.append((TestingBlock(2*self.jones), [], ['jones_in']))
+        blocks.append([GainSolveBlock(flags=flags, eps=0.05), {
+            'in_data': 'same_model', 'in_model': 'model', 'in_jones': 'jones_in',
+            'out_data': 'calibrated_data', 'out_jones': 'jones_out'}])
+        blocks.append((NumpyBlock(assert_almost_unity, outputs=0), {'in_1': 'jones_out'}))
+        Pipeline(blocks).main()
+    def test_solve_arbitrary_jones(self):
+        """Set up a test with a 5 random stand sky model, and try to solve for known gains"""
+        from bifrost.addon.leda.blocks import ScalarSkyModelBlock
+        from bifrost.addon.leda.blocks import load_telescope, LEDA_SETTINGS_FILE, OVRO_EPHEM
+        def slice_away_uv(model_and_uv):
+            """Cut off the uv coordinates from the ScalarSkyModelBlock and reshape to GainSolve"""
+            number_stands = model_and_uv.shape[1]
+            model = np.zeros(shape=[1, number_stands, 2, number_stands, 2]).astype(np.complex64)
+            model[0, :, 0, :, 0] = model_and_uv[0, :, :, 2]+1j*model_and_uv[0, :, :, 3]
+            model[0, :, 1, :, 1] = model_and_uv[0, :, :, 2]+1j*model_and_uv[0, :, :, 3]
+            return model
+        def perturb_gains(jones, model):
+            """Apply the gains to the model"""
+            data = np.empty_like(model)
+            for i in range(self.nstand):
+                for j in range(self.nstand):
+                    data[0, i, :, j, :] = np.dot(jones[0, :, i, :], np.dot(model[0, i, :, j, :], np.conj(np.transpose(jones[0, :, j, :]))))
+            return data
+        def assert_good_jones(out_jones):
+            """Make sure the jones matrices have been calculated within reason"""
+            new_out_jones = np.copy(out_jones)
+            singular = 0
+            incorrect = 0
+            for i in range(self.nstand):
+                try:
+                    new_out_jones[0, :, i, :] = np.linalg.inv(out_jones[0, :, i, :])
+                except np.linalg.LinAlgError:
+                    singular += 1
+                    continue
+                residual = np.sqrt(np.sum(np.square(np.abs(new_out_jones[0, :, i, :]-self.jones[0, :, i, :]))))
+                if residual > 0.5*np.sqrt(np.sum(np.square(np.abs(self.jones[0, :, i, :])))):
+                    incorrect += 1
+            assert incorrect+singular < 0.5*self.nstand
+            self.assertLess(incorrect+singular, 0.5*self.nstand)
+        def assert_good_calibration(model, out_calibration):
+            """Make sure the output image is fairly close to the model"""
+            incorrect = 0
+            residual = model - out_calibration
+            for i in range(self.nstand):
+                residual[0, i, :, i, :] = 0
+            l2norm_residual = np.sqrt(np.sum(np.square(np.abs(residual))))/np.sqrt(np.sum(np.square(np.abs(model))))
+            self.assertLess(l2norm_residual, 0.25)
+        nchan = 1
+        self.nstand = 256
+        flags = 2*np.ones(shape=[nchan, self.nstand]).astype(np.int8)
+        blocks = []
+        sources = {}
+        sources['cyg'] = {
+            'ra':'19:59:28.4', 'dec':'+40:44:02.1', 'flux': 10571.0, 'frequency': 58e6,
+            'spectral index': -0.2046}
+        frequencies = [47.7e6]
+        actual_jones = 10*(np.random.rand(nchan, 2, self.nstand, 2)+1j*np.random.rand(nchan, 2, self.nstand, 2)).astype(np.complex64)+1+1j
+        coords = load_telescope(LEDA_SETTINGS_FILE)[1]
+        blocks.append((
+            ScalarSkyModelBlock(OVRO_EPHEM, coords, frequencies, sources), [], ['model+uv']))
+        blocks.append((NumpyBlock(slice_away_uv), {'in_1': 'model+uv', 'out_1': 'model'}))
+        blocks.append((TestingBlock(actual_jones, complex_numbers=True), [], ['toy_jones']))
+        blocks.append((NumpyBlock(perturb_gains, inputs=2), {'in_1': 'toy_jones', 'in_2': 'model', 'out_1': 'data'}))
+        blocks.append((TestingBlock(np.copy(self.jones), complex_numbers=True), [], ['jones_in']))
+        self.jones = np.copy(actual_jones)
+        blocks.append([GainSolveBlock(flags=flags, eps=0.025, max_iterations=600, l2reg=0.0), {
+            'in_data': 'data', 'in_model': 'model', 'in_jones': 'jones_in',
+            'out_data': 'calibrated_data', 'out_jones': 'jones_out'}])
+        blocks.append([NumpyBlock(assert_good_jones, outputs=0), {'in_1':'jones_out'}])
+        blocks.append([NumpyBlock(assert_good_calibration, inputs=2, outputs=0), {'in_1':'model', 'in_2':'calibrated_data'}])
+        Pipeline(blocks).main()
+    def setup_dada_calibration(self):
+        """Set up a pipeline to calibrate jones matrices to a dada file"""
+        from bifrost.addon.leda.blocks import (
+            ScalarSkyModelBlock, DELAYS, COORDINATES, DISPERSIONS, UVCoordinateBlock,
+            load_telescope, LEDA_SETTINGS_FILE, OVRO_EPHEM, NewDadaReadBlock, CableDelayBlock)
+        def slice_away_uv(model_and_uv):
+            """Cut off the uv coordinates from the ScalarSkyModelBlock and reshape to GainSolve"""
+            number_stands = model_and_uv.shape[1]
+            model = np.zeros(shape=[1, number_stands, 2, number_stands, 2]).astype(np.complex64)
+            uv_coords = np.zeros(shape=[number_stands, number_stands, 2]).astype(np.float32)
+            model[0, :, 0, :, 0] = model_and_uv[0, :, :, 2]+1j*model_and_uv[0, :, :, 3]
+            model[0, :, 1, :, 1] = model[0, :, 0, :, 0]
+            uv_coords[:, :, 0:2] = model_and_uv[0, :, :, 0:2]
+            return model, uv_coords
+        def reformat_data_for_gridding(visibilities, uv_coordinates):
+            """Reshape visibility data for gridding on UV plane"""
+            reformatted_data = np.zeros(shape=[self.nstand, self.nstand, 4], dtype=np.float32)
+            reformatted_data[:, :, 0] = uv_coordinates[:, :, 0]
+            reformatted_data[:, :, 1] = uv_coordinates[:, :, 1]
+            reformatted_data[:, :, 2] = np.real(visibilities[0, :, 0, :, 0])
+            reformatted_data[:, :, 3] = np.imag(visibilities[0, :, 0, :, 0])
+            return reformatted_data
+        def transpose_to_gain_solve(data_array):
+            """Transpose the DADA data to the gain_solve format"""
+            return data_array.transpose((0, 1, 3, 2, 4))
+        sources = {}
+        sources['cyg'] = {
+            'ra':'19:59:28.4', 'dec':'+40:44:02.1', 'flux': 10571.0, 'frequency': 58e6,
+            'spectral index': -0.2046}
+        sources['cas'] = {
+            'ra': '23:23:27.8', 'dec': '+58:48:34',
+            'flux': 6052.0, 'frequency': 58e6, 'spectral index':(+0.7581)}
+        dada_file = '/data2/hg/interfits/lconverter/WholeSkyL64_47.004_d20150203_utc181702_test/2015-04-08-20_15_03_0001133593833216.dada'
+        OVRO_EPHEM.date = '2015/04/09 14:34:51'
+        cfreq = 47.004e6
+        bandwidth = 2.616e6
+        df = bandwidth/109.0
+        output_channels = np.array([85])
+        frequencies = cfreq - bandwidth/2 + df*output_channels
+        flags = 2*np.ones(shape=[1, self.nstand]).astype(np.int8)
+        blocks = []
+        blocks.append((
+            NewDadaReadBlock(dada_file, output_chans=output_channels, time_steps=1),
+            {'out': 'raw_visibilities'}))
+        blocks.append((
+            CableDelayBlock(frequencies, DELAYS, DISPERSIONS),
+            {'in':'raw_visibilities', 'out':'visibilities'}))
+        blocks.append((
+            NumpyBlock(transpose_to_gain_solve),
+            {'in_1': 'visibilities', 'out_1': 'formatted_visibilities'}))
+        blocks.append((
+            ScalarSkyModelBlock(OVRO_EPHEM, COORDINATES, frequencies, sources),
+            [], ['model+uv']))
+        blocks.append((
+            NumpyBlock(slice_away_uv, outputs=2),
+            {'in_1': 'model+uv', 'out_1': 'model', 'out_2': 'uv_coords'}))
+        blocks.append((
+            TestingBlock(self.jones),
+            [], ['jones_in']))
+        blocks.append([
+            GainSolveBlock(flags=flags, eps=0.05, max_iterations=10),
+            {'in_data': 'formatted_visibilities', 'in_model': 'model',
+             'in_jones': 'jones_in', 'out_data': 'calibrated_data',
+             'out_jones': 'jones_out'}])
+        for view in ['calibrated_data', 'model', 'formatted_visibilities']:
+            blocks.append((
+                NumpyBlock(reformat_data_for_gridding, inputs=2),
+                {'in_1': view, 'in_2': 'uv_coords', 'out_1': view+'_data_for_gridding'}))
+            blocks.append((
+                NearestNeighborGriddingBlock((256, 256)),
+                [view+'_data_for_gridding'], [view+'_grid']))
+            blocks.append((
+                IFFT2Block(),
+                [view+'_grid'], [view+'_image']))
+        return blocks
+    def test_calibration_dada_files(self):
+        """Attempt to calibrate jones matrices to LEDA data from a DADA file"""
+        def assert_closer_to_model(calibrated_data, uncalibrated_data, model):
+            """Make sure the calibrated data is converging to the model"""
+            calibrated_data = calibrated_data/np.sum(calibrated_data)
+            uncalibrated_data = uncalibrated_data/np.sum(uncalibrated_data)
+            model = model/np.sum(model)
+            self.assertGreater(
+                np.sum(np.abs(calibrated_data-uncalibrated_data)),
+                np.sum(np.abs(calibrated_data-model)))
+        blocks = self.setup_dada_calibration()
+        blocks.append([
+            NumpyBlock(assert_closer_to_model, inputs=3, outputs=0),
+            {'in_1':'calibrated_data_image', 'in_2':'formatted_visibilities_image',
+             'in_3':'model_image'}])
+        Pipeline(blocks).main()
+    def test_calibration_flagging(self):
+        """Perform the above calibration, but with stand flags set"""
+        from bifrost.addon.leda.blocks import BAD_STANDS, ImagingBlock
+        def assert_stands_flagged(array):
+            """Make sure that GainSolveBlock is setting flagged stands to zero"""
+            np.testing.assert_almost_equal(
+                np.array(np.where((np.abs(array)<1e-10)[0, :, 0, 1, 0])).ravel(),
+                BAD_STANDS)
+        flags = 2*np.ones(shape=[1, self.nstand]).astype(np.int8)
+        for stand in BAD_STANDS:
+            flags[0, stand] = 1
+        blocks = self.setup_dada_calibration()
+        blocks[6] = (
+            GainSolveBlock(flags=flags, eps=0.035, max_iterations=60, l2reg=0.85),
+            #GOOD \/
+            #GainSolveBlock(flags=flags, eps=0.05, max_iterations=20, l2reg=0.5),
+            #GainSolveBlock(flags=flags, eps=0.05, max_iterations=20, l2reg=0.05),
+            #GainSolveBlock(flags=flags, eps=0.005, max_iterations=500, l2reg=0.005),
+            {'in_data': 'formatted_visibilities', 'in_model': 'model',
+             'in_jones': 'jones_in', 'out_data': 'calibrated_data',
+             'out_jones': 'jones_out'})
+        blocks.append([
+            NumpyBlock(assert_stands_flagged, outputs=0),
+            {'in_1':'calibrated_data'}])
+        blocks.append([
+            ImagingBlock('sky.png', np.abs, log=True), {'in': 'calibrated_data_image'}])
+        Pipeline(blocks).main()
+    def test_calibration_l2regzero(self):
+        """Test a calibration with l2reg set to zero, and make sure the results are 
+            not nan"""
+        from bifrost.addon.leda.blocks import BAD_STANDS, ImagingBlock
+        def assert_no_nans(array):
+            """Make sure that GainSolveBlock is setting flagged stands to zero"""
+            array = array.ravel()
+            for i in range(array.size):
+                self.assertFalse(np.isnan(array[i]))
+        flags = 2*np.ones(shape=[1, self.nstand]).astype(np.int8)
+        for stand in BAD_STANDS:
+            flags[0, stand] = 1
+        blocks = self.setup_dada_calibration()
+        blocks[6] = (
+            GainSolveBlock(flags=flags, eps=0.0005, max_iterations=80, l2reg=0.0),
+            {'in_data': 'formatted_visibilities', 'in_model': 'model',
+             'in_jones': 'jones_in', 'out_data': 'calibrated_data',
+             'out_jones': 'jones_out'})
+        blocks.append([
+            NumpyBlock(assert_no_nans, outputs=0),
+            {'in_1':'calibrated_data'}])
+        blocks.append([
+            ImagingBlock('sky.png', np.abs, log=True), {'in': 'calibrated_data_image'}])
+        Pipeline(blocks).main()
 class TestMultiTransformBlock(unittest.TestCase):
     """Test call syntax and function of a multi transform block"""
     def test_add_block(self):
@@ -415,6 +820,77 @@ class TestSplitterBlock(unittest.TestCase):
         self.assertEqual(first_log.size, 1)
         self.assertEqual(second_log.size, 1)
         np.testing.assert_almost_equal(first_log+1, second_log)
+class TestDStackBlock(unittest.TestCase):
+    """Test a block which stacks two incoming streams into one outgoing ring"""
+    def test_simple_throughput(self):
+        """Send two arrays through, and make sure they come out as one"""
+        blocks = []
+        blocks.append([TestingBlock([1]), [], [0]])
+        blocks.append([TestingBlock([2]), [], [1]])
+        blocks.append([
+            DStackBlock(),
+            {'in_1': 0, 'in_2': 1, 'out': 2}])
+        blocks.append([WriteAsciiBlock('.log.txt', gulp_size=8), [2], []])
+        Pipeline(blocks).main()
+        log_data = np.loadtxt('.log.txt')
+        np.testing.assert_almost_equal(log_data, [1, 2])
+    def test_multi_array_throughput(self):
+        """Send two 2D arrays through, and make sure they come out properly"""
+        array_1 = np.arange(10).reshape((2, 5))
+        array_2 = 3*np.arange(10).reshape((2, 5))
+        desired_output = np.dstack((
+            array_1,
+            array_2)).ravel()
+        blocks = []
+        blocks.append([TestingBlock(array_1), [], [0]])
+        blocks.append([TestingBlock(array_2), [], [1]])
+        blocks.append([
+            DStackBlock(),
+            {'in_1': 0, 'in_2': 1, 'out': 2}])
+        blocks.append([WriteAsciiBlock('.log.txt', gulp_size=80), [2], []])
+        Pipeline(blocks).main()
+        log_data = np.loadtxt('.log.txt')
+        np.testing.assert_almost_equal(log_data, desired_output)
+class TestReductionBlock(unittest.TestCase):
+    """Test a block which applies a function passed to it to the incoming array"""
+    def test_unity_function(self):
+        """Apply a function which returns its arguments"""
+        def identity(argument):
+            return argument
+        blocks = []
+        blocks.append([TestingBlock([1]), [], [0]])
+        blocks.append([
+            ReductionBlock(identity),
+            {'in': 0, 'out':1}])
+        blocks.append([WriteAsciiBlock('.log.txt', gulp_size=4), [1], []])
+        Pipeline(blocks).main()
+        log_data = np.loadtxt('.log.txt')
+        np.testing.assert_almost_equal(log_data, [1])
+    def test_complex_to_real(self):
+        """Apply a function which outputs only the real components"""
+        output_header = {'dtype': str(np.float32), 'nbit': 32}
+        blocks = []
+        blocks.append([TestingBlock([2j+5]), [], [0]])
+        blocks.append([
+            ReductionBlock(np.real, output_header=output_header),
+            {'in': 0, 'out':1}])
+        blocks.append([WriteAsciiBlock('.log.txt', gulp_size=4), [1], []])
+        Pipeline(blocks).main()
+        log_data = np.loadtxt('.log.txt')
+        np.testing.assert_almost_equal(log_data, [5])
+    def test_multiply_by_two(self):
+        """Apply a function which multiplies by two"""
+        def multiply_by_two(argument):
+            return 2*argument
+        blocks = []
+        blocks.append([TestingBlock([1]), [], [0]])
+        blocks.append([
+            ReductionBlock(multiply_by_two),
+            {'in': 0, 'out':1}])
+        blocks.append([WriteAsciiBlock('.log.txt', gulp_size=4), [1], []])
+        Pipeline(blocks).main()
+        log_data = np.loadtxt('.log.txt')
+        np.testing.assert_almost_equal(log_data, [2])
 class TestNumpyBlock(unittest.TestCase):
     """Tests for a block which can call arbitrary functions that work on numpy arrays.
         This should include the many numpy, scipy and astropy functions.
