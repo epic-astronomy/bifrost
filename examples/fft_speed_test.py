@@ -26,25 +26,35 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import numpy as np
+import time
 from bifrost.block import Pipeline, NumpyBlock, NumpySourceBlock
 
+N = 5
+
 def generate_100_arrays():
+    print time.time()
     for _ in range(10):
-        yield np.ones(shape=[100, 100]).astype(np.complex64)
+        yield np.ones(shape=[1000, 1000]).astype(np.complex64)
 
 blocks = [(NumpySourceBlock(generate_100_arrays), {'out_1': 0})]
-for i in range(10):
+for i in range(N):
     blocks.append((NumpyBlock(np.fft.fft2), {'in_1': 2*i, 'out_1': 2*i+1}))
     blocks.append((NumpyBlock(np.fft.ifft2), {'in_1': 2*i+1, 'out_1': 2*i+2}))
 
 occurrences = 0
-def pprint(array):
-    global occurrences
-
-    if occurrences == 9:
-        print array
-
-    occurrences+= 1
-blocks.append((NumpyBlock(pprint, outputs=0), {'in_1': 10}))
-
+print "N =", N
+print "Times for Bifrost, GPU-disabled:"
 Pipeline(blocks).main()
+print time.time()
+
+print "Times for serial:"
+print time.time()
+
+for i in range(10):
+    array = np.ones(shape=[1000, 1000]).astype(np.complex64)
+
+    for _ in range(N):
+        tmp_array = np.fft.fft2(array)
+        array = np.fft.ifft2(tmp_array)
+
+print time.time()
