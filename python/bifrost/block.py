@@ -64,6 +64,9 @@ class Pipeline(object):
                 space = 'system'
                 possible_spaces = []
                 for block in self.blocks:
+                    if isinstance(block[0], GPUBlock):
+                        space = 'cuda'
+                        break
                     if issubclass(type(block[0]), MultiTransformBlock):
                         for ring_name in block[1]:
                             if block[1][ring_name] == index:
@@ -1344,7 +1347,8 @@ class NumpySourceBlock(MultiTransformBlock):
                 if self.rings[ring_name].space == 'system':
                     outspans[i][:] = arrays[i].astype(np.dtype(dtype).type).ravel()
                 else:
-                    bifrost.memcpy(outspans[i], arrays[i])
+                    #bifrost.memory.memcpy(outspans[i], arrays[i])
+                    memcpy(outspans[i], arrays[i].reshape(outspans[i].shape))
 
 
             try:
