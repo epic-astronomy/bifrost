@@ -32,7 +32,7 @@ from bifrost.block import Pipeline, NumpyBlock, NumpySourceBlock, GPUBlock
 from bifrost.GPUArray import GPUArray
 
 for N in [1, int(sys.argv[1])]:
-    print N*2+1  -1 #for del block
+    print N*2+1
 
     print "Times for serial:"
     print time.time()
@@ -40,8 +40,7 @@ for N in [1, int(sys.argv[1])]:
     for i in range(10):
         array = np.ones(shape=[1000000]).astype(np.complex64)
 
-        array = np.fft.fft(array)
-        for _ in range(N-1):
+        for _ in range(N):
             tmp_array = np.fft.fft(array)
             array = np.fft.ifft(tmp_array)
 
@@ -57,7 +56,6 @@ for N in [1, int(sys.argv[1])]:
     for i in range(N):
         blocks.append((NumpyBlock(np.fft.fft), {'in_1': 2*i, 'out_1': 2*i+1}))
         blocks.append((NumpyBlock(np.fft.ifft), {'in_1': 2*i+1, 'out_1': 2*i+2}))
-    del blocks[-1]
 
     print "Times for Bifrost, GPU-disabled:"
     Pipeline(blocks).main()
@@ -83,7 +81,6 @@ for N in [1, int(sys.argv[1])]:
     for i in range(N):
         blocks.append((GPUBlock(gpu_fft), {'in_1':2*i, 'out_1':2*i+1}))
         blocks.append((GPUBlock(gpu_ifft), {'in_1':2*i+1, 'out_1':2*i+2}))
-    del blocks[-1]
     print "Times for Bifrost, GPU-enabled:"
     Pipeline(blocks).main()
     print time.time()
