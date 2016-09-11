@@ -27,7 +27,7 @@
 
 import numpy as np
 import time
-from bifrost.block import Pipeline, NumpyBlock, NumpySourceBlock
+from bifrost.block import Pipeline, NumpyBlock, NumpySourceBlock, GPUBlock
 
 N = 1
 print "N =", N
@@ -36,11 +36,11 @@ print "Times for serial:"
 print time.time()
 
 for i in range(10):
-    array = np.ones(shape=[1000, 1000]).astype(np.complex64)
+    array = np.ones(shape=[1000000]).astype(np.complex64)
 
     for _ in range(N):
-        tmp_array = np.fft.fft2(array)
-        array = np.fft.ifft2(tmp_array)
+        tmp_array = np.fft.fft(array)
+        array = np.fft.ifft(tmp_array)
 
 print time.time()
 
@@ -48,18 +48,34 @@ print time.time()
 def generate_100_arrays():
     print time.time()
     for _ in range(10):
-        yield np.ones(shape=[1000, 1000]).astype(np.complex64)
+        yield np.ones(shape=[1000000]).astype(np.complex64)
 
 blocks = [(NumpySourceBlock(generate_100_arrays, changing=False), {'out_1': 0})]
 for i in range(N):
-    blocks.append((NumpyBlock(np.fft.fft2), {'in_1': 2*i, 'out_1': 2*i+1}))
-    blocks.append((NumpyBlock(np.fft.ifft2), {'in_1': 2*i+1, 'out_1': 2*i+2}))
+    blocks.append((NumpyBlock(np.fft.fft), {'in_1': 2*i, 'out_1': 2*i+1}))
+    blocks.append((NumpyBlock(np.fft.ifft), {'in_1': 2*i+1, 'out_1': 2*i+2}))
 
 print "Times for Bifrost, GPU-disabled:"
 Pipeline(blocks).main()
 print time.time()
 
-def gpu_fft
+from bifrost.fft import fft as bf_fft
+from bifrost.fft import ifft as bf_ifft
+def gpu_fft(gpu_array):
+    """Perform an fft on the input"""
+    bifrost_gpu_array = gpu_array.as_BFarray()
+    bf_fft(bifrost_gpu_array, bifrost_gpu_array)
+    gpu_array.buffer = bifrost_gpu_array.data
+    return gpu_array
+
+def gpu_ifft(gpu_array):
+    """Perform an ifft on the input"""
+    bifrost_gpu_array = gpu_array.as_BFarray()
+    bf_ifft(bifrost_gpu_array, bifrost_gpu_array)
+    gpu_array.buffer = bifrost_gpu_array.data
+    return gpu_array
 print "Times for Bifrost, GPU-enabled:"
 blocks = [(NumpySourceBlock(generate_100_arrays, changing=False), {'out_1': 0})]
-blocks.append((GPUBlock(
+blocks.append((GPUBlock(gpu_fft), {'in_1':0, 'out_1':1}))
+blocks.append((GPUBlock(gpu_ifft), {'in_1':1, 'out_1':2}))
+Pipeline(blocks).main()

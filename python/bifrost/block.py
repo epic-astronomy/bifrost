@@ -44,13 +44,14 @@ import bifrost
 from bifrost import affinity
 from bifrost.libbifrost import _bf
 from bifrost.ring import Ring
+from bifrost.memory import memcpy
 from bifrost.GPUArray import GPUArray
 from bifrost.sigproc import SigprocFile, unpack
 
 class Pipeline(object):
-    """Class which connects blocks linearly, with
-        one ring between each block. Does this by creating
-        one ring for each input/output 'port' of each block,
+    """Class which connects blocks.
+        Does this by creating one ring for each
+        input/output 'port' of each block,
         and running data through the rings."""
     def __init__(self, blocks):
         self.blocks = blocks
@@ -59,7 +60,26 @@ class Pipeline(object):
             if isinstance(index, Ring):
                 self.rings[str(index)] = index
             else:
-                self.rings[index] = Ring()
+                """Attempt to determine the space"""
+                space = 'system'
+                possible_spaces = []
+                for block in self.blocks:
+                    if issubclass(type(block[0]), MultiTransformBlock):
+                        for ring_name in block[1]:
+                            if block[1][ring_name] == index:
+                                ### Read through listed ring spaces to determine where we should put the ring
+                                try:
+                                    block_spaces = block[0].ring_spaces[ring_index]
+                                    possible_spaces.append(block_spaces)
+                                except:
+                                    pass
+                if possible_spaces is not []:
+                    #If GPU appears in all, select that, else pick CPU.
+                    for possible_space in possible_spaces:
+                        if 'cuda' in possible_space:
+                            space = 'cuda'
+                            break
+                self.rings[index] = Ring(space)
     def unique_ring_names(self):
         """Return a list of unique ring indices"""
         all_names = []
@@ -286,7 +306,13 @@ class MultiTransformBlock(object):
                 dtypes[ring_name] = dtype
             for spans in self.izip(*[sequence.read(self.gulp_size[ring_name]) \
                     for ring_name, sequence in self.izip(args, sequences)]):
-                yield tuple([span.data_view(dtypes[ring_name])[0] for span, ring_name in self.izip(spans, args)])
+                shaped_spans = {}
+                for span, ring_name in self.izip(spans, args):
+                    shaped_spans[ring_name] = span.data_view(dtypes[ring_name])
+                    #TODO: Cutting off ringlets
+                    if self.rings[ring_name].space == 'system':
+                        shaped_spans[ring_name] = shaped_spans[ring_name][0]
+                yield tuple([shaped_spans[ring_name] for ring_name in args])
     def write(self, *args):
         """Iterate over selection of output rings"""
         # resize all rings
@@ -317,10 +343,17 @@ class MultiTransformBlock(object):
                                     numpy_dtype_word = self.header[ring_name]['dtype'].split()[1]
                                     dtype = np.dtype(numpy_dtype_word.split(".")[1].split("'")[0]).type
                                 dtypes[ring_name] = dtype
-                            yield tuple([out_span.data_view(dtypes[ring_name])[0] for out_span, ring_name in self.izip(out_spans, args)])
+
+                            shaped_spans = {}
+                            for span, ring_name in self.izip(out_spans, args):
+                                shaped_spans[ring_name] = span.data_view(dtypes[ring_name])
+                                if self.rings[ring_name].space == 'system':
+                                    shaped_spans[ring_name] = shaped_spans[ring_name][0]
+                            yield tuple([shaped_spans[ring_name] for ring_name in args])
                         if self.trigger_sequence:
                             self.trigger_sequence = False
                             break
+
 class SplitterBlock(MultiTransformBlock):
     """Block which splits up a ring into two"""
     ring_names = {
@@ -409,7 +442,10 @@ class TestingBlock(SourceBlock):
         @param[in] output_ring Holds the flattend test array in a single span"""
         self.gulp_size = self.test_array.nbytes
         for ospan in self.iterate_ring_write(output_ring):
-            ospan.data_view(self.dtype)[0][:] = self.test_array.ravel()
+            if output_ring.space == 'system':
+                ospan.data_view(self.dtype)[0][:] = self.test_array.ravel()
+            else:
+                ospan.data_view(self.dtype).set(self.test_array.reshape((1, -1)))
             break
 class WriteHeaderBlock(SinkBlock):
     """Prints the header of a ring to a file"""
@@ -1131,6 +1167,7 @@ class ReductionBlock(MultiTransformBlock):
             if self.header['out']['dtype'] == str(np.complex64):
                 outspan = outspan.view(np.complex64)
             outspan[:] = self.reduction(inspan)[:].astype(np.float32)
+
 class NumpyBlock(MultiTransformBlock):
     """Perform an arbitrary N ndarray -> M ndarray numpy function
         Inside of a pipeline. This block will calculate all of the
@@ -1148,8 +1185,9 @@ class NumpyBlock(MultiTransformBlock):
         self.inputs = ['in_%d' % (i+1) for i in range(inputs)]
         self.outputs = ['out_%d' % (i+1) for i in range(outputs)]
         self.ring_names = {}
-        self.create_ring_names()
+        self.ring_spaces = {}
         self.function = function
+        self.create_ring_names()
         assert callable(self.function)
 
     def create_ring_names(self):
@@ -1157,9 +1195,11 @@ class NumpyBlock(MultiTransformBlock):
         for input_name in self.inputs:
             ring_description = "Input number " + input_name[3:]
             self.ring_names[input_name] = ring_description
+            self.ring_spaces[input_name] = 'system'
         for output_name in self.outputs:
             ring_description = "Output number " + output_name[4:]
             self.ring_names[output_name] = ring_description
+            self.ring_spaces[output_name] = 'system'
 
     def load_settings(self):
         """Generate empty arrays based on input headers."""
@@ -1247,9 +1287,11 @@ class NumpySourceBlock(MultiTransformBlock):
         super(NumpySourceBlock, self).__init__()
         outputs = ['out_%d'%(i+1) for i in range(outputs)]
         self.ring_names = {}
+        self.ring_spaces = {}
         for output_name in outputs:
             ring_description = "Output number " + output_name[4:]
             self.ring_names[output_name] = ring_description
+            self.ring_spaces[output_name] = 'system'
         assert callable(generator)
         self.generator = generator()
         assert hasattr(self.generator, 'next')
@@ -1297,9 +1339,13 @@ class NumpySourceBlock(MultiTransformBlock):
             self.load_user_headers(headers, arrays)
 
         for outspans in self.write(*['out_%d'%(i+1) for i in range(len(self.ring_names))]):
-            for i in range(len(self.ring_names)):
+            for i, ring_name in enumerate(self.ring_names):
                 dtype = self.header['out_%d'%(i+1)]['dtype']
-                outspans[i][:] = arrays[i].astype(np.dtype(dtype).type).ravel()
+                if self.rings[ring_name].space == 'system':
+                    outspans[i][:] = arrays[i].astype(np.dtype(dtype).type).ravel()
+                else:
+                    bifrost.memcpy(outspans[i], arrays[i])
+
 
             try:
                 output_data = self.generator.next()
@@ -1322,3 +1368,46 @@ class NumpySourceBlock(MultiTransformBlock):
                     if old_header[ring_name] != self.header[ring_name]:
                         self.trigger_sequence = True
                         break
+
+class GPUBlock(MultiTransformBlock):
+    def __init__(self, function, inputs=1, outputs=1):
+        """Based on the number of inputs/outputs, set up enough ring_names
+            for the pipeline to call.
+            @param[in] function Function with GPUArray arguments and 
+                GPUArray return values
+            @param[in] inputs The number of input rings.
+            @param[in] outputs The number of output rings."""
+        super(GPUBlock, self).__init__()
+        assert callable(function)
+        self.function = function
+        self.ring_names = {}
+        self.ring_spaces = {}
+        self.inputs = ['in_%d' % (i+1) for i in range(inputs)]
+        self.outputs = ['out_%d' % (i+1) for i in range(outputs)]
+        for input_name in self.inputs:
+            ring_description = "Input number " + input_name[3:]
+            self.ring_names[input_name] = ring_description
+            self.ring_spaces[input_name] = ['system', 'cuda']
+        for output_name in self.outputs:
+            ring_description = "Output number " + output_name[4:]
+            self.ring_names[output_name] = ring_description
+            self.ring_spaces[output_name] = 'cuda'
+    def load_settings(self):
+        dtype = np.dtype(self.header['in_1']['dtype']).type
+        input_test_array = GPUArray(np.product(self.header['in_1']['shape']), dtype=dtype)
+        self.gulp_size['in_1'] = input_test_array.nbytes
+        if len(self.outputs) > 0:
+            output_test_array = self.function(input_test_array)
+            self.header['out_1'] = {}
+            self.header['out_1']['shape'] = list(output_test_array.shape)
+            self.header['out_1']['dtype'] = str(output_test_array.dtype)
+            self.gulp_size['out_1'] = output_test_array.nbytes
+    def main(self):
+        if len(self.outputs) == 1:
+            for inspan, outspan in self.izip(self.read('in_1'), self.write('out_1')):
+                function_output = self.function(inspan.reshape(self.header['in_1']['shape']))
+                memcpy(outspan, function_output.reshape(outspan.shape))
+        else:
+            for inspan in self.read('in_1'):
+                inspan = inspan[0]
+                self.function(inspan.reshape(self.header['in_1']['shape']))

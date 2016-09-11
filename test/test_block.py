@@ -30,6 +30,7 @@ This file tests all aspects of the Bifrost.block module.
 """
 import unittest
 import numpy as np
+from bifrost.fft import fft as bf_fft
 from bifrost.ring import Ring
 from bifrost.libbifrost import _bf
 from bifrost.GPUArray import GPUArray
@@ -40,6 +41,7 @@ from bifrost.block import SplitterBlock, NumpyBlock, NumpySourceBlock
 from bifrost.block import NearestNeighborGriddingBlock, IFFT2Block
 from bifrost.block import GainSolveBlock, MultiAddBlock
 from bifrost.block import DStackBlock, ReductionBlock
+from bifrost.block import GPUBlock
 
 class TestIterateRingWrite(unittest.TestCase):
     """Test the iterate_ring_write function of SourceBlocks/TransformBlocks"""
@@ -1204,3 +1206,70 @@ class TestNumpySourceBlock(unittest.TestCase):
         #TODO: Add test for making sure multi-core speeds up.
         #TODO: Add timeout test for Pipelines.
         #TODO: Need test for when new sequence from one ring and not other.
+
+class TestGPUBlock(unittest.TestCase):
+    """Tests for a block which can call arbitrary functions that work on GPUArrays.
+        This block should automatically move CPU data to GPU,
+        call the C function, and then put out data on a GPU ring."""
+    def setUp(self):
+        self.blocks = []
+        self.expected_result = None
+        self.iterations = 0
+    def tearDown(self):
+        def assert_expected_result(array):
+            """Test that output ring has the expected result"""
+            np.testing.assert_almost_equal(
+                array,
+                self.expected_result,
+                3)
+            self.iterations += 1
+        self.blocks.append([NumpyBlock(assert_expected_result, outputs=0), {'in_1':'result'}])
+        Pipeline(self.blocks).main()
+        self.assertGreater(self.iterations, 0)
+    def test_simple_throughput(self):
+        """Apply an identity function to the GPU"""
+        def identity(array):
+            """Return the GPUArray"""
+            assert isinstance(array, GPUArray)
+            return array
+        self.expected_result = np.ones(10)
+        self.blocks.append([TestingBlock(self.expected_result), [], [0]])
+        self.blocks.append([GPUBlock(identity), {'in_1':0, 'out_1':'result'}])
+    def test_use_pycuda(self):
+        """Send a GPU ring through a pycuda function"""
+        import pycuda.driver as cuda
+        from pycuda.compiler import SourceModule
+        def double(gpu_array):
+            """Double every value of a 4 element gpu vector"""
+            device = cuda.Device(0)
+            context = device.make_context()
+            pycuda_array = gpu_array.as_pycuda(driver=cuda)
+            double_kernel = SourceModule("""
+              __global__ void double_the_array(float *a)
+              {
+                int idx = threadIdx.x;
+                a[idx] *= 2;
+              }
+                """)
+            function = double_kernel.get_function("double_the_array")
+            function(pycuda_array, block=(4, 1, 1))
+            gpu_array.set_from_pycuda(pycuda_array, driver=cuda)
+            context.pop()
+            del pycuda_array
+            del context
+            return gpu_array
+        self.blocks.append([TestingBlock(np.ones(4)), [], [0]])
+        self.blocks.append([GPUBlock(double), {'in_1':0, 'out_1':'result'}])
+        self.expected_result = 2*np.ones(4)
+    def test_use_pyclibrary(self):
+        """Send a GPU ring through a PyCLibrary-loaded function"""
+        def fft(gpu_array):
+            """Perform an fft on the input"""
+            bifrost_gpu_array = gpu_array.as_BFarray()
+            bf_fft(bifrost_gpu_array, bifrost_gpu_array)
+            gpu_array.buffer = bifrost_gpu_array.data
+            return gpu_array
+        input_array = np.ones(40)+1j*np.ones(40)
+        self.expected_result = np.fft.fft(input_array)
+        self.blocks.append([TestingBlock(input_array, complex_numbers=True), [], [0]])
+        self.blocks.append([GPUBlock(fft), {'in_1':0, 'out_1':'result'}])

@@ -31,7 +31,6 @@ import numpy as np
 from memory import raw_malloc, raw_free, memset, memcpy, memcpy2D
 from bifrost.libbifrost import _bf
 
-
 class GPUArray(object):
 	def __init__(self, shape, dtype, buffer=None, offset=0, strides=None):
 		itemsize = dtype().itemsize
@@ -39,13 +38,15 @@ class GPUArray(object):
 		if strides is None:
 			# This magic came from http://stackoverflow.com/a/32874295
 			strides = itemsize*np.r_[1,np.cumprod(shape[::-1][:-1])][::-1]
-		self.shape   = shape
-		self.dtype   = dtype
-		self.buffer  = buffer
-		self.offset  = offset
+                #Convert back to prevent JSON error from numpy datatype
+                shape = tuple(int(shape[i]) for i in range(len(shape)))
+		self.shape = shape
+		self._dtype  = dtype
+		self.buffer = buffer
+		self.offset = offset
 		self.strides = strides
-		self.base    = None
-		self.flags   = {'WRITEABLE':    True,
+		self.base = None
+		self.flags =   {'WRITEABLE':    True,
 		                'ALIGNED':      buffer%itemsize==0 if buffer is not None else True,
 		                'OWNDATA':      False,
 		                'UPDATEIFCOPY': False,
@@ -69,23 +70,24 @@ class GPUArray(object):
 	def __del__(self):
 		if self.flags['OWNDATA']:
 			raw_free(self.buffer, self.flags['SPACE'])
+        @property
+        def dtype(self):
+            return np.dtype(self._dtype)
 	@property
 	def data(self):
 		return self.buffer
-	#def reshape(self, shape):
+	def reshape(self, shape):
 	#	# TODO: How to deal with strides?
 	#	#         May be non-contiguous but the reshape still works
 	#	#           E.g., splitting dims
-	#	return GPUArray(shape, self.dtype,
-	#	                buffer=self.buffer,
-	#	                offset=self.offset,
-	#	                strides=self.strides)
+		return GPUArray(shape, self._dtype,
+		                buffer=self.buffer)
 	@property
 	def size(self):
 		return int(np.prod(self.shape))
 	@property
 	def itemsize(self):
-		return self.dtype().itemsize
+		return self._dtype().itemsize
 	@property
 	def nbytes(self):
 		return self.size*self.itemsize
@@ -93,10 +95,9 @@ class GPUArray(object):
 	def ndim(self):
 		return len(self.shape)
 	def get(self, dst=None):
-		hdata = dst if dst is not None else np.empty(self.shape, self.dtype)
-		#hdata = dst if dst is not None else np.zeros(self.shape, self.dtype)
+		hdata = dst if dst is not None else np.empty(self.shape, self._dtype)
 		assert(hdata.shape == self.shape)
-		assert(hdata.dtype == self.dtype)
+		assert(hdata.dtype == self._dtype)
 		if self.flags['C_CONTIGUOUS'] and hdata.flags['C_CONTIGUOUS']:
 			memcpy(hdata, self)
 		elif self.ndim == 2:
@@ -106,7 +107,7 @@ class GPUArray(object):
 		return hdata
 	def set(self, hdata):
 		assert(hdata.shape == self.shape)
-		hdata = hdata.astype(self.dtype)
+		hdata = hdata.astype(self._dtype)
 		if self.flags['C_CONTIGUOUS'] and hdata.flags['C_CONTIGUOUS']:
 			memcpy(self, hdata)
 		elif self.ndim == 2:
@@ -158,3 +159,19 @@ class GPUArray(object):
                     1, ndim,
                     shape, strides)
                 return BFarray
+        def as_pycuda(self, driver):
+                """Return a pycuda.driver.DeviceAllocation instance representing this array
+                    @param[in] driver The imported instance of pycuda.driver. 
+                        Necessary for threading."""
+                nparray = self.get().astype(np.float32)
+                pycuda_array = driver.mem_alloc(nparray.nbytes)
+                driver.memcpy_htod(pycuda_array, nparray)
+                return pycuda_array
+        def set_from_pycuda(self, pycuda_array, driver):
+                """Use a pycuda.driver.DeviceAllocation to set the GPUArray.
+                    @param[in] pycuda_array The pycuda.driver.DeviceAllocation instance.
+                    @param[in] driver The imported instance of pycuda.driver.
+                        Necessary for threading."""
+                local_array = np.empty_like(self.get())
+                driver.memcpy_dtoh(local_array, pycuda_array)
+                self.set(local_array)
