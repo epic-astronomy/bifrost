@@ -46,7 +46,7 @@ class CallbackBlock(CopyBlock):
         self.seq_callback(iseq)
         return super(CallbackBlock, self).on_sequence(iseq)
     def on_data(self, ispan, ospan):
-        self.data_callback(ispan, ospan)
+        self.data_callback(ispan.data)
         return super(CallbackBlock, self).on_data(ispan, ospan)
     def data_callback(self, ispan, ospan):
         pass
@@ -64,7 +64,7 @@ class BlockgenTest(unittest.TestCase):
             self.assertEqual(tensor['dtype'],  'f32')
             self.sequence_count += 1
         def check_data(data):
-            self.assertGreater(np.stdev(data), 0.5)
+            self.assertGreater(np.std(data), 0.05)
             self.data_count += 1
         def generate_data():
             for _ in range(10):
