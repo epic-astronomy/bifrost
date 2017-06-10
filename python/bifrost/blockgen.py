@@ -31,11 +31,9 @@ class BlockgenSource(bfp.SourceBlock):
     def on_data(self, reader, ospans):
         ospan = ospans[0]
         odata = ospan.data
-        try:
-            odata[0, :] = next(reader)[:]
-            return [1]
-        except:
-            return [0]
+        odata[0, :] = next(reader)[:]
+        return [1]
+        #return [0]
 
 def source(generator):
     return BlockgenSource(generator)

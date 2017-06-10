@@ -66,10 +66,9 @@ class BlockgenTest(unittest.TestCase):
         def check_data(data):
             self.assertGreater(np.stdev(data), 0.5)
             self.data_count += 1
-
         def generate_data():
             for _ in range(10):
-                yield np.astype(np.random.uniform(size=(100,)), np.float32)
+                yield np.random.uniform(size=(100,)).astype(np.float32)
 
         noise = blockgen.source(generate_data)
         test = CallbackBlock(noise, check_sequence, check_data)
