@@ -56,20 +56,26 @@ class BlockgenTest(unittest.TestCase):
     """ Test all aspects of the blockgen.py code """
     def test_simple_gen(self):
         """ Create a simple noise-generating block and check output """
+        self.sequence_count = 0
+        self.data_count = 0
         def check_sequence(seq):
             tensor = seq.header['_tensor']
             self.assertEqual(tensor['shape'],  [-1,100])
-            #self.assertEqual(tensor['dtype'],  'u8')
-            #self.assertEqual(tensor['labels'], ['time', 'pol', 'freq'])
-            #self.assertEqual(tensor['units'],  ['s', None, 'MHz'])
+            self.assertEqual(tensor['dtype'],  'f32')
+            self.sequence_count += 1
+        def check_data(data):
+            self.assertGreater(np.stdev(data), 0.5)
+            self.data_count += 1
 
         def generate_data():
             for _ in range(10):
                 yield np.astype(np.random.uniform(size=(100,)), np.float32)
 
         noise = blockgen.source(generate_data)
-        test = CallbackBlock(noise, check_sequence)
+        test = CallbackBlock(noise, check_sequence, check_data)
         pipeline = bfp.get_default_pipeline()
         pipeline.run()
-
+        self.assertEqual(self.sequence_count, 1)
+        self.assertGreater(self.data_count, 1)
     #TODO: explicit header arg in function makes source pass it in
+
