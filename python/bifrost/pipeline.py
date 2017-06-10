@@ -362,7 +362,10 @@ class SourceBlock(Block):
 		for sourcename in self.sourcenames:
 			if self.shutdown_event.is_set():
 				break
-			with self.create_reader(sourcename) as ireader:
+			with ExitStack() as reader_stack:
+				ireader = self.create_reader(sourcename)
+				if hasattr(ireader, '__exit__'):
+					reader_stack.enter_context(ireader)
 				oheaders = self.on_sequence(ireader, sourcename)
 				for ohdr in oheaders:
 					if 'time_tag' not in ohdr:
