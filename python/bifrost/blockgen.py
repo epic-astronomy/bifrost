@@ -11,11 +11,19 @@ import bifrost.blocks as blocks
 
 class BlockgenSource(bfp.SourceBlock):
     def __init__(self, generator):
+        """ Load the generator into this object
+
+        Args:
+
+            generator: A generator object (a function with yeild statments)
+        """
         super(BlockgenSource, self).__init__(["test"], gulp_nframe=1)
         self.generator = generator
     def create_reader(self, sourcename):
+        """ Start the generator, use it as the reader for SourceBlock """
         return self.generator()
     def on_sequence(self, reader, sourcename):
+        """ Create output settings for the sequence based on the generator """
         ohdr = {
                 'name': 'test',
                 '_tensor': {
@@ -29,6 +37,7 @@ class BlockgenSource(bfp.SourceBlock):
         ohdr['time_tag'] = 0
         return [ohdr]
     def on_data(self, reader, ospans):
+        """ Output the next element of the generator """
         ospan = ospans[0]
         odata = ospan.data
         try:
@@ -38,4 +47,15 @@ class BlockgenSource(bfp.SourceBlock):
             return [0]
 
 def source(generator):
+    """ Generate a source block based on a generator object
+    
+    Args:
+        
+        generator: A generator object (a function with yeild statments)
+
+    Returns:
+
+        BlockgenSource: A block object which uses the generator to
+                        output data.
+    """
     return BlockgenSource(generator)
