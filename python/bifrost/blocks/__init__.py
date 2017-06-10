@@ -27,7 +27,7 @@
 
 from __future__ import absolute_import
 
-from .copy import copy, CopyBlock
+from .copy_block import copy, CopyBlock
 from .transpose import transpose, TransposeBlock
 from .reverse import reverse, ReverseBlock
 from .fft import fft, FftBlock
