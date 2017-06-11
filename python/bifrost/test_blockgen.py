@@ -24,6 +24,11 @@
 # OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+"""
+test_blockgen.py
+
+Test all aspects of the blockgen.py functionality.
+"""
 
 import unittest
 
@@ -36,7 +41,8 @@ import blockgen
 
 class CallbackBlock(CopyBlock):
     """Testing-only block which calls user-defined
-    functions on sequence and on data"""
+        functions on sequence and on data
+    """
     def __init__(self, iring, seq_callback, data_callback=None, *args, **kwargs):
         super(CallbackBlock, self).__init__(iring, *args, **kwargs)
         self.seq_callback  = seq_callback
@@ -77,5 +83,31 @@ class BlockgenTest(unittest.TestCase):
         pipeline.run()
         self.assertEqual(self.sequence_count, 1)
         self.assertEqual(self.data_count, 10)
+    def test_other_data(self):
+        """ Test another data type, size """
+        """ Create a simple noise-generating block and check output """
+        self.sequence_count = 0
+        self.data_count = 0
+        def check_sequence(seq):
+            tensor = seq.header['_tensor']
+            self.assertEqual(tensor['shape'],  [-1, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5])
+            self.assertEqual(tensor['dtype'],  'i8')
+            self.sequence_count += 1
+        def check_data(data):
+            """ Make sure data is within expected range (0-128) """
+            self.assertGreater(np.std(data), 10)
+            self.data_count += 1
+        def generate_data():
+            """ Generate 50 10 dimensional 5-wide random integers """
+            for _ in range(50):
+                yield np.random.randint(0, 128, size=(5,)*10).astype(np.int8)
+
+        noise = blockgen.source(generate_data)
+        test = CallbackBlock(noise, check_sequence, check_data)
+        pipeline = bfp.get_default_pipeline()
+        pipeline.run()
+        self.assertEqual(self.sequence_count, 1)
+        self.assertEqual(self.data_count, 50)
+
     #TODO: explicit header arg in function makes source pass it in
 
