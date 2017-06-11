@@ -64,6 +64,7 @@ class BlockgenTest(unittest.TestCase):
             self.assertEqual(tensor['dtype'],  'f32')
             self.sequence_count += 1
         def check_data(data):
+            """ Make sure data is nonzero """
             self.assertGreater(np.std(data), 0.05)
             self.data_count += 1
         def generate_data():
@@ -75,6 +76,6 @@ class BlockgenTest(unittest.TestCase):
         pipeline = bfp.get_default_pipeline()
         pipeline.run()
         self.assertEqual(self.sequence_count, 1)
-        self.assertGreater(self.data_count, 1)
+        self.assertEqual(self.data_count, 10)
     #TODO: explicit header arg in function makes source pass it in
 
