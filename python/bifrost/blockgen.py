@@ -45,20 +45,24 @@ class BlockgenSource(bfp.SourceBlock):
         """
         super(BlockgenSource, self).__init__(["test"], gulp_nframe=1)
         self.generator = generator
+        self.first_sample_of_generator = None
+        self.on_first_sample = True
     def create_reader(self, sourcename):
         """ Start the generator, use it as the reader for SourceBlock """
         return self.generator()
     def on_sequence(self, reader, sourcename):
         """ Create output settings for the sequence based on the generator """
+        self.first_sample_of_generator = next(reader)
         ohdr = {
-                'name': 'test',
-                '_tensor': {
-                    'shape': [-1, 100],
-                    'dtype': 'f32',
-                    'labels': ['one', 'two'],
-                    'scales': [None, None],
-                    'units': [None, None]
-                    }
+            'name': 'test',
+        }
+        ohdr['_tensor'] = {
+            'shape': [-1] + list(self.first_sample_of_generator.shape),
+            'dtype': bf.DataType(self.first_sample_of_generator.dtype),
+            'labels': [
+                str(i+1) for i in range(len(self.first_sample_of_generator))],
+            'scales': [None, None],
+            'units': [None, None]
         }
         ohdr['time_tag'] = 0
         return [ohdr]
@@ -67,7 +71,11 @@ class BlockgenSource(bfp.SourceBlock):
         ospan = ospans[0]
         odata = ospan.data
         try:
-            odata[0, :] = next(reader)[:]
+            if self.on_first_sample:
+                odata[0, :] = self.first_sample_of_generator[:]
+                self.on_first_sample = False
+            else:
+                odata[0, :] = next(reader)[:]
             return [1]
         except StopIteration:
             return [0]
