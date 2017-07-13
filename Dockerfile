@@ -26,6 +26,11 @@ RUN wget -O pypy.tar.bz2 "https://bitbucket.org/pypy/pypy/downloads/pypy2-v${PYP
     tar -xjC /usr/local --strip-components=1 -f pypy.tar.bz2 && \
     rm pypy.tar.bz2
 
+# Make python link to pypy
+RUN export PYTHON=$(which python) && \
+    rm $PYTHON && \
+    ln -s $(which pypy) $PYTHON
+
 RUN pypy -m ensurepip && \
     pypy -mpip install -U wheel && \
     pypy -mpip install --upgrade pip && \
