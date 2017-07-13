@@ -7,40 +7,42 @@ ARG DEBIAN_FRONTEND=noninteractive
 # Get dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential \
-        curl \
+        wget \
         git \
         pkg-config \
+	python-dev \
+        libfreetype6-dev \
         software-properties-common \
-        python \
-        python-dev \
-        doxygen \
         exuberant-ctags \
-        nano \
-        vim \
+        libpng-dev \
+        gfortran \
         && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
-RUN curl -fSsL -O https://bootstrap.pypa.io/get-pip.py && \
-    python get-pip.py && \
-    rm get-pip.py
-RUN pip --no-cache-dir install \
-        setuptools \
+ENV PYPY_VERSION 5.8.0
+# Get pypy
+RUN wget -O pypy.tar.bz2 "https://bitbucket.org/pypy/pypy/downloads/pypy2-v${PYPY_VERSION}-linux64.tar.bz2" && \
+    tar -xjC /usr/local --strip-components=1 -f pypy.tar.bz2 && \
+    rm pypy.tar.bz2
+
+RUN pypy -m ensurepip && \
+    pypy -mpip install -U wheel && \
+    pypy -mpip install --upgrade pip && \
+    pypy -mpip --no-cache-dir install \
+        cython \
         numpy \
-        matplotlib \
+        setuptools \
         contextlib2 \
         simplejson \
         pint \
-        graphviz
+        graphviz \ 
+        git+https://github.com/MatthieuDartiailh/pyclibrary.git
 
-RUN git clone https://github.com/MatthieuDartiailh/pyclibrary.git && \
-    cd pyclibrary && \
-    python setup.py install
+RUN pypy -m pip --no-cache-dir install \
+	matplotlib
 
 ENV TERM xterm
-
-# Build the library
-WORKDIR /bifrost
 
 ENV LD_LIBRARY_PATH /usr/local/lib:${LD_LIBRARY_PATH}
 
