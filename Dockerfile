@@ -42,7 +42,7 @@ RUN pypy -m ensurepip && \
         simplejson \
         pint \
         graphviz \ 
-        git+https://github.com/MatthieuDartiailh/pyclibrary.git
+        git+https://github.com/davidjamesca/ctypesgen.git@3d2d9803339503d2988382aa861b47a6a4872c32
 
 RUN pypy -m pip --no-cache-dir install \
 	matplotlib
