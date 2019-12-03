@@ -43,6 +43,19 @@ Implements the Romein convolutional algorithm onto a GPU using CUDA.
 
 #include "Complex.hpp"
 
+
+#define tile_block_x 4
+#define tile_block_y 16
+
+#define tile_ant_x 16
+#define tile_ant_y 16
+
+
+#define MAX_THREADS_PER_BLOCK 128
+#define MIN_BLOCKS_PER_MP     4
+
+
+
 struct __attribute__((aligned(1))) nibble2 {
     // Yikes!  This is dicey since the packing order is implementation dependent!  
     signed char y:4, x:4;
@@ -120,9 +133,7 @@ __global__ void romein_kernel(int                         nbaseline,
             int myGridV = yl + myConvV;
             
             // Grid point changed?
-            if (myGridU == grid_point_u && myGridV == grid_point_v) {
-                // Nothin'
-            } else {
+            if (!(myGridU == grid_point_u && myGridV == grid_point_v))  {
                 // Atomically add to grid. This is the bottleneck of this kernel.
                 if( grid_point_u >= 0 && grid_point_u < gridsize && \
                     grid_point_v >= 0 && grid_point_v < gridsize ) {
@@ -140,7 +151,7 @@ __global__ void romein_kernel(int                         nbaseline,
             // Sum up
             InType temp = d_in[vi+vi_s];
             OutType vi_v = OutType(temp.x, temp.y);
-            sum = Complexfcma(px, vi_v, sum);
+            Complexfcma(px, vi_v, sum);
         }
         
         if( grid_point_u >= 0 && grid_point_u < gridsize && \
@@ -153,47 +164,48 @@ __global__ void romein_kernel(int                         nbaseline,
 
 
 template<typename InType, typename OutType>
-__global__ void romein_kernel_sloc(int                         nbaseline,
-				   int                         npol,
-				   int                         maxsupport, 
-				   int                         gridsize, 
-				   int                         nbatch,
-				   const int* __restrict__     x,
-				   const int* __restrict__     y,
-				   const int* __restrict__     z,
-				   const OutType* __restrict__ kernels,
-				   const InType* __restrict__  d_in,
-				   OutType*                    d_out) {
-    int batch_no = blockIdx.x;
-    int pol_no = threadIdx.y;
-    int vi_s = batch_no*nbaseline*npol+pol_no;
-    int grid_s = batch_no*npol*gridsize*gridsize + pol_no*gridsize*gridsize;
+__global__ void 
+//__launch_bounds__(MAX_THREADS_PER_BLOCK, MIN_BLOCKS_PER_MP)
+romein_kernel_sloc(int   		       nbaseline,
+		   int   		       npol,
+		   int                         maxsupport, 
+		   int                         gridsize, 
+		   int                         nbatch,
+		   const int* __restrict__     x,
+		   const int* __restrict__     y,
+		   const int* __restrict__     z,
+		   const OutType* __restrict__ kernels,
+		   const InType* __restrict__  d_in,
+		   OutType*                    d_out) {
+    int batch_no_x = blockIdx.x, batch_no_y = blockIdx.y, batch_no_z = blockIdx.z ;
+    int tile_x=threadIdx.x, tile_y = threadIdx.y, pol_no = threadIdx.z;
+    int tid_xy = tile_x*tile_ant_y+tile_y;
+    int vi_s = (batch_no_x+batch_no_y*tile_block_x+batch_no_z*tile_block_x*tile_block_y)*nbaseline*npol+pol_no ;
+    int grid_s = (batch_no_x+batch_no_y*tile_block_x+batch_no_z*tile_block_x*tile_block_y)*npol*gridsize*gridsize + pol_no*gridsize*gridsize; 
     
+   // __shared__ int d[tile_ant_x][tile_ant_y]; 
     extern __shared__ int shared[];
     
     int* xdata = shared;
     int* ydata = xdata + nbaseline * npol;
-
-    for(int i = threadIdx.x; i < nbaseline; i += blockDim.x){
-	    
-	xdata[i*npol + pol_no] = x[vi_s + npol * i];
-	ydata[i*npol + pol_no] = y[vi_s + npol * i];
-    }
+	xdata[tid_xy*npol + pol_no] = x[vi_s + npol * tid_xy];
+	ydata[tid_xy*npol + pol_no] = y[vi_s+ npol * tid_xy];
 
     __syncthreads();
-    
-    for(int i = threadIdx.x; i < maxsupport * maxsupport; i += blockDim.x) {
-        int myU = i % maxsupport;
-        int myV = i / maxsupport;
+//   int myU, myV, grid_point_u, grid_point_v;
+       int myU = 0; //tid_xy % maxsupport;
+        int myV = 0;//tid_xy / maxsupport;
         
         int grid_point_u = myU;
         int grid_point_v = myV;
         OutType sum = OutType(0.0, 0.0);
 
-        int vi = 0;
-        for(vi = 0; vi < (nbaseline*npol); vi+=npol) {
-	        int xl = xdata[vi+pol_no];
-	        int yl = ydata[vi+pol_no];
+      #pragma unroll
+        for(int vi = tid_xy; vi < nbaseline;vi+=blockDim.x*blockDim.y) 
+        {
+                 
+	        int xl = xdata[vi*npol+pol_no];
+	        int yl = ydata[vi*npol+pol_no];
 
             // Determine convolution point. This is basically just an
             // optimised way to calculate.
@@ -215,10 +227,7 @@ __global__ void romein_kernel_sloc(int                         nbaseline,
             int myGridV = yl + myConvV;
             
             // Grid point changed?
-            if (myGridU == grid_point_u && myGridV == grid_point_v) {
-                // Nothin'
-            } else {
-                // Atomically add to grid. This is the bottleneck of this kernel.
+            if (!(myGridU == grid_point_u && myGridV == grid_point_v)) { // Atomically add to grid. This is the bottleneck of this kernel.
                 if( grid_point_u >= 0 && grid_point_u < gridsize && \
                     grid_point_v >= 0 && grid_point_v < gridsize ) {
                     atomicAdd(&d_out[grid_s + gridsize*grid_point_v + grid_point_u].x, sum.x);
@@ -231,19 +240,21 @@ __global__ void romein_kernel_sloc(int                         nbaseline,
             }
             
             //TODO: Re-do the w-kernel/gcf for our data.
-            OutType px = kernels[(vi+vi_s)*maxsupport*maxsupport + myConvV * maxsupport + myConvU];// ??
+            OutType px = kernels[(vi*npol+vi_s)*maxsupport*maxsupport + myConvV * maxsupport + myConvU];// ??
             // Sum up
-            InType temp = d_in[vi+vi_s];
+            InType temp = d_in[vi*npol+vi_s];
             OutType vi_v = OutType(temp.x, temp.y);
-            sum = Complexfcma(px, vi_v, sum);
-        }
-        
+        //    sum.x += px.x*vi_v.x+px.y*vi_v.y; sum.y += px.x*vi_v.y-px.y*vi_v.x;
+          sum=Complexfcma(px, vi_v, sum);     
+   }     
+ // __syncthreads();
         if( grid_point_u >= 0 && grid_point_u < gridsize && \
             grid_point_v >= 0 && grid_point_v < gridsize ) {
             atomicAdd(&d_out[grid_s + gridsize*grid_point_v + grid_point_u].x, sum.x);
             atomicAdd(&d_out[grid_s + gridsize*grid_point_v + grid_point_u].y, sum.y);
         }
-    }
+     __syncthreads();
+    
 }
 
 
@@ -263,15 +274,15 @@ inline void launch_romein_kernel(int      nbaseline,
                                  OutType* d_out,
                                  cudaStream_t stream=0) {
     //cout << "LAUNCH for " << nelement << endl;
-    dim3 block(8,1);
-    dim3 grid(nbatch*npol,1);
-    if( polmajor ) {
-        npol = 1;
-    } else {
+    int blk_cnt = nbatch / (tile_block_x*tile_block_y) ;
+    if( polmajor ) npol = 1;
+    dim3 block(tile_ant_x,tile_ant_y,npol);
+    dim3 grid(tile_block_x,tile_block_y,blk_cnt);
+    
+  /*  } else {
         block.y = npol;
         grid.x = nbatch;
     }
-    /*
     cout << "  Block size is " << block.x << " by " << block.y << endl;
     cout << "  Grid  size is " << grid.x << " by " << grid.y << endl;
     */
