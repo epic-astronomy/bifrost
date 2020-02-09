@@ -44,12 +44,12 @@ Implements the Romein convolutional algorithm onto a GPU using CUDA.
 #include "Complex.hpp"
 
 
-#define tile_block_z 4
-#define tile_block_y 16
+#define tile_block_z 8//2
+#define tile_block_y 16//2
 
 #define tile_ant_z 16
 #define tile_ant_y 16
-#define tile_k     2
+#define tile_k    16 
 
 #define MAX_THREADS_PER_BLOCK 128
 #define MIN_BLOCKS_PER_MP     4
@@ -110,23 +110,23 @@ romein_kernel_sloc(int   		       nbaseline,
     
     int* xdata = shared;
     int* ydata = xdata + nbaseline * npol;
-//#pragma unroll
-  //  for(int kk=0;kk<tile_k;kk++){
-	xdata[tile_y*npol + tile_z] = x[vi_s + npol *tile_y+tile_z];	ydata[tile_y*npol + tile_z] = y[vi_s+ npol *tile_y+tile_z];
-//}
+#pragma unroll
+    for(int kk=0;kk<npol;kk++){
+	xdata[tid_yz*npol + kk] = x[vi_s + npol *tid_yz+kk];	ydata[tid_yz*npol + kk] = y[vi_s+ npol *tid_yz+kk];
+}
     __syncthreads();
-int mm = illum_x;
-//#pragma unroll
-  //  for(int mm=illum_x;mm<maxsupport*maxsupport;mm+=blockDim.x){
+//int mm = illum_x;
+#pragma unroll
+    for(int mm=illum_x;mm<maxsupport*maxsupport;mm+=blockDim.x){
       int myU = mm% maxsupport; int myV = mm / maxsupport;
       int grid_point_u = myU; int grid_point_v = myV;
        OutType sum = OutType(0.0, 0.0);
   
-   // #pragma unroll
-    //    for(int kk = 0; kk < tile_k;kk++) 
-     //  {
+   #pragma unroll
+       for(int vi = 0; vi < npol;vi++) 
+       {
                  
-	       int xl = xdata[tile_y*npol+tile_z]; int yl = ydata[tile_y*npol+tile_z];
+	       int xl = xdata[tid_yz*npol+vi]; int yl = ydata[tid_yz*npol+vi];
 
             // Determine convolution point. This is basically just an
             // optimised way to calculate.
@@ -147,8 +147,8 @@ int mm = illum_x;
             if (!(myGridU == grid_point_u && myGridV == grid_point_v)) { // Atomically add to grid. This is the bottleneck of this kernel.
                if( grid_point_u >= 0 && grid_point_u < gridsize && \
                     grid_point_v >= 0 && grid_point_v < gridsize ) {
-                    atomicAdd(&d_out[grid_s + tile_z*gridsize*gridsize + gridsize*grid_point_v + grid_point_u].x, sum.x);
-                    atomicAdd(&d_out[grid_s + tile_z*gridsize*gridsize + gridsize*grid_point_v + grid_point_u].y, sum.y);
+                    atomicAdd(&d_out[grid_s + vi*gridsize*gridsize + gridsize*grid_point_v + grid_point_u].x, sum.x);
+                    atomicAdd(&d_out[grid_s + vi*gridsize*gridsize + gridsize*grid_point_v + grid_point_u].y, sum.y);
                 }
                 // Switch to new point
                 sum = OutType(0.0, 0.0);
@@ -156,18 +156,18 @@ int mm = illum_x;
            }
             
             //TODO: Re-do the w-kernel/gcf for our data.
-            OutType px = kernels[(tile_y*npol+vi_s+tile_z)*maxsupport*maxsupport + myConvV * maxsupport + myConvU];// ??
+            OutType px = kernels[(tid_yz*npol+vi_s+vi)*maxsupport*maxsupport + myConvV * maxsupport + myConvU];// ??
             // Sum up
-            InType temp = d_in[tile_y*npol+vi_s+tile_z];
+            InType temp = d_in[tid_yz*npol+vi_s+vi];
             OutType vi_v = OutType(temp.x, temp.y);
             sum=Complexfcma(px, vi_v, sum);     
        if( grid_point_u >= 0 && grid_point_u < gridsize && \
             grid_point_v >= 0 && grid_point_v < gridsize ) {
-            atomicAdd(&d_out[grid_s + tile_z*gridsize*gridsize+gridsize*grid_point_v + grid_point_u].x, sum.x);
-            atomicAdd(&d_out[grid_s + tile_z*gridsize*gridsize+gridsize*grid_point_v + grid_point_u].y, sum.y);
+            atomicAdd(&d_out[grid_s + vi*gridsize*gridsize+gridsize*grid_point_v + grid_point_u].x, sum.x);
+            atomicAdd(&d_out[grid_s + vi*gridsize*gridsize+gridsize*grid_point_v + grid_point_u].y, sum.y);
         }
- // }
-//}
+  }
+}
      __syncthreads();
     
 }
@@ -193,23 +193,23 @@ inline void launch_romein_kernel(int      nbaseline,
     int blk_cnt ;
     int block_x=maxsupport*maxsupport ;
     int block_ant=nbaseline/npol ;
-    dim3 block(block_x,nbaseline,1);//tile_ant_y,tile_ant_z);
+    dim3 block(block_x,tile_k,nbaseline/tile_k);
     //dim3 grid(tile_block_x,tile_block_y,blk_cnt);
-   // cout << endl << " batch " << nbatch << " polz " << npol << " bool " << polmajor << endl ;
+    //cout << endl << " batch " << nbatch << " polz " << npol << " bool " << polmajor << endl ;
     if(polmajor){
 	     blk_cnt = (nbatch*npol)/(tile_block_z*tile_block_y);
 	     npol=1;
 	  //  block.z=1; 
     }
     else {
-        block.z = npol;
+       // block.z = npol;
         blk_cnt = nbatch/ (tile_block_z* tile_block_y);
     }
     dim3 grid(blk_cnt,tile_block_y,tile_block_z);
     
      //  cout << endl << " batch " << nbatch << " polz " << npol << " bool " << polmajor << endl ;
-   // cout << "  Block size is " << block.x << " by " << block.y << " by " << block.z << endl;
-   // cout << "  Grid  size is " << grid.x << " by " << grid.y << " by " << grid.z << endl;
+    //cout << "  Block size is " << block.x << " by " << block.y << " by " << block.z << endl;
+    //cout << "  Grid  size is " << grid.x << " by " << grid.y << " by " << grid.z << endl;
    
 
     
