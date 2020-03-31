@@ -17,8 +17,8 @@ Implements the grid-Correlation onto a GPU using CUDA.
 #define block_z 8
 #define block_y 8
 
-#define tile_z 8
-#define tile_y 8 
+#define tile_z 16
+#define tile_y 16 
 
 struct __attribute__((aligned(1))) nibble2 {
     // Yikes!  This is dicey since the packing order is implementation dependent!  
@@ -59,23 +59,17 @@ __global__ void Corr(int npol, int gridsize, int nbatch,
         const int npol_in = 2, npol_out = 4 ;
         In* xx = reinterpret_cast<In *>(shared);
 
-        Out temp[npol_out];
+        
         int bid4=(bid_x*(blk_x/2)*grid_z*grid_y+bid_y*grid_z+bid_z)*blk_y*blk_z;
-        int bid5= (bid_x*blk_x*grid_z*grid_y+bid_y*grid_z+bid_z)*blk_y*blk_z;
-        int tid2 =  (int)tid_x%2*blk_z*blk_y+tid_yz ;
+        int bid5=(bid_x*blk_x*grid_z*grid_y+bid_y*grid_z+bid_z)*blk_y*blk_z;
+        int tid2 = tid_x%2+tid_yz*(blk_x/2);
         int tid  =  (int)tid_x%2*blk_z*blk_y*grid_y*grid_z+tid_yz ;
 	xx[tid2] = d_in[bid4+tid];
         __syncthreads();
    
-        int tid4 = (int)tid_x/2*blk_z*blk_y+tid_yz ;
+        int tid4 = tid_x/2+tid_yz*(blk_x/2);
         int tid5 = tid_x*blk_z*blk_y*grid_y*grid_z+tid_yz;
-        temp[tid_x] = d_out[bid5+tid5] ;
-//        temp[tid_x]=ComplexMul(xx[tid4],xx[tid2],temp[tid_x]);
-        temp[tid_x].x += xx[tid4].x*xx[tid2].x + xx[tid4].y*xx[tid2].y ;
-        temp[tid_x].y += xx[tid4].y*xx[tid2].x - xx[tid4].x*xx[tid2].y ;
-        d_out[bid5+tid5] += temp[tid_x] ;
-//	atomicAdd(&d_out[bid5+tid5].x, temp[tid_x].x);
-//        atomicAdd(&d_out[bid5+tid5].y, temp[tid_x].y);
+        d_out[bid5+tid5].x += xx[tid4].x*xx[tid2].x + xx[tid4].y*xx[tid2].y;   d_out[bid5+tid5].y += xx[tid4].y*xx[tid2].x - xx[tid4].x*xx[tid2].y ;
 
        __syncthreads();
 }
@@ -94,7 +88,7 @@ inline void launch_corr_kernel(int npol, bool polmajor, int gridsize, int nbatch
    
 //    cout << endl << " batch " << nbatch << " polz " << npol << " bool " << polmajor << endl ;
  
-    dim3 grid(block_x,block_y,block_z);
+    dim3 grid(block_x,(int)gridsize/tile_y,(int)gridsize/tile_z);//grid(block_x,block_y,block_z);
     
     //  cout << endl << " batch " << nbatch << " polz " << npol << " bool " << polmajor << endl ;
     //cout << "  Block size is " << block.x << " by " << block.y << " by " << block.z << endl;
