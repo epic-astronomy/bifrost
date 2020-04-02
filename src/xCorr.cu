@@ -84,7 +84,7 @@ inline void launch_corr_kernel(int npol, bool polmajor, int gridsize, int nbatch
     int grid_count = gridsize*gridsize ;
     int tile_x = 4 ;
     int block_x=nbatch ;
-    dim3 block(tile_x,tile_y,tile_z);
+    dim3 block(npol,tile_y,tile_z);
    
 //    cout << endl << " batch " << nbatch << " polz " << npol << " bool " << polmajor << endl ;
  
