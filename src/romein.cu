@@ -44,12 +44,8 @@ Implements the Romein convolutional algorithm onto a GPU using CUDA.
 #include "Complex.hpp"
 
 
-#define tile_block_z 8//2
-#define tile_block_y 16//2
 
-#define tile_ant_z 16
-#define tile_ant_y 16
-#define tile_k    16 
+#define tile_grid_y 64
 
 #define MAX_THREADS_PER_BLOCK 128
 #define MIN_BLOCKS_PER_MP     4
@@ -97,27 +93,23 @@ romein_kernel_sloc(int   		       nbaseline,
 		   const OutType* __restrict__ kernels,
 		   const InType* __restrict__  d_in,
 		   OutType*                    d_out) {
-    int batch_no_x = blockIdx.x, batch_no_y = blockIdx.y, batch_no_z = blockIdx.z ;
-    int illum_x= threadIdx.x, tile_y=threadIdx.y, tile_z = threadIdx.z;
-    int tid_yz = tile_y*tile_ant_z+tile_z;
-    int tid_xyz= illum_x*tile_ant_y*tile_ant_z+tile_y*tile_ant_z+tile_z;
-    int vi_s = (batch_no_z+batch_no_y*tile_block_z+batch_no_x*tile_block_z*tile_block_y)*nbaseline*npol ;
-    int grid_s = (batch_no_z+batch_no_y*tile_block_z+batch_no_x*tile_block_z*tile_block_y)*npol*gridsize*gridsize;
-//    int vi_s = batch_no_x*nbaseline*npol;//+tile_z;
-//    int grid_s = batch_no_x*npol*gridsize*gridsize ;//+ tile_z*gridsize*gridsize;
+    int bid_x = blockIdx.x, bid_y = blockIdx.y, bid_z = blockIdx.z ;
+        int blk_x = blockDim.x, blk_y = blockDim.y, blk_z = blockDim.z ;
+        int grid_x = gridDim.x, grid_y = gridDim.y, grid_z = gridDim.z ;
+        int illum_x = threadIdx.x, tid_y = threadIdx.y, tid_z = threadIdx.z ;
+
+    int vi_s = (bid_y+bid_x*grid_y)*grid_z*blk_y*npol ;
+    int grid_s = (bid_y+bid_x*grid_y)*npol*gridsize*gridsize;
 
     extern __shared__ int shared[];
     
     int* xdata = shared;
-    int* ydata = xdata + nbaseline * npol;
+    int* ydata = xdata + blk_y * npol;
 #pragma unroll
     for(int kk=0;kk<npol;kk++){
-	xdata[tid_yz*npol + kk] = x[vi_s + npol *tid_yz+kk];	ydata[tid_yz*npol + kk] = y[vi_s+ npol *tid_yz+kk];
-}
-    __syncthreads();
-//int mm = illum_x;
+	xdata[tid_y*npol + kk] = x[vi_s + npol *(bid_z*blk_y+tid_y)+kk];	ydata[tid_y*npol + kk] = y[vi_s+ npol *(bid_z*blk_y+tid_y)+kk];}  __syncthreads();
 #pragma unroll
-    for(int mm=illum_x;mm<maxsupport*maxsupport;mm+=blockDim.x){
+    for(int mm=illum_x;mm<maxsupport*maxsupport;mm+=grid_x){
       int myU = mm% maxsupport; int myV = mm / maxsupport;
       int grid_point_u = myU; int grid_point_v = myV;
        OutType sum = OutType(0.0, 0.0);
@@ -126,49 +118,38 @@ romein_kernel_sloc(int   		       nbaseline,
        for(int vi = 0; vi < npol;vi++) 
        {
                  
-	       int xl = xdata[tid_yz*npol+vi]; int yl = ydata[tid_yz*npol+vi];
-
+	       int xl = xdata[tid_y*npol+vi]; int yl = ydata[tid_y*npol+vi];
             // Determine convolution point. This is basically just an
             // optimised way to calculate.
-            //int myConvU = myU - u;
-            //int myConvV = myV - v;
             int myConvU = 0; int myConvV = 0;
             if( maxsupport > 1 ) {
                 myConvU = (xl - myU) % maxsupport; myConvV = (yl - myV) % maxsupport;    
                 if (myConvU < 0) myConvU += maxsupport; if (myConvV < 0) myConvV += maxsupport;
             } 
-            
             // Determine grid point. Because of the above we know here that
-            //   myGridU % max_supp = myU
-            //   myGridV % max_supp = myV
             int myGridU = xl + myConvU; int myGridV = yl + myConvV;
-            
-            // Grid point changed?
+               // Grid point changed?
             if (!(myGridU == grid_point_u && myGridV == grid_point_v)) { // Atomically add to grid. This is the bottleneck of this kernel.
                if( grid_point_u >= 0 && grid_point_u < gridsize && \
                     grid_point_v >= 0 && grid_point_v < gridsize ) {
-                    atomicAdd(&d_out[grid_s + vi*gridsize*gridsize + gridsize*grid_point_v + grid_point_u].x, sum.x);
-                    atomicAdd(&d_out[grid_s + vi*gridsize*gridsize + gridsize*grid_point_v + grid_point_u].y, sum.y);
-                }
+		       d_out[grid_s + vi*gridsize*gridsize + gridsize*grid_point_v + grid_point_u].x+= sum.x;
+                       d_out[grid_s + vi*gridsize*gridsize + gridsize*grid_point_v + grid_point_u].y+= sum.y;    }
                 // Switch to new point
                 sum = OutType(0.0, 0.0);
                 grid_point_u = myGridU; grid_point_v = myGridV;
            }
             
             //TODO: Re-do the w-kernel/gcf for our data.
-            OutType px = kernels[(tid_yz*npol+vi_s+vi)*maxsupport*maxsupport + myConvV * maxsupport + myConvU];// ??
+            OutType px = kernels[((bid_z*blk_y+tid_y)*npol+vi_s+vi)*maxsupport*maxsupport + myConvV * maxsupport + myConvU];
             // Sum up
-            InType temp = d_in[tid_yz*npol+vi_s+vi];
+            InType temp = d_in[(bid_z*blk_y+tid_y)*npol+vi_s+vi];
             OutType vi_v = OutType(temp.x, temp.y);
             sum=Complexfcma(px, vi_v, sum);     
        if( grid_point_u >= 0 && grid_point_u < gridsize && \
             grid_point_v >= 0 && grid_point_v < gridsize ) {
-            atomicAdd(&d_out[grid_s + vi*gridsize*gridsize+gridsize*grid_point_v + grid_point_u].x, sum.x);
-            atomicAdd(&d_out[grid_s + vi*gridsize*gridsize+gridsize*grid_point_v + grid_point_u].y, sum.y);
-        }
-  }
-}
-     __syncthreads();
+	       d_out[grid_s + vi*gridsize*gridsize + gridsize*grid_point_v + grid_point_u].x+= sum.x;
+                       d_out[grid_s + vi*gridsize*gridsize + gridsize*grid_point_v + grid_point_u].y+= sum.y; }  }
+}__syncthreads();
     
 }
 
@@ -188,31 +169,23 @@ inline void launch_romein_kernel(int      nbaseline,
                                  InType*  d_in,
                                  OutType* d_out,
                                  cudaStream_t stream=0) {
-    //cout << "LAUNCH for " << nelement << endl;
-    //int blk_cnt = nbatch / (tile_block_x*tile_block_y) ;
     int blk_cnt ;
-    int block_x=maxsupport*maxsupport ;
-    int block_ant=nbaseline/npol ;
-    dim3 block(block_x,tile_k,nbaseline/tile_k);
-    //dim3 grid(tile_block_x,tile_block_y,blk_cnt);
-    //cout << endl << " batch " << nbatch << " polz " << npol << " bool " << polmajor << endl ;
-    if(polmajor){
-	     blk_cnt = (nbatch*npol)/(tile_block_z*tile_block_y);
+    const int block_x=maxsupport*maxsupport ;
+    const int tile_y = nbaseline/block_x;
+    const int tile_grid_z=nbaseline/tile_y ;
+    dim3 block(block_x,tile_y);
+    // cout << endl << " batch " << nbatch << " polz " << npol << " bool " << polmajor << endl ;
+    if(polmajor){ blk_cnt = (nbatch*npol)/tile_grid_y;
 	     npol=1;
-	  //  block.z=1; 
-    }
-    else {
-       // block.z = npol;
-        blk_cnt = nbatch/ (tile_block_z* tile_block_y);
-    }
-    dim3 grid(blk_cnt,tile_block_y,tile_block_z);
+	     block.z=1;  }
+    else blk_cnt = nbatch/ tile_grid_y;
+    dim3 grid(blk_cnt,tile_grid_y,tile_grid_z);
     
      //  cout << endl << " batch " << nbatch << " polz " << npol << " bool " << polmajor << endl ;
     //cout << "  Block size is " << block.x << " by " << block.y << " by " << block.z << endl;
     //cout << "  Grid  size is " << grid.x << " by " << grid.y << " by " << grid.z << endl;
    
-
-    
+ 
     void* args[] = {&nbaseline,
                     &npol,
                     &maxsupport,
@@ -224,10 +197,9 @@ inline void launch_romein_kernel(int      nbaseline,
                     &kernels,
                     &d_in,
                     &d_out};
-  //  size_t loc_size = 2 * nbaseline * npol * sizeof(int);
+    size_t loc_size = 2 * block.y * npol * sizeof(int);
 	BF_CHECK_CUDA_EXCEPTION(cudaLaunchKernel((void*)romein_kernel_sloc<InType,OutType>,
-						 grid, block,
-						 &args[0], 2*nbaseline*npol*sizeof(int), stream),BF_STATUS_INTERNAL_ERROR);
+						 grid, block,&args[0], loc_size, stream),BF_STATUS_INTERNAL_ERROR);
     
 }
 
@@ -542,13 +514,27 @@ BFstatus bfRomeinExecute(BFromein          plan,
         out  =  &out_flattened;
         BF_ASSERT(out_flattened.ndim == 4, BF_STATUS_UNSUPPORTED_SHAPE);
     }
-    /*
-    std::cout << "ndim = " << out->ndim << std::endl;
+//    cout << out->shape[0] << "  " << out->shape[1] << "  " << out->shape[2] << "  " << out->shape[3] << endl ;
+//    cout <<  in->shape[0] << "  " << in->shape[1] << "  " << in->shape[2]  << "  " << in->shape[3] << "  " << in->shape[4] << "  " << in->shape[5] << endl ;
+
+  /* 
+    std::cout << "OUT ndim = " << out->ndim << std::endl;
     std::cout << "   0 = " << out->shape[0] << std::endl;
     std::cout << "   1 = " << out->shape[1] << std::endl;
     std::cout << "   2 = " << out->shape[2] << std::endl;
     std::cout << "   3 = " << out->shape[3] << std::endl;
-    */
+    
+
+    std::cout << "IN ndim = " << in->ndim << std::endl;
+    std::cout << "   0 = " << in->shape[0] << std::endl;
+    std::cout << "   1 = " << in->shape[1] << std::endl;
+    std::cout << "   2 = " << in->shape[2] << std::endl;
+   // std::cout << "   3 = " << in->shape[3] << std::endl;
+   // std::cout << "   4 = " << in->shape[4] << std::endl;
+*/
+
+
+
     BF_ASSERT(out->shape[0] == plan->nxyz(),     BF_STATUS_INVALID_SHAPE);
     BF_ASSERT(out->shape[0] == plan->nkernels(), BF_STATUS_INVALID_SHAPE);
     BF_ASSERT(out->shape[1] == plan->npol(),     BF_STATUS_INVALID_SHAPE);
