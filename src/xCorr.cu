@@ -14,11 +14,8 @@ Implements the grid-Correlation onto a GPU using CUDA.
 #include "Complex.hpp"
 
 
-#define block_z 8
-#define block_y 8
 
-#define tile_z 16
-#define tile_y 16 
+#define tile_x 32
 
 struct __attribute__((aligned(1))) nibble2 {
     // Yikes!  This is dicey since the packing order is implementation dependent!  
@@ -49,31 +46,35 @@ __global__ void Corr(int npol, int gridsize, int nbatch,
 		     const In* __restrict__  d_in,
                      Out* d_out){
 
-        int bid_x = blockIdx.x, bid_y = blockIdx.y, bid_z = blockIdx.z ;
-        int blk_x = blockDim.x, blk_y = blockDim.y, blk_z = blockDim.z ;
-        int grid_x = gridDim.x, grid_y = gridDim.y, grid_z = gridDim.z ;
-        int tid_x = threadIdx.x, tid_y = threadIdx.y, tid_z = threadIdx.z ;
-        int tid_yz = tid_y * blk_z + tid_z ;
+        int bid_x = blockIdx.x, bid_y = blockIdx.y ;
+        int blk_x = blockDim.x;
+        int grid_x = gridDim.x, grid_y = gridDim.y ;
+        int tid_x = threadIdx.x;
+	int pol_skip = grid_y*blk_x;
+
+// Making use of shared memory for faster memory accesses by the threads
 
         extern  __shared__ Complex<float> shared[] ;
-        const int npol_in = 2, npol_out = 4 ;
         In* xx = reinterpret_cast<In *>(shared);
 
-        
-        int bid4=(bid_x*(blk_x/2)*grid_z*grid_y+bid_y*grid_z+bid_z)*blk_y*blk_z;
-        int bid5=(bid_x*blk_x*grid_z*grid_y+bid_y*grid_z+bid_z)*blk_y*blk_z;
-        int tid2 = tid_x%2+tid_yz*(blk_x/2);
-        int tid  =  (int)tid_x%2*blk_z*blk_y*grid_y*grid_z+tid_yz ;
-	xx[tid2] = d_in[bid4+tid];
-        __syncthreads();
-   
-        int tid4 = tid_x/2+tid_yz*(blk_x/2);
-        int tid5 = tid_x*blk_z*blk_y*grid_y*grid_z+tid_yz;
-        d_out[bid5+tid5].x += xx[tid4].x*xx[tid2].x + xx[tid4].y*xx[tid2].y;   d_out[bid5+tid5].y += xx[tid4].y*xx[tid2].x - xx[tid4].x*xx[tid2].y ;
+// Access pattern is such that coaelescence is achieved both for read and writes to global and shared memory
 
-       __syncthreads();
+
+        int bid=(bid_x*npol*grid_y+bid_y)*blk_x ;
+        #pragma unroll
+	for(int i=0;i<(npol/2);++i){
+	xx[i*blk_x+tid_x] = d_in[bid+i*pol_skip+tid_x];}
+		__syncthreads();
+// Iterate across polarizations to estimate XX*, YY*, XY*
+
+
+        #pragma unroll
+        for(int i=0;i<npol-1;++i){
+		d_out[bid+i*pol_skip+tid_x].x += xx[i/2*blk_x+tid_x].x*xx[i%2*blk_x+tid_x].x + xx[i/2*blk_x+tid_x].y*xx[i%2*blk_x+tid_x].y;   d_out[bid+i*pol_skip+tid_x].y += xx[i/2*blk_x+tid_x].y*xx[i%2*blk_x+tid_x].x - xx[i/2*blk_x+tid_x].x*xx[i%2*blk_x+tid_x].y ;}
+	__syncthreads();
+//  YX* is the same as XY*; just negate the imaginary part
+	d_out[bid+3*pol_skip+tid_x].x=d_out[bid+2*pol_skip+tid_x].x;  d_out[bid+3*pol_skip+tid_x].y=(-1)*d_out[bid+2*pol_skip+tid_x].y; 
 }
-
 
 template<typename In, typename Out>
 inline void launch_corr_kernel(int npol, bool polmajor, int gridsize, int nbatch,
@@ -82,13 +83,14 @@ inline void launch_corr_kernel(int npol, bool polmajor, int gridsize, int nbatch
                                cudaStream_t stream=0) {
    
     int grid_count = gridsize*gridsize ;
-    int tile_x = 4 ;
+    int tile_y=1024/tile_x;             
+    int block_y=grid_count/(tile_x*tile_y);
     int block_x=nbatch ;
-    dim3 block(npol,tile_y,tile_z);
+    dim3 block(1024,1); /// Flattened one-D to reduce indexing arithmetic
    
 //    cout << endl << " batch " << nbatch << " polz " << npol << " bool " << polmajor << endl ;
  
-    dim3 grid(block_x,(int)gridsize/tile_y,(int)gridsize/tile_z);//grid(block_x,block_y,block_z);
+    dim3 grid(block_x, block_y);
     
     //  cout << endl << " batch " << nbatch << " polz " << npol << " bool " << polmajor << endl ;
     //cout << "  Block size is " << block.x << " by " << block.y << " by " << block.z << endl;
@@ -100,10 +102,10 @@ inline void launch_corr_kernel(int npol, bool polmajor, int gridsize, int nbatch
                     &nbatch,
                     &d_in,
                     &d_out};
-  
+     size_t loc_size=2*block.x;//tile_x*tile_y;
 	BF_CHECK_CUDA_EXCEPTION(cudaLaunchKernel((void*)Corr<In,Out>,
 						 grid, block,
-						 &args[0], int(tile_x/2)*tile_y*tile_z*sizeof(Complex<float>), stream),BF_STATUS_INTERNAL_ERROR);
+						 &args[0], loc_size*sizeof(Complex<float>), stream),BF_STATUS_INTERNAL_ERROR);
     
 }
 
