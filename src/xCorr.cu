@@ -13,6 +13,7 @@ Implements the grid-Correlation onto a GPU using CUDA.
 
 #include "Complex.hpp"
 
+#include <thrust/device_vector.h>
 
 
 #define tile_x 32
@@ -43,7 +44,8 @@ inline Complex<RealType> ComplexMul(Complex<RealType> x, Complex<RealType> y, Co
 
 template<typename In, typename Out>
 __global__ void Corr(int npol, int gridsize, int nbatch,
-		     const In* __restrict__  d_in,
+		     cudaTextureObject_t   data_in,
+		    // const In* __restrict__  d_in,
                      Out* d_out){
 
         int bid_x = blockIdx.x, bid_y = blockIdx.y ;
@@ -54,27 +56,30 @@ __global__ void Corr(int npol, int gridsize, int nbatch,
 
 // Making use of shared memory for faster memory accesses by the threads
 
-        extern  __shared__ Complex<float> shared[] ;
-        In* xx = reinterpret_cast<In *>(shared);
-
-// Access pattern is such that coaelescence is achieved both for read and writes to global and shared memory
+        extern __shared__  float2 shared[] ;
+        float2* xx=shared;      
+	// Access pattern is such that coaelescence is achieved both for read and writes to global and shared memory
 
 
         int bid=(bid_x*npol*grid_y+bid_y)*blk_x ;
-        #pragma unroll
-	for(int i=0;i<(npol/2);++i){
-	xx[i*blk_x+tid_x] = d_in[bid+i*pol_skip+tid_x];}
-		__syncthreads();
-// Iterate across polarizations to estimate XX*, YY*, XY*
 
+// Reading texture cache as 1D with 1D thread-block indexing and copying it to shared memory
+	
+#pragma unroll
+        for(int i=0;i<(npol/2);++i){
+        xx[i*blk_x+tid_x] =tex1Dfetch<float2>(data_in, bid+i*pol_skip+tid_x);}
+                __syncthreads();
 
+// Iterate across polarizations to estimate XX*, YY*, XY*		
         #pragma unroll
         for(int i=0;i<npol-1;++i){
-		d_out[bid+i*pol_skip+tid_x].x += xx[i/2*blk_x+tid_x].x*xx[i%2*blk_x+tid_x].x + xx[i/2*blk_x+tid_x].y*xx[i%2*blk_x+tid_x].y;   d_out[bid+i*pol_skip+tid_x].y += xx[i/2*blk_x+tid_x].y*xx[i%2*blk_x+tid_x].x - xx[i/2*blk_x+tid_x].x*xx[i%2*blk_x+tid_x].y ;}
-	__syncthreads();
+                d_out[bid+i*pol_skip+tid_x].x += xx[i/2*blk_x+tid_x].x*xx[i%2*blk_x+tid_x].x + xx[i/2*blk_x+tid_x].y*xx[i%2*blk_x+tid_x].y;   d_out[bid+i*pol_skip+tid_x].y += xx[i/2*blk_x+tid_x].y*xx[i%2*blk_x+tid_x].x - xx[i/2*blk_x+tid_x].x*xx[i%2*blk_x+tid_x].y ;}
+        __syncthreads();
 //  YX* is the same as XY*; just negate the imaginary part
-	d_out[bid+3*pol_skip+tid_x].x=d_out[bid+2*pol_skip+tid_x].x;  d_out[bid+3*pol_skip+tid_x].y=(-1)*d_out[bid+2*pol_skip+tid_x].y; 
-}
+        d_out[bid+3*pol_skip+tid_x].x=d_out[bid+2*pol_skip+tid_x].x;  d_out[bid+3*pol_skip+tid_x].y=(-1)*d_out[bid+2*pol_skip+tid_x].y;
+
+	}
+ 
 
 template<typename In, typename Out>
 inline void launch_corr_kernel(int npol, bool polmajor, int gridsize, int nbatch,
@@ -86,6 +91,7 @@ inline void launch_corr_kernel(int npol, bool polmajor, int gridsize, int nbatch
     int tile_y=1024/tile_x;             
     int block_y=grid_count/(tile_x*tile_y);
     int block_x=nbatch ;
+    // Maximum thread blocks per device for GeForce cards on intrepid
     dim3 block(1024,1); /// Flattened one-D to reduce indexing arithmetic
    
 //    cout << endl << " batch " << nbatch << " polz " << npol << " bool " << polmajor << endl ;
@@ -96,17 +102,62 @@ inline void launch_corr_kernel(int npol, bool polmajor, int gridsize, int nbatch
     //cout << "  Block size is " << block.x << " by " << block.y << " by " << block.z << endl;
     //cout << "  Grid  size is " << grid.x << " by " << grid.y << " by " << grid.z << endl;
    
-   
+  
+
+    // Determine how to create the texture object
+    // NOTE:  Assumes some type of complex float
+    cudaChannelFormatKind channel_format = cudaChannelFormatKindFloat;
+    int dx = 32;
+    int dy = 32;
+    int dz = 0;
+    int dw = 0;
+    //if( sizeof(In) == sizeof(Complex64) ) {
+      //  channel_format = cudaChannelFormatKindUnsigned;
+      //  dz = 32;
+     //   dw = 32;
+  //  }
+
+    // Create texture object
+    cudaResourceDesc resDesc;
+    memset(&resDesc, 0, sizeof(resDesc));
+    resDesc.resType = cudaResourceTypeLinear;
+    resDesc.res.linear.devPtr = d_in;
+    resDesc.res.linear.desc.f = channel_format;
+    resDesc.res.linear.desc.x = dx;
+    resDesc.res.linear.desc.y = dy;
+    resDesc.res.linear.desc.z = dz;
+    resDesc.res.linear.desc.w = dw;
+    resDesc.res.linear.sizeInBytes = 2*grid_count*nbatch*sizeof(In);
+
+    cudaTextureDesc texDesc;
+    memset(&texDesc, 0, sizeof(texDesc));
+    texDesc.readMode = cudaReadModeElementType;
+
+    cudaTextureObject_t data_in;
+    BF_CHECK_CUDA_EXCEPTION(cudaCreateTextureObject(&data_in, &resDesc, &texDesc, NULL),
+                            BF_STATUS_INTERNAL_ERROR);
+
+
+
+
+
     void* args[] = {&npol,
                     &gridsize, 
                     &nbatch,
-                    &d_in,
+		    &data_in,
+                  //  &d_in,
                     &d_out};
      size_t loc_size=2*block.x;//tile_x*tile_y;
 	BF_CHECK_CUDA_EXCEPTION(cudaLaunchKernel((void*)Corr<In,Out>,
 						 grid, block,
-						 &args[0], loc_size*sizeof(Complex<float>), stream),BF_STATUS_INTERNAL_ERROR);
-    
+						 &args[0], loc_size*sizeof(float2), stream),BF_STATUS_INTERNAL_ERROR);
+   
+
+ BF_CHECK_CUDA_EXCEPTION(cudaDestroyTextureObject(data_in),
+                            BF_STATUS_INTERNAL_ERROR);
+
+
+
 }
 
 class BFcorr_impl {
