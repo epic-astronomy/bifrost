@@ -45,7 +45,7 @@ Implements the Romein convolutional algorithm onto a GPU using CUDA.
 
 
 
-#define tile_grid_y 64
+#define tile_grid_y 4//64
 
 #define MAX_THREADS_PER_BLOCK 128
 #define MIN_BLOCKS_PER_MP     4
@@ -132,8 +132,12 @@ romein_kernel_sloc(int   		       nbaseline,
             if (!(myGridU == grid_point_u && myGridV == grid_point_v)) { // Atomically add to grid. This is the bottleneck of this kernel.
                if( grid_point_u >= 0 && grid_point_u < gridsize && \
                     grid_point_v >= 0 && grid_point_v < gridsize ) {
-		       d_out[grid_s + vi*gridsize*gridsize + gridsize*grid_point_v + grid_point_u].x+= sum.x;
-                       d_out[grid_s + vi*gridsize*gridsize + gridsize*grid_point_v + grid_point_u].y+= sum.y;    }
+//		       d_out[grid_s + vi*gridsize*gridsize + gridsize*grid_point_v + grid_point_u].x+= sum.x;
+  //                     d_out[grid_s + vi*gridsize*gridsize + gridsize*grid_point_v + grid_point_u].y+= sum.y;   
+	              atomicAdd(&d_out[grid_s + vi*gridsize*gridsize + gridsize*grid_point_v + grid_point_u].x, sum.x);
+                    atomicAdd(&d_out[grid_s + vi*gridsize*gridsize + gridsize*grid_point_v + grid_point_u].y, sum.y);
+ }
+
                 // Switch to new point
                 sum = OutType(0.0, 0.0);
                 grid_point_u = myGridU; grid_point_v = myGridV;
@@ -147,8 +151,13 @@ romein_kernel_sloc(int   		       nbaseline,
             sum=Complexfcma(px, vi_v, sum);     
        if( grid_point_u >= 0 && grid_point_u < gridsize && \
             grid_point_v >= 0 && grid_point_v < gridsize ) {
-	       d_out[grid_s + vi*gridsize*gridsize + gridsize*grid_point_v + grid_point_u].x+= sum.x;
-                       d_out[grid_s + vi*gridsize*gridsize + gridsize*grid_point_v + grid_point_u].y+= sum.y; }  }
+//	       d_out[grid_s + vi*gridsize*gridsize + gridsize*grid_point_v + grid_point_u].x+= sum.x;
+  //             d_out[grid_s + vi*gridsize*gridsize + gridsize*grid_point_v + grid_point_u].y+= sum.y;
+      
+              atomicAdd(&d_out[grid_s + vi*gridsize*gridsize + gridsize*grid_point_v + grid_point_u].x, sum.x);
+               atomicAdd(&d_out[grid_s + vi*gridsize*gridsize + gridsize*grid_point_v + grid_point_u].y, sum.y);
+ }  }
+
 }__syncthreads();
     
 }
@@ -169,10 +178,22 @@ inline void launch_romein_kernel(int      nbaseline,
                                  InType*  d_in,
                                  OutType* d_out,
                                  cudaStream_t stream=0) {
+    
+    cudaDeviceProp dev;
+    cudaError_t error;
+    error = cudaGetDeviceProperties(&dev, 0);
+     if(error != cudaSuccess)
+     {
+        printf("Error: %s\n", cudaGetErrorString(error));
+      }
+
+	
     int blk_cnt ;
-    const int block_x=maxsupport*maxsupport ;
-    const int tile_y = nbaseline/block_x;
-    const int tile_grid_z=nbaseline/tile_y ;
+    int block_x=maxsupport*maxsupport ;
+    int tile_y ;
+    if(block_x==1)tile_y=nbaseline;
+    else tile_y = dev.maxThreadsPerBlock/block_x;
+    int tile_grid_z=nbaseline/tile_y ;
     dim3 block(block_x,tile_y);
     // cout << endl << " batch " << nbatch << " polz " << npol << " bool " << polmajor << endl ;
     if(polmajor){ blk_cnt = (nbatch*npol)/tile_grid_y;

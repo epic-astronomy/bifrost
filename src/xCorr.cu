@@ -17,6 +17,7 @@ Implements the grid-Correlation onto a GPU using CUDA.
 
 
 #define tile_x 32
+#define tile_fr 64
 
 struct __attribute__((aligned(1))) nibble2 {
     // Yikes!  This is dicey since the packing order is implementation dependent!  
@@ -48,11 +49,11 @@ __global__ void Corr(int npol, int gridsize, int nbatch,
 		    // const In* __restrict__  d_in,
                      Out* d_out){
 
-        int bid_x = blockIdx.x, bid_y = blockIdx.y ;
+        int bid_x = blockIdx.x, bid_y = blockIdx.y, bid_z=blockIdx.z ;
         int blk_x = blockDim.x;
-        int grid_x = gridDim.x, grid_y = gridDim.y ;
+        int grid_x = gridDim.x, grid_y = gridDim.y, grid_z=gridDim.z ;
         int tid_x = threadIdx.x;
-	int pol_skip = grid_y*blk_x;
+	int pol_skip = grid_z*blk_x;
 
 // Making use of shared memory for faster memory accesses by the threads
 
@@ -61,7 +62,7 @@ __global__ void Corr(int npol, int gridsize, int nbatch,
 	// Access pattern is such that coaelescence is achieved both for read and writes to global and shared memory
 
 
-        int bid=(bid_x*npol*grid_y+bid_y)*blk_x ;
+        int bid=((bid_x*grid_y+bid_y)*npol*grid_z+bid_z)*blk_x ;
 
 // Reading texture cache as 1D with 1D thread-block indexing and copying it to shared memory
 	
@@ -86,17 +87,23 @@ inline void launch_corr_kernel(int npol, bool polmajor, int gridsize, int nbatch
                                In*  d_in,
                                Out* d_out,
                                cudaStream_t stream=0) {
-   
+    cudaDeviceProp dev;
+    cudaError_t error;
+    error = cudaGetDeviceProperties(&dev, 0);
+     if(error != cudaSuccess)
+     {
+        printf("Error: %s\n", cudaGetErrorString(error));
+      }
     int grid_count = gridsize*gridsize ;
-    int tile_y=1024/tile_x;             
-    int block_y=grid_count/(tile_x*tile_y);
-    int block_x=nbatch ;
+    int tile_y=dev.maxThreadsPerBlock/tile_x;             
+    int block_grid=grid_count/(tile_x*tile_y);
+    int block_x=nbatch/tile_fr ;
     // Maximum thread blocks per device for GeForce cards on intrepid
-    dim3 block(1024,1); /// Flattened one-D to reduce indexing arithmetic
+    dim3 block(dev.maxThreadsPerBlock,1); /// Flattened one-D to reduce indexing arithmetic
    
 //    cout << endl << " batch " << nbatch << " polz " << npol << " bool " << polmajor << endl ;
  
-    dim3 grid(block_x, block_y);
+    dim3 grid(block_x, tile_fr, block_grid);
     
     //  cout << endl << " batch " << nbatch << " polz " << npol << " bool " << polmajor << endl ;
     //cout << "  Block size is " << block.x << " by " << block.y << " by " << block.z << endl;
