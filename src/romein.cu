@@ -132,7 +132,8 @@ __global__ void romein_kernel_sloc(
         int yl = ydata[tid_y * npol + vi];
         // Determine convolution point. This is basically just an
         // optimised way to calculate.
-        int myConvU = 0; int myConvV = 0;
+        int myConvU = 0;
+        int myConvV = 0;
         if (maxsupport > 1) {
           myConvU = (xl - myU) % maxsupport;
           myConvV = (yl - myV) % maxsupport;
@@ -153,7 +154,8 @@ __global__ void romein_kernel_sloc(
 
           // Switch to new point
           sum = OutType(0.0, 0.0);
-          grid_point_u = myGridU; grid_point_v = myGridV;
+          grid_point_u = myGridU;
+          grid_point_v = myGridV;
         }
 
         //TODO: Re-do the w-kernel/gcf for our data.
@@ -162,7 +164,7 @@ __global__ void romein_kernel_sloc(
         // Sum up
         InType temp = d_in[(bid_z * blk_y + tid_y) * npol + vi_s + vi];
         OutType vi_v = OutType(temp.x, temp.y);
-        sum=Complexfcma(px, vi_v, sum);
+        sum = Complexfcma(px, vi_v, sum);
         if (grid_point_u >= 0 && grid_point_u < gridsize && \
               grid_point_v >= 0 && grid_point_v < gridsize ) {
           atomicAdd(&d_out[grid_s + vi * gridsize * gridsize + gridsize * grid_point_v + grid_point_u].x, sum.x);
