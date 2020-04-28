@@ -122,9 +122,6 @@ __global__ void romein_kernel_sloc(
     for (int mm = illum_x; mm < maxsupport * maxsupport; mm += grid_x) {
       int myU = mm % maxsupport;
       int myV = mm / maxsupport;
-      int grid_point_u = myU;
-      int grid_point_v = myV;
-      OutType sum = OutType(0.0, 0.0);
 
       #pragma unroll
       for(int vi = 0; vi < npol; vi++) {
@@ -141,22 +138,8 @@ __global__ void romein_kernel_sloc(
           if (myConvV < 0) myConvV += maxsupport;
         }
         // Determine grid point. Because of the above we know here that
-        int myGridU = xl + myConvU;
-        int myGridV = yl + myConvV;
-        // Grid point changed?
-        if (!(myGridU == grid_point_u && myGridV == grid_point_v)) {
-          // Atomically add to grid. This is the bottleneck of this kernel.
-          if (grid_point_u >= 0 && grid_point_u < gridsize && \
-                grid_point_v >= 0 && grid_point_v < gridsize ) {
-            atomicAdd(&d_out[grid_s + vi * gridsize * gridsize + gridsize * grid_point_v + grid_point_u].x, sum.x);
-            atomicAdd(&d_out[grid_s + vi * gridsize * gridsize + gridsize * grid_point_v + grid_point_u].y, sum.y);
-          }
-
-          // Switch to new point
-          sum = OutType(0.0, 0.0);
-          grid_point_u = myGridU;
-          grid_point_v = myGridV;
-        }
+        int grid_point_u = xl + myConvU;
+        int grid_point_v = yl + myConvV;
 
         //TODO: Re-do the w-kernel/gcf for our data.
         OutType px = kernels[((bid_z * blk_y + tid_y) * npol + vi_s + vi) * maxsupport * maxsupport + \
@@ -164,7 +147,7 @@ __global__ void romein_kernel_sloc(
         // Sum up
         InType temp = d_in[(bid_z * blk_y + tid_y) * npol + vi_s + vi];
         OutType vi_v = OutType(temp.x, temp.y);
-        sum = Complexfcma(px, vi_v, sum);
+        OutType sum = Complexfcma(px, vi_v, sum);
         if (grid_point_u >= 0 && grid_point_u < gridsize && \
               grid_point_v >= 0 && grid_point_v < gridsize ) {
           atomicAdd(&d_out[grid_s + vi * gridsize * gridsize + gridsize * grid_point_v + grid_point_u].x, sum.x);
