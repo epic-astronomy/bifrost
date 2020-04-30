@@ -16,7 +16,7 @@ Implements the grid-Correlation onto a GPU using CUDA.
 #include <thrust/device_vector.h>
 
 
-#define tile_x 32
+#define tile_xx 32
 #define tile_fr 64
 
 struct __attribute__((aligned(1))) nibble2 {
@@ -49,37 +49,45 @@ __global__ void Corr(int npol, int gridsize, int nbatch,
 		    // const In* __restrict__  d_in,
                      Out* d_out){
 
+	/// thread and block indexing 
         int bid_x = blockIdx.x, bid_y = blockIdx.y, bid_z=blockIdx.z ;
         int blk_x = blockDim.x;
         int grid_x = gridDim.x, grid_y = gridDim.y, grid_z=gridDim.z ;
         int tid_x = threadIdx.x;
 	int pol_skip = grid_z*blk_x;
 
-// Making use of shared memory for faster memory accesses by the threads
-
-        extern __shared__  float2 shared[] ;
+       // Making use of shared memory for faster memory accesses by the threads
+       
+        extern __shared__  float2 shared[] ; //Dynamic allocation of shared memory
         float2* xx=shared;      
 	// Access pattern is such that coaelescence is achieved both for read and writes to global and shared memory
 
-
         int bid=((bid_x*grid_y+bid_y)*npol*grid_z+bid_z)*blk_x ;
 
-// Reading texture cache as 1D with 1D thread-block indexing and copying it to shared memory
+        // Reading texture cache as 1D with 1D thread-block indexing and copying it to shared memory
 	
-#pragma unroll
-        for(int i=0;i<(npol/2);++i){
-        xx[i*blk_x+tid_x] =tex1Dfetch<float2>(data_in, bid+i*pol_skip+tid_x);}
-                __syncthreads();
-
-// Iterate across polarizations to estimate XX*, YY*, XY*		
         #pragma unroll
-        for(int i=0;i<npol-1;++i){
-                d_out[bid+i*pol_skip+tid_x].x += xx[i/2*blk_x+tid_x].x*xx[i%2*blk_x+tid_x].x + xx[i/2*blk_x+tid_x].y*xx[i%2*blk_x+tid_x].y;   d_out[bid+i*pol_skip+tid_x].y += xx[i/2*blk_x+tid_x].y*xx[i%2*blk_x+tid_x].x - xx[i/2*blk_x+tid_x].x*xx[i%2*blk_x+tid_x].y ;}
-        __syncthreads();
-//  YX* is the same as XY*; just negate the imaginary part
-        d_out[bid+3*pol_skip+tid_x].x=d_out[bid+2*pol_skip+tid_x].x;  d_out[bid+3*pol_skip+tid_x].y=(-1)*d_out[bid+2*pol_skip+tid_x].y;
-
+        for(int i=0;i<(npol/2);++i)
+	{
+             xx[i*blk_x+tid_x] =tex1Dfetch<float2>(data_in, bid+i*pol_skip+tid_x);
 	}
+        __syncthreads();
+
+
+        // Iterate across polarizations to estimate XX*, YY*, XY*		
+        #pragma unroll
+        for(int i=0;i<npol-1;++i)
+	{
+             d_out[bid+i*pol_skip+tid_x].x += xx[i/2*blk_x+tid_x].x*xx[i%2*blk_x+tid_x].x \
+					      + xx[i/2*blk_x+tid_x].y*xx[i%2*blk_x+tid_x].y;
+	     d_out[bid+i*pol_skip+tid_x].y += xx[i/2*blk_x+tid_x].y*xx[i%2*blk_x+tid_x].x \ 
+		                              - xx[i/2*blk_x+tid_x].x*xx[i%2*blk_x+tid_x].y;        
+	}
+        __syncthreads();
+        //  YX* is the same as XY*; just negate the imaginary part
+        d_out[bid+3*pol_skip+tid_x].x = d_out[bid+2*pol_skip+tid_x].x;  
+	d_out[bid+3*pol_skip+tid_x].y = (-1)*d_out[bid+2*pol_skip+tid_x].y;
+}
  
 
 template<typename In, typename Out>
@@ -95,13 +103,13 @@ inline void launch_corr_kernel(int npol, bool polmajor, int gridsize, int nbatch
         printf("Error: %s\n", cudaGetErrorString(error));
       }
     int grid_count = gridsize*gridsize ;
-    int tile_y=dev.maxThreadsPerBlock/tile_x;             
-    int block_grid=grid_count/(tile_x*tile_y);
+    int tile_x=std::min(grid_count,dev.maxThreadsPerBlock);          
+    int block_grid=grid_count/tile_x;
     int block_x=nbatch/tile_fr ;
     // Maximum thread blocks per device for GeForce cards on intrepid
-    dim3 block(dev.maxThreadsPerBlock,1); /// Flattened one-D to reduce indexing arithmetic
+    dim3 block(tile_x,1); /// Flattened one-D to reduce indexing arithmetic
    
-//    cout << endl << " batch " << nbatch << " polz " << npol << " bool " << polmajor << endl ;
+    //    cout << endl << " batch " << nbatch << " polz " << npol << " bool " << polmajor << endl ;
  
     dim3 grid(block_x, tile_fr, block_grid);
     
@@ -118,11 +126,12 @@ inline void launch_corr_kernel(int npol, bool polmajor, int gridsize, int nbatch
     int dy = 32;
     int dz = 0;
     int dw = 0;
-    //if( sizeof(In) == sizeof(Complex64) ) {
-      //  channel_format = cudaChannelFormatKindUnsigned;
-      //  dz = 32;
-     //   dw = 32;
-  //  }
+    if( sizeof(In) == sizeof(Complex64) ) 
+    {
+        channel_format = cudaChannelFormatKindUnsigned;
+        dz = 32;
+        dw = 32;
+    }
 
     // Create texture object
     cudaResourceDesc resDesc;
@@ -141,12 +150,7 @@ inline void launch_corr_kernel(int npol, bool polmajor, int gridsize, int nbatch
     texDesc.readMode = cudaReadModeElementType;
 
     cudaTextureObject_t data_in;
-    BF_CHECK_CUDA_EXCEPTION(cudaCreateTextureObject(&data_in, &resDesc, &texDesc, NULL),
-                            BF_STATUS_INTERNAL_ERROR);
-
-
-
-
+    BF_CHECK_CUDA_EXCEPTION(cudaCreateTextureObject(&data_in, &resDesc, &texDesc, NULL), BF_STATUS_INTERNAL_ERROR);
 
     void* args[] = {&npol,
                     &gridsize, 
@@ -154,16 +158,12 @@ inline void launch_corr_kernel(int npol, bool polmajor, int gridsize, int nbatch
 		    &data_in,
                   //  &d_in,
                     &d_out};
-     size_t loc_size=2*block.x;//tile_x*tile_y;
-	BF_CHECK_CUDA_EXCEPTION(cudaLaunchKernel((void*)Corr<In,Out>,
-						 grid, block,
+     size_t loc_size=2*block.x;
+     BF_CHECK_CUDA_EXCEPTION(cudaLaunchKernel((void*)Corr<In,Out>, grid, block,
 						 &args[0], loc_size*sizeof(float2), stream),BF_STATUS_INTERNAL_ERROR);
    
 
- BF_CHECK_CUDA_EXCEPTION(cudaDestroyTextureObject(data_in),
-                            BF_STATUS_INTERNAL_ERROR);
-
-
+     BF_CHECK_CUDA_EXCEPTION(cudaDestroyTextureObject(data_in),BF_STATUS_INTERNAL_ERROR);
 
 }
 
