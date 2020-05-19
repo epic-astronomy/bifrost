@@ -103,22 +103,13 @@ inline void launch_corr_kernel(int npol, bool polmajor, int gridsize, int nbatch
         printf("Error: %s\n", cudaGetErrorString(error));
       }
     int grid_count = gridsize*gridsize ;
-    int tile_x=std::min(grid_count,dev.maxThreadsPerBlock);          
+    int tile_x=std::min(grid_count,dev.maxThreadsPerBlock/2);          
     int block_grid=grid_count/tile_x;
     int block_x=nbatch/tile_fr ;
     // Maximum thread blocks per device for GeForce cards on intrepid
     dim3 block(tile_x,1); /// Flattened one-D to reduce indexing arithmetic
-   
-    //    cout << endl << " batch " << nbatch << " polz " << npol << " bool " << polmajor << endl ;
- 
     dim3 grid(block_x, tile_fr, block_grid);
-    
-    //  cout << endl << " batch " << nbatch << " polz " << npol << " bool " << polmajor << endl ;
-    //cout << "  Block size is " << block.x << " by " << block.y << " by " << block.z << endl;
-    //cout << "  Grid  size is " << grid.x << " by " << grid.y << " by " << grid.z << endl;
    
-  
-
     // Determine how to create the texture object
     // NOTE:  Assumes some type of complex float
     cudaChannelFormatKind channel_format = cudaChannelFormatKindFloat;
@@ -162,7 +153,6 @@ inline void launch_corr_kernel(int npol, bool polmajor, int gridsize, int nbatch
      BF_CHECK_CUDA_EXCEPTION(cudaLaunchKernel((void*)Corr<In,Out>, grid, block,
 						 &args[0], loc_size*sizeof(float2), stream),BF_STATUS_INTERNAL_ERROR);
    
-
      BF_CHECK_CUDA_EXCEPTION(cudaDestroyTextureObject(data_in),BF_STATUS_INTERNAL_ERROR);
 
 }

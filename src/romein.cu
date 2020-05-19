@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018, The Bifrost Authors. All rights reserved.
+ * Copyright (c) 2020, The Bifrost Authors. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -97,9 +97,9 @@ romein_kernel_sloc(int   		       nbaseline,
 	/// Thread and Block Indexes and Dimensions
 
     int bid_x = blockIdx.x, bid_y = blockIdx.y, bid_z = blockIdx.z ;
-    int blk_x = blockDim.x, blk_y = blockDim.y, blk_z = blockDim.z ;
-    int grid_x = gridDim.x, grid_y = gridDim.y, grid_z = gridDim.z ;
-    int illum_x = threadIdx.x, tid_y = threadIdx.y, tid_z = threadIdx.z ;
+    int blk_x = blockDim.x, blk_y = blockDim.y;
+    int grid_y = gridDim.y, grid_z = gridDim.z ;
+    int illum_x = threadIdx.x, tid_y = threadIdx.y ;
 
     int vi_s = (bid_y+bid_x*grid_y)*grid_z*blk_y*npol ;
     int grid_s = (bid_y+bid_x*grid_y)*npol*gridsize*gridsize;
@@ -121,11 +121,7 @@ romein_kernel_sloc(int   		       nbaseline,
     }  
     __syncthreads();
 
-  //  #pragma unroll
-  //  for(int mm=illum_x;mm<maxsupport*maxsupport;mm+=grid_x)
-  //  {
-       int mm=illum_x;
-       int myU = mm% maxsupport; int myV = mm / maxsupport;
+       int myU = illum_x% maxsupport; int myV = illum_x / maxsupport;
        int grid_point_u = myU; int grid_point_v = myV;
        OutType sum = OutType(0.0, 0.0);
   
@@ -150,14 +146,14 @@ romein_kernel_sloc(int   		       nbaseline,
        	   // If grid-point changes for a given illumination pattern 
 
            if (!(myGridU == grid_point_u && myGridV == grid_point_v)) 
-	   { // Atomically add to grid. This is the bottleneck of this kernel.
+	   { // Atomic add to grid is now removed from this kernel after careful examining and consideration for race-conditions
                if( grid_point_u >= 0 && grid_point_u < gridsize && \
                     grid_point_v >= 0 && grid_point_v < gridsize ) 
 	        {
-//		       d_out[grid_s + vi*gridsize*gridsize + gridsize*grid_point_v + grid_point_u].x+= sum.x;
-  //                     d_out[grid_s + vi*gridsize*gridsize + gridsize*grid_point_v + grid_point_u].y+= sum.y;   
-                    atomicAdd(&d_out[grid_s + pol*gridsize*gridsize + gridsize*grid_point_v + grid_point_u].x, sum.x);
-                    atomicAdd(&d_out[grid_s + pol*gridsize*gridsize + gridsize*grid_point_v + grid_point_u].y, sum.y);
+                       d_out[grid_s + pol*gridsize*gridsize + gridsize*grid_point_v + grid_point_u].x+= sum.x;
+                       d_out[grid_s + pol*gridsize*gridsize + gridsize*grid_point_v + grid_point_u].y+= sum.y;   
+                //    atomicAdd(&d_out[grid_s + pol*gridsize*gridsize + gridsize*grid_point_v + grid_point_u].x, sum.x);
+                //    atomicAdd(&d_out[grid_s + pol*gridsize*gridsize + gridsize*grid_point_v + grid_point_u].y, sum.y);
                 }
                 // Switch to new point
                 sum = OutType(0.0, 0.0);
@@ -176,20 +172,15 @@ romein_kernel_sloc(int   		       nbaseline,
             if( grid_point_u >= 0 && grid_point_u < gridsize && \
                 grid_point_v >= 0 && grid_point_v < gridsize ) 
 	    {
-//	       d_out[grid_s + vi*gridsize*gridsize + gridsize*grid_point_v + grid_point_u].x+= sum.x;
-  //             d_out[grid_s + vi*gridsize*gridsize + gridsize*grid_point_v + grid_point_u].y+= sum.y;
+	       d_out[grid_s + pol*gridsize*gridsize + gridsize*grid_point_v + grid_point_u].x+= sum.x;
+               d_out[grid_s + pol*gridsize*gridsize + gridsize*grid_point_v + grid_point_u].y+= sum.y;
       
-              atomicAdd(&d_out[grid_s + pol*gridsize*gridsize + gridsize*grid_point_v + grid_point_u].x, sum.x);
-              atomicAdd(&d_out[grid_s + pol*gridsize*gridsize + gridsize*grid_point_v + grid_point_u].y, sum.y);
+//              atomicAdd(&d_out[grid_s + pol*gridsize*gridsize + gridsize*grid_point_v + grid_point_u].x, sum.x);
+//              atomicAdd(&d_out[grid_s + pol*gridsize*gridsize + gridsize*grid_point_v + grid_point_u].y, sum.y);
             }
        }/// End of polarization loop
-
-//    }/// End of illumination loop
     __syncthreads();
-    
-}
-
-
+ }
 
 template<typename InType, typename OutType>
 inline void launch_romein_kernel(int      nbaseline,
@@ -210,26 +201,18 @@ inline void launch_romein_kernel(int      nbaseline,
     cudaError_t error;
     error = cudaGetDeviceProperties(&dev, 0);
     if(error != cudaSuccess) printf("Error: %s\n", cudaGetErrorString(error));
-	
     int blk_cnt ;
     int block_x=maxsupport*maxsupport ;
     int tile_y ;
-    if(block_x==1)tile_y=std::min(nbaseline,dev.maxThreadsPerBlock);
-    else tile_y = std::min((int)nbaseline/block_x,dev.maxThreadsPerBlock);
+    if(block_x==1)tile_y=std::min(nbaseline,dev.maxThreadsPerBlock/2);
+    else tile_y = std::min((int)nbaseline/block_x,dev.maxThreadsPerBlock/2);
     int tile_grid_z=nbaseline/tile_y ;
     dim3 block(block_x,tile_y);
-    // cout << endl << " batch " << nbatch << " polz " << npol << " bool " << polmajor << endl ;
     if(polmajor){ blk_cnt = (nbatch*npol)/tile_grid_y;
-	     npol=1;
-	     block.z=1;  }
+	     npol=1; }
     else blk_cnt = nbatch/ tile_grid_y;
     dim3 grid(blk_cnt,tile_grid_y,tile_grid_z);
     
-     //  cout << endl << " batch " << nbatch << " polz " << npol << " bool " << polmajor << endl ;
-    //cout << "  Block size is " << block.x << " by " << block.y << " by " << block.z << endl;
-    //cout << "  Grid  size is " << grid.x << " by " << grid.y << " by " << grid.z << endl;
-   
- 
     void* args[] = {&nbaseline,
                     &npol,
                     &maxsupport,
