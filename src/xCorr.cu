@@ -10,14 +10,39 @@ Implements the grid-Correlation onto a GPU using CUDA.
 #include "utils.hpp"
 #include "cuda.hpp"
 #include "cuda/stream.hpp"
-
+//#include <complex.h>
 #include "Complex.hpp"
 
 #include <thrust/device_vector.h>
 
+#define tile 512 // Number of threads per thread-block
 
-#define tile_xx 32
-#define tile_fr 64
+/********************/
+/* CUDA ERROR CHECK */
+/********************/
+#define gpuErrchk(ans) { gpuAssert((ans), __FILE__, __LINE__); }
+inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=true)
+{
+   if (code != cudaSuccess) 
+   {
+      fprintf(stderr,"GPUassert: %s %s %d\n", cudaGetErrorString(code), file, line);
+      if (abort) exit(code);
+   }
+}
+
+
+
+inline
+cudaError_t checkCuda(cudaError_t result)
+{
+#if defined(DEBUG) || defined(_DEBUG)
+  if (result != cudaSuccess) {
+    fprintf(stderr, "CUDA Runtime Error: %s\n", cudaGetErrorString(result));
+    assert(result == cudaSuccess);
+  }
+#endif
+  return result;
+}
 
 struct __attribute__((aligned(1))) nibble2 {
     // Yikes!  This is dicey since the packing order is implementation dependent!  
@@ -46,50 +71,37 @@ inline Complex<RealType> ComplexMul(Complex<RealType> x, Complex<RealType> y, Co
 template<typename In, typename Out>
 __global__ void Corr(int npol, int gridsize, int nbatch,
 		     cudaTextureObject_t   data_in,
-		    // const In* __restrict__  d_in,
-                     Out* d_out){
+		     Out* d_out){
 
-	/// thread and block indexing 
-        int bid_x = blockIdx.x, bid_y = blockIdx.y, bid_z=blockIdx.z ;
+        int bid_x = blockIdx.x, bid_y = blockIdx.y ;
         int blk_x = blockDim.x;
-        int grid_x = gridDim.x, grid_y = gridDim.y, grid_z=gridDim.z ;
-        int tid_x = threadIdx.x;
-	int pol_skip = grid_z*blk_x;
+        int grid_x = gridDim.x, grid_y = gridDim.y ;
+        int tid_x = threadIdx.x ;
+        int pol_skip = grid_y*blk_x;
+// Making use of shared memory for faster memory accesses by the threads
 
-       // Making use of shared memory for faster memory accesses by the threads
-       
-        extern __shared__  float2 shared[] ; //Dynamic allocation of shared memory
+        extern __shared__  float2 shared[] ;
         float2* xx=shared;      
-	// Access pattern is such that coaelescence is achieved both for read and writes to global and shared memory
-
-        int bid=((bid_x*grid_y+bid_y)*npol*grid_z+bid_z)*blk_x ;
-
-        // Reading texture cache as 1D with 1D thread-block indexing and copying it to shared memory
-	
-        #pragma unroll
-        for(int i=0;i<(npol/2);++i)
-	{
-             xx[i*blk_x+tid_x] =tex1Dfetch<float2>(data_in, bid+i*pol_skip+tid_x);
-	}
+        float2* yy=xx+tile ;  
+// Access pattern is such that coaelescence is achieved both for read and writes to global and shared memory
+        int bid = (bid_x*npol*grid_y+bid_y)*blk_x ;
+        int bid_2 = bid_x*grid_y*int(npol/2)+bid_y ; 
+// Reading texture cache as 2D with 1D thread-block indexing and copying it to shared memory
+	xx[tid_x]= tex2D<float2>(data_in,tid_x,bid_2);
+        yy[tid_x]= tex2D<float2>(data_in,tid_x,bid_2+grid_y);
         __syncthreads();
 
-
-        // Iterate across polarizations to estimate XX*, YY*, XY*		
-        #pragma unroll
-        for(int i=0;i<npol-1;++i)
-	{
-             d_out[bid+i*pol_skip+tid_x].x += xx[i/2*blk_x+tid_x].x*xx[i%2*blk_x+tid_x].x \
-					      + xx[i/2*blk_x+tid_x].y*xx[i%2*blk_x+tid_x].y;
-	     d_out[bid+i*pol_skip+tid_x].y += xx[i/2*blk_x+tid_x].y*xx[i%2*blk_x+tid_x].x \ 
-		                              - xx[i/2*blk_x+tid_x].x*xx[i%2*blk_x+tid_x].y;        
-	}
-        __syncthreads();
-        //  YX* is the same as XY*; just negate the imaginary part
-        d_out[bid+3*pol_skip+tid_x].x = d_out[bid+2*pol_skip+tid_x].x;  
-	d_out[bid+3*pol_skip+tid_x].y = (-1)*d_out[bid+2*pol_skip+tid_x].y;
+// Estimate polarizations to estimate XX*, YY*, XY*		
+        d_out[bid+tid_x].x=xx[tid_x].x*xx[tid_x].x+xx[tid_x].y*xx[tid_x].y;d_out[bid+tid_x].y=0;
+	d_out[bid+pol_skip+tid_x].x=yy[tid_x].x*yy[tid_x].x+yy[tid_x].y*yy[tid_x].y;d_out[bid+pol_skip+tid_x].y=0;
+        d_out[bid+2*pol_skip+tid_x].x +=  xx[tid_x].x*yy[tid_x].x + xx[tid_x].y*yy[tid_x].y;
+      	d_out[bid+2*pol_skip+tid_x].y +=  xx[tid_x].y*yy[tid_x].x - xx[tid_x].x*yy[tid_x].y;   
+	 __syncthreads();
+//  YX* is the same as XY*; just negate the imaginary part
+   	 d_out[bid+3*pol_skip+tid_x].x=d_out[bid+2*pol_skip+tid_x].x;  
+         d_out[bid+3*pol_skip+tid_x].y=(-1)*d_out[bid+2*pol_skip+tid_x].y;
 }
  
-
 template<typename In, typename Out>
 inline void launch_corr_kernel(int npol, bool polmajor, int gridsize, int nbatch,
                                In*  d_in,
@@ -102,58 +114,51 @@ inline void launch_corr_kernel(int npol, bool polmajor, int gridsize, int nbatch
      {
         printf("Error: %s\n", cudaGetErrorString(error));
       }
-    int grid_count = gridsize*gridsize ;
-    int tile_x=std::min(grid_count,dev.maxThreadsPerBlock/2);          
-    int block_grid=grid_count/tile_x;
-    int block_x=nbatch/tile_fr ;
-    // Maximum thread blocks per device for GeForce cards on intrepid
-    dim3 block(tile_x,1); /// Flattened one-D to reduce indexing arithmetic
-    dim3 grid(block_x, tile_fr, block_grid);
+    size_t grid_count = gridsize*gridsize ;
+    size_t thread_bound = dev.maxThreadsPerBlock;
+    size_t tile_grid_y = grid_count/tile;
+    dim3 block(tile,1); /// Flattened one-D to reduce indexing arithmetic
+    dim3 grid(nbatch,tile_grid_y);// 2D grid for time, frequency and pixel indexing
    
-    // Determine how to create the texture object
-    // NOTE:  Assumes some type of complex float
-    cudaChannelFormatKind channel_format = cudaChannelFormatKindFloat;
-    int dx = 32;
-    int dy = 32;
-    int dz = 0;
-    int dw = 0;
-    if( sizeof(In) == sizeof(Complex64) ) 
-    {
-        channel_format = cudaChannelFormatKindUnsigned;
-        dz = 32;
-        dw = 32;
-    }
+    //Create Data Channel Format for texture chache 
+    cudaChannelFormatDesc channelDesc = cudaCreateChannelDesc<In>();//cudaCreateChannelDesc(32, 32, 0, 0, cudaChannelFormatKindFloat );
+  // Create 2D-texture map for the input-data
+    size_t pitch;    
+    size_t width =  tile;  // number of data columns in matrix
+    size_t height = (int)(nbatch*tile_grid_y*npol/2) ;// number of data rows in matrix
+    In* dataDev;
+    checkCuda( cudaMallocPitch(&dataDev, &pitch, width * sizeof(In),  height) );
+    checkCuda( cudaMemcpy2D(dataDev, pitch, d_in, width*sizeof(In), width*sizeof(In),height, cudaMemcpyHostToDevice) );
+   
+   // Create 2D texture object for the pitched 2D texture map
+   
+    struct cudaResourceDesc resDesc;
+    memset(&resDesc, 0, sizeof(resDesc)) ;
+    resDesc.resType = cudaResourceTypePitch2D;
+    resDesc.res.pitch2D.devPtr = dataDev;
+    resDesc.res.pitch2D.width  = width;
+    resDesc.res.pitch2D.height =  height;
+    resDesc.res.pitch2D.desc = channelDesc;
+    resDesc.res.pitch2D.pitchInBytes = pitch;
 
-    // Create texture object
-    cudaResourceDesc resDesc;
-    memset(&resDesc, 0, sizeof(resDesc));
-    resDesc.resType = cudaResourceTypeLinear;
-    resDesc.res.linear.devPtr = d_in;
-    resDesc.res.linear.desc.f = channel_format;
-    resDesc.res.linear.desc.x = dx;
-    resDesc.res.linear.desc.y = dy;
-    resDesc.res.linear.desc.z = dz;
-    resDesc.res.linear.desc.w = dw;
-    resDesc.res.linear.sizeInBytes = 2*grid_count*nbatch*sizeof(In);
-
-    cudaTextureDesc texDesc;
+    struct cudaTextureDesc texDesc;
     memset(&texDesc, 0, sizeof(texDesc));
     texDesc.readMode = cudaReadModeElementType;
 
     cudaTextureObject_t data_in;
     BF_CHECK_CUDA_EXCEPTION(cudaCreateTextureObject(&data_in, &resDesc, &texDesc, NULL), BF_STATUS_INTERNAL_ERROR);
-
     void* args[] = {&npol,
                     &gridsize, 
                     &nbatch,
 		    &data_in,
-                  //  &d_in,
                     &d_out};
-     size_t loc_size=2*block.x;
-     BF_CHECK_CUDA_EXCEPTION(cudaLaunchKernel((void*)Corr<In,Out>, grid, block,
+     size_t loc_size=int(npol/2)*block.x; // Shared memory size to be allocated for the kernel
+	BF_CHECK_CUDA_EXCEPTION(cudaLaunchKernel((void*)Corr<In,Out>,
+						 grid, block,
 						 &args[0], loc_size*sizeof(float2), stream),BF_STATUS_INTERNAL_ERROR);
    
-     BF_CHECK_CUDA_EXCEPTION(cudaDestroyTextureObject(data_in),BF_STATUS_INTERNAL_ERROR);
+ cudaFree(dataDev); // Clear the texture cache to resuse the resources
+ BF_CHECK_CUDA_EXCEPTION(cudaDestroyTextureObject(data_in), BF_STATUS_INTERNAL_ERROR);
 
 }
 
@@ -325,7 +330,7 @@ BFstatus bfCorrExecute(BFcorr          plan,
         BF_ASSERT(out_flattened.ndim == 4, BF_STATUS_UNSUPPORTED_SHAPE);
     }
 // cout << out->shape[0] << "  " << out->shape[1] << "  " << out->shape[2] << "  " << out->shape[3] << endl ;
- //   cout <<  in->shape[0] << "  " << in->shape[1] << "  " << in->shape[2]  << "  " << in->shape[3] << "  " << in->shape[4] << "  " << in->shape[5] << endl ;
+//   cout <<  in->shape[0] << "  " << in->shape[1] << "  " << in->shape[2]  << "  " << in->shape[3] << "  " << in->shape[4] << "  " << in->shape[5] << endl ;
 
 
 //    std::cout << "OUT ndim = " << out->ndim << std::endl;
@@ -352,7 +357,9 @@ BFstatus bfCorrExecute(BFcorr          plan,
    // BF_ASSERT(out->dtype == plan->tkernels(),    BF_STATUS_UNSUPPORTED_DTYPE);
     
     BF_ASSERT(space_accessible_from( in->space, BF_SPACE_CUDA), BF_STATUS_INVALID_SPACE);
+   // cout<<"Memory accessible from " << space_accessible_from( in->space, BF_SPACE_CUDA)<<endl ;
     BF_ASSERT(space_accessible_from(out->space, BF_SPACE_CUDA), BF_STATUS_INVALID_SPACE);
+   // cout<<"Memory accessible for output " <<space_accessible_from(out->space, BF_SPACE_CUDA) << endl;
     BF_TRY_RETURN(plan->execute(in, out));
 }
 
