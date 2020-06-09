@@ -15,7 +15,7 @@ Implements the grid-Correlation onto a GPU using CUDA.
 
 #include <thrust/device_vector.h>
 
-#define tile 512 // Number of threads per thread-block
+#define tile 256 // Number of threads per thread-block
 
 /********************/
 /* CUDA ERROR CHECK */
@@ -85,10 +85,11 @@ __global__ void Corr(int npol, int gridsize, int nbatch,
         float2* yy=xx+tile ;  
 // Access pattern is such that coaelescence is achieved both for read and writes to global and shared memory
         int bid = (bid_x*npol*grid_y+bid_y)*blk_x ;
-        int bid_2 = bid_x*grid_y*int(npol/2)+bid_y ; 
+        int bid_2 = bid_y*blk_x;//bid_x*grid_y*int(npol/2)+bid_y ; 
+	int bid_3 = bid_x*int(npol/2);
 // Reading texture cache as 2D with 1D thread-block indexing and copying it to shared memory
-	xx[tid_x]= tex2D<float2>(data_in,tid_x,bid_2);
-        yy[tid_x]= tex2D<float2>(data_in,tid_x,bid_2+grid_y);
+	xx[tid_x]= tex2D<float2>(data_in,bid_2+tid_x,bid_3);
+        yy[tid_x]= tex2D<float2>(data_in,bid_2+tid_x,bid_3+1);
         __syncthreads();
 
 // Estimate polarizations to estimate XX*, YY*, XY*		
@@ -124,8 +125,8 @@ inline void launch_corr_kernel(int npol, bool polmajor, int gridsize, int nbatch
     cudaChannelFormatDesc channelDesc = cudaCreateChannelDesc<In>();//cudaCreateChannelDesc(32, 32, 0, 0, cudaChannelFormatKindFloat );
   // Create 2D-texture map for the input-data
     size_t pitch;    
-    size_t width =  tile;  // number of data columns in matrix
-    size_t height = (int)(nbatch*tile_grid_y*npol/2) ;// number of data rows in matrix
+    size_t width =  grid_count;  // number of data columns in matrix
+    size_t height = (int)(nbatch*npol/2) ;// number of data rows in matrix
     In* dataDev;
     checkCuda( cudaMallocPitch(&dataDev, &pitch, width * sizeof(In),  height) );
     checkCuda( cudaMemcpy2D(dataDev, pitch, d_in, width*sizeof(In), width*sizeof(In),height, cudaMemcpyHostToDevice) );
