@@ -16,6 +16,7 @@ Implements the grid-Correlation onto a GPU using CUDA.
 #include <thrust/device_vector.h>
 
 #define tile 256 // Number of threads per thread-block
+#define tile_grid 65536 //Tiling the grid
 
 /********************/
 /* CUDA ERROR CHECK */
@@ -73,28 +74,39 @@ __global__ void Corr(int npol, int gridsize, int nbatch,
 		     cudaTextureObject_t   data_in,
 		     Out* d_out){
 
-        int bid_x = blockIdx.x, bid_y = blockIdx.y ;
+        int bid_x = blockIdx.x, bid_y = blockIdx.y, bid_z = blockIdx.z ;
         int blk_x = blockDim.x;
-        int grid_x = gridDim.x, grid_y = gridDim.y ;
+        int grid_x = gridDim.x, grid_y = gridDim.y, grid_z = gridDim.z ;
         int tid_x = threadIdx.x ;
-        int pol_skip = grid_y*blk_x;
+        int pol_skip = grid_y*grid_z*blk_x;
 // Making use of shared memory for faster memory accesses by the threads
 
         extern __shared__  float2 shared[] ;
         float2* xx=shared;      
         float2* yy=xx+tile ;  
 // Access pattern is such that coaelescence is achieved both for read and writes to global and shared memory
-        int bid = (bid_x*npol*grid_y+bid_y)*blk_x ;
-        int bid_2 = bid_y*blk_x;//bid_x*grid_y*int(npol/2)+bid_y ; 
-	int bid_3 = bid_x*int(npol/2);
-// Reading texture cache as 2D with 1D thread-block indexing and copying it to shared memory
-	xx[tid_x]= tex2D<float2>(data_in,bid_2+tid_x,bid_3);
-        yy[tid_x]= tex2D<float2>(data_in,bid_2+tid_x,bid_3+1);
-        __syncthreads();
+        int bid = bid_x*npol*grid_y*grid_z*blk_x + bid_y*grid_z*blk_x + bid_z*blk_x;
+        int bid_2 ;
+	int bid_3 = bid_z*blk_x;
+	// Reading texture cache as 2D with 1D thread-block indexing and copying it to shared memory
+	if(gridsize>128)
+	{ 
+		bid_2=bid_x*grid_y*(int)npol/2+bid_y ; 
+		xx[tid_x]= tex2D<float2>(data_in,bid_3+tid_x,bid_2);
+                yy[tid_x]= tex2D<float2>(data_in,bid_3+tid_x,bid_2+grid_y);
+
+	}
+	else{ 
+		bid_2=bid_x*grid_y+bid_y ;
+		xx[tid_x]= tex2D<float2>(data_in,bid_3+tid_x,bid_2);
+                yy[tid_x]= tex2D<float2>(data_in,bid_3+tid_x+grid_z*blk_x,bid_2);
+	}
 
 // Estimate polarizations to estimate XX*, YY*, XY*		
-        d_out[bid+tid_x].x=xx[tid_x].x*xx[tid_x].x+xx[tid_x].y*xx[tid_x].y;d_out[bid+tid_x].y=0;
-	d_out[bid+pol_skip+tid_x].x=yy[tid_x].x*yy[tid_x].x+yy[tid_x].y*yy[tid_x].y;d_out[bid+pol_skip+tid_x].y=0;
+        d_out[bid+tid_x].x=xx[tid_x].x*xx[tid_x].x+xx[tid_x].y*xx[tid_x].y;
+	d_out[bid+tid_x].y=0;
+	d_out[bid+pol_skip+tid_x].x=yy[tid_x].x*yy[tid_x].x+yy[tid_x].y*yy[tid_x].y;
+	d_out[bid+pol_skip+tid_x].y=0;
         d_out[bid+2*pol_skip+tid_x].x +=  xx[tid_x].x*yy[tid_x].x + xx[tid_x].y*yy[tid_x].y;
       	d_out[bid+2*pol_skip+tid_x].y +=  xx[tid_x].y*yy[tid_x].x - xx[tid_x].x*yy[tid_x].y;   
 	 __syncthreads();
@@ -117,16 +129,30 @@ inline void launch_corr_kernel(int npol, bool polmajor, int gridsize, int nbatch
       }
     size_t grid_count = gridsize*gridsize ;
     size_t thread_bound = dev.maxThreadsPerBlock;
-    size_t tile_grid_y = grid_count/tile;
+    size_t tile_grid_z ;
+    size_t tile_grid_y;
+  size_t width, height ;
+    if(gridsize>128){ 
+	    tile_grid_z = tile_grid/tile;
+	    tile_grid_y = grid_count/tile_grid;
+	    width =  tile_grid;  // number of data columns in matrix
+	    height = nbatch*tile_grid_y*(int)npol/2 ;// number of data rows in matrix
+    }
+    else{   
+	    width = grid_count*(int)npol/2; // number of data columns in matrix
+	    tile_grid_z = grid_count/tile;
+	    tile_grid_y= grid_count/(tile_grid_z*tile);
+	    height = nbatch*tile_grid_y ;// number of data rows in matrix
+    }
+    
+   
     dim3 block(tile,1); /// Flattened one-D to reduce indexing arithmetic
-    dim3 grid(nbatch,tile_grid_y);// 2D grid for time, frequency and pixel indexing
+    dim3 grid(nbatch,tile_grid_y,tile_grid_z);// 2D grid for time, frequency and pixel indexing
    
     //Create Data Channel Format for texture chache 
     cudaChannelFormatDesc channelDesc = cudaCreateChannelDesc<In>();//cudaCreateChannelDesc(32, 32, 0, 0, cudaChannelFormatKindFloat );
   // Create 2D-texture map for the input-data
     size_t pitch;    
-    size_t width =  grid_count;  // number of data columns in matrix
-    size_t height = (int)(nbatch*npol/2) ;// number of data rows in matrix
     In* dataDev;
     checkCuda( cudaMallocPitch(&dataDev, &pitch, width * sizeof(In),  height) );
     checkCuda( cudaMemcpy2D(dataDev, pitch, d_in, width*sizeof(In), width*sizeof(In),height, cudaMemcpyHostToDevice) );
