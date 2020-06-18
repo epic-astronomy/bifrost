@@ -4,7 +4,7 @@ Implements the grid-Correlation onto a GPU using CUDA.
 
 */
 #include <iostream>
-#include "bifrost/Corr_romein.h"
+#include "bifrost/xCorr.h"
 #include "assert.hpp"
 #include "trace.hpp"
 #include "utils.hpp"
@@ -70,7 +70,7 @@ inline Complex<RealType> ComplexMul(Complex<RealType> x, Complex<RealType> y, Co
 }
 
 template<typename In, typename Out>
-__global__ void Corr(int npol, int gridsize, int nbatch,
+__global__ void XCorr(int npol, int gridsize, int nbatch,
 		     cudaTextureObject_t   data_in,
 		     Out* d_out){
 
@@ -116,7 +116,7 @@ __global__ void Corr(int npol, int gridsize, int nbatch,
 }
  
 template<typename In, typename Out>
-inline void launch_corr_kernel(int npol, bool polmajor, int gridsize, int nbatch,
+inline void launch_xcorr_kernel(int npol, bool polmajor, int gridsize, int nbatch,
                                In*  d_in,
                                Out* d_out,
                                cudaStream_t stream=0) {
@@ -155,7 +155,7 @@ inline void launch_corr_kernel(int npol, bool polmajor, int gridsize, int nbatch
     size_t pitch;    
     In* dataDev;
     checkCuda( cudaMallocPitch(&dataDev, &pitch, width * sizeof(In),  height) );
-    checkCuda( cudaMemcpy2D(dataDev, pitch, d_in, width*sizeof(In), width*sizeof(In),height, cudaMemcpyHostToDevice) );
+    checkCuda( cudaMemcpy2D(dataDev, pitch, d_in, width*sizeof(In), width*sizeof(In),height, cudaMemcpyDeviceToDevice) );
    
    // Create 2D texture object for the pitched 2D texture map
    
@@ -180,7 +180,7 @@ inline void launch_corr_kernel(int npol, bool polmajor, int gridsize, int nbatch
 		    &data_in,
                     &d_out};
      size_t loc_size=int(npol/2)*block.x; // Shared memory size to be allocated for the kernel
-	BF_CHECK_CUDA_EXCEPTION(cudaLaunchKernel((void*)Corr<In,Out>,
+	BF_CHECK_CUDA_EXCEPTION(cudaLaunchKernel((void*)XCorr<In,Out>,
 						 grid, block,
 						 &args[0], loc_size*sizeof(float2), stream),BF_STATUS_INTERNAL_ERROR);
    
@@ -189,7 +189,7 @@ inline void launch_corr_kernel(int npol, bool polmajor, int gridsize, int nbatch
 
 }
 
-class BFcorr_impl {
+class BFxcorr_impl {
     typedef int    IType;
     typedef double FType;
 public: // HACK WAR for what looks like a bug in the CUDA 7.0 compiler
@@ -201,7 +201,7 @@ private:
   //  BFdtype      _tkernels = BF_DTYPE_INT_TYPE;
     cudaStream_t _stream;
 public:
-    BFcorr_impl() : _npol(1), _polmajor(true), _stream(g_cuda_stream) {}
+    BFxcorr_impl() : _npol(1), _polmajor(true), _stream(g_cuda_stream) {}
     inline IType npol()       const { return _npol;       }
     inline bool polmajor()    const { return _polmajor;   }
     inline IType gridsize()   const { return _gridsize;   }
@@ -222,8 +222,8 @@ public:
         
         int nbatch = in->shape[1]*in->shape[2];
         
-#define LAUNCH_CORR_KERNEL(IterType,OterType) \
-        launch_corr_kernel(_npol, _polmajor, _gridsize, nbatch, \
+#define LAUNCH_XCORR_KERNEL(IterType,OterType) \
+        launch_xcorr_kernel(_npol, _polmajor, _gridsize, nbatch, \
                              (IterType)in->data, (OterType)out->data, \
                              _stream)
         
@@ -231,63 +231,63 @@ public:
             case BF_DTYPE_CI4:
                 if( in->big_endian ) {
                     switch( out->dtype ) {
-                        case BF_DTYPE_CF32: LAUNCH_CORR_KERNEL(nibble2*, Complex32*);  break;
-                        case BF_DTYPE_CF64: LAUNCH_CORR_KERNEL(nibble2*, Complex64*);  break;
+                        case BF_DTYPE_CF32: LAUNCH_XCORR_KERNEL(nibble2*, Complex32*);  break;
+                        case BF_DTYPE_CF64: LAUNCH_XCORR_KERNEL(nibble2*, Complex64*);  break;
                         default: BF_ASSERT_EXCEPTION(false, BF_STATUS_UNSUPPORTED_DTYPE);
                     };
                 } else {
                     switch( out->dtype ) {
-                        case BF_DTYPE_CF32: LAUNCH_CORR_KERNEL(blenib2*, Complex32*);  break;
-                        case BF_DTYPE_CF64: LAUNCH_CORR_KERNEL(blenib2*, Complex64*);  break;
+                        case BF_DTYPE_CF32: LAUNCH_XCORR_KERNEL(blenib2*, Complex32*);  break;
+                        case BF_DTYPE_CF64: LAUNCH_XCORR_KERNEL(blenib2*, Complex64*);  break;
                         default: BF_ASSERT_EXCEPTION(false, BF_STATUS_UNSUPPORTED_DTYPE);
                     };
                 }
                 break;
             case BF_DTYPE_CI8:
                 switch( out->dtype ) {
-                    case BF_DTYPE_CF32: LAUNCH_CORR_KERNEL(char2*, Complex32*);  break;
-                    case BF_DTYPE_CF64: LAUNCH_CORR_KERNEL(char2*, Complex64*);  break;
+                    case BF_DTYPE_CF32: LAUNCH_XCORR_KERNEL(char2*, Complex32*);  break;
+                    case BF_DTYPE_CF64: LAUNCH_XCORR_KERNEL(char2*, Complex64*);  break;
                     default: BF_ASSERT_EXCEPTION(false, BF_STATUS_UNSUPPORTED_DTYPE);
                 };
                 break;
             case BF_DTYPE_CI16:
                 switch( out->dtype ) {
-                    case BF_DTYPE_CF32: LAUNCH_CORR_KERNEL(short2*, Complex32*); break;
-                    case BF_DTYPE_CF64: LAUNCH_CORR_KERNEL(short2*, Complex64*); break;
+                    case BF_DTYPE_CF32: LAUNCH_XCORR_KERNEL(short2*, Complex32*); break;
+                    case BF_DTYPE_CF64: LAUNCH_XCORR_KERNEL(short2*, Complex64*); break;
                     default: BF_ASSERT_EXCEPTION(false, BF_STATUS_UNSUPPORTED_DTYPE);
                 }
                 break;
             case BF_DTYPE_CI32:
                 switch( out->dtype ) {
-                    case BF_DTYPE_CF32: LAUNCH_CORR_KERNEL(int2*, Complex32*); break;
-                    case BF_DTYPE_CF64: LAUNCH_CORR_KERNEL(int2*, Complex64*); break;
+                    case BF_DTYPE_CF32: LAUNCH_XCORR_KERNEL(int2*, Complex32*); break;
+                    case BF_DTYPE_CF64: LAUNCH_XCORR_KERNEL(int2*, Complex64*); break;
                     default: BF_ASSERT_EXCEPTION(false, BF_STATUS_UNSUPPORTED_DTYPE);
                 }
                 break;
             case BF_DTYPE_CI64:
                 switch( out->dtype ) {
-                    case BF_DTYPE_CF32: LAUNCH_CORR_KERNEL(long2*, Complex32*); break;
-                    case BF_DTYPE_CF64: LAUNCH_CORR_KERNEL(long2*, Complex64*); break;
+                    case BF_DTYPE_CF32: LAUNCH_XCORR_KERNEL(long2*, Complex32*); break;
+                    case BF_DTYPE_CF64: LAUNCH_XCORR_KERNEL(long2*, Complex64*); break;
                     default: BF_ASSERT_EXCEPTION(false, BF_STATUS_UNSUPPORTED_DTYPE);
                 }
                 break;
             case BF_DTYPE_CF32:
                 switch( out->dtype ) {
-                    case BF_DTYPE_CF32: LAUNCH_CORR_KERNEL(float2*, Complex32*);   break;
-                    case BF_DTYPE_CF64: LAUNCH_CORR_KERNEL(float2*, Complex64*);   break;
+                    case BF_DTYPE_CF32: LAUNCH_XCORR_KERNEL(float2*, Complex32*);   break;
+                    case BF_DTYPE_CF64: LAUNCH_XCORR_KERNEL(float2*, Complex64*);   break;
                     default: BF_ASSERT_EXCEPTION(false, BF_STATUS_UNSUPPORTED_DTYPE);
                 }
                 break;
             case BF_DTYPE_CF64:
                 switch( out->dtype ) {
-                    case BF_DTYPE_CF32: LAUNCH_CORR_KERNEL(double2*, Complex32*);  break;
-                    case BF_DTYPE_CF64: LAUNCH_CORR_KERNEL(double2*, Complex64*);  break;
+                    case BF_DTYPE_CF32: LAUNCH_XCORR_KERNEL(double2*, Complex32*);  break;
+                    case BF_DTYPE_CF64: LAUNCH_XCORR_KERNEL(double2*, Complex64*);  break;
                     default: BF_ASSERT_EXCEPTION(false, BF_STATUS_UNSUPPORTED_DTYPE);
                 }
                 break;
             default: BF_ASSERT_EXCEPTION(false, BF_STATUS_UNSUPPORTED_DTYPE);
         }
-#undef LAUNCH_CORR_KERNEL
+#undef LAUNCH_XCORR_KERNEL
         
         BF_CHECK_CUDA_EXCEPTION(cudaGetLastError(), BF_STATUS_INTERNAL_ERROR);
     }
@@ -296,13 +296,13 @@ public:
     }
 };
 
-BFstatus bfCorrCreate(BFcorr* plan_ptr) {
+BFstatus bfxCorrCreate(BFxcorr* plan_ptr) {
     BF_TRACE();
     BF_ASSERT(plan_ptr, BF_STATUS_INVALID_POINTER);
-    BF_TRY_RETURN_ELSE(*plan_ptr = new BFcorr_impl(),
+    BF_TRY_RETURN_ELSE(*plan_ptr = new BFxcorr_impl(),
                        *plan_ptr = 0);
 }
-BFstatus bfCorrInit(BFcorr       plan,
+BFstatus bfxCorrInit(BFxcorr       plan,
                       BFsize         gridsize,
                       BFbool         polmajor) {
     BF_TRACE();
@@ -312,14 +312,14 @@ BFstatus bfCorrInit(BFcorr       plan,
      
     BF_TRY_RETURN(plan->init(npol, polmajor, gridsize));
 }
-BFstatus bfCorrSetStream(BFcorr    plan,
+BFstatus bfxCorrSetStream(BFxcorr    plan,
                            void const* stream) {
     BF_TRACE();
     BF_ASSERT(plan, BF_STATUS_INVALID_HANDLE);
     BF_ASSERT(stream, BF_STATUS_INVALID_POINTER);
     BF_TRY_RETURN(plan->set_stream(*(cudaStream_t*)stream));
 }
-BFstatus bfCorrExecute(BFcorr          plan,
+BFstatus bfxCorrExecute(BFxcorr          plan,
                          BFarray const* in,
                          BFarray const* out) {
     BF_TRACE();
@@ -390,7 +390,7 @@ BFstatus bfCorrExecute(BFcorr          plan,
     BF_TRY_RETURN(plan->execute(in, out));
 }
 
-BFstatus bfCorrDestroy(BFcorr plan) {
+BFstatus bfxCorrDestroy(BFxcorr plan) {
     BF_TRACE();
     BF_ASSERT(plan, BF_STATUS_INVALID_HANDLE);
     delete plan;

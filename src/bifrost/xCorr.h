@@ -1,5 +1,5 @@
-#ifndef BF_CORR_H_INCLUDE_GUARD_
-#define BF_CORR_H_INCLUDE_GUARD_
+#ifndef BF_XCORR_H_INCLUDE_GUARD_
+#define BF_XCORR_H_INCLUDE_GUARD_
 
 // Bifrost Includes
 #include <bifrost/common.h>
@@ -10,21 +10,21 @@
 extern "C" {
 #endif
 
-typedef struct BFcorr_impl* BFcorr;
+typedef struct BFxcorr_impl* BFxcorr;
 
-BFstatus bfCorrCreate(BFcorr* plan);
-BFstatus bfCorrInit(BFcorr       plan,
+BFstatus bfxCorrCreate(BFxcorr* plan);
+BFstatus bfxCorrInit(BFxcorr       plan,
                       BFsize         ngrid,
                       BFbool         polmajor);
-BFstatus bfCorrSetStream(BFcorr    plan,
+BFstatus bfxCorrSetStream(BFxcorr    plan,
                            void const* stream);
-BFstatus bfCorrExecute(BFcorr          plan,
+BFstatus bfxCorrExecute(BFxcorr          plan,
                          BFarray const* in,
                          BFarray const* out);
-BFstatus bfCorrDestroy(BFcorr plan);
+BFstatus bfxCorrDestroy(BFxcorr plan);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif // BF_CORR_H_INCLUDE_GUARD
+#endif // BF_XCORR_H_INCLUDE_GUARD

@@ -28,16 +28,16 @@ from libbifrost import _bf, _check, _get, BifrostObject
 import ctypes
 from ndarray import asarray
 
-class Corr(BifrostObject):
+class xCorr(BifrostObject):
     def __init__(self):
-        BifrostObject.__init__(self, _bf.bfCorrCreate, _bf.bfCorrDestroy)
+        BifrostObject.__init__(self, _bf.bfxCorrCreate, _bf.bfxCorrDestroy)
     def init(self, ngrid, polmajor=True):
-        _check( _bf.bfCorrInit(self.obj, 
+        _check( _bf.bfxCorrInit(self.obj, 
                                  ngrid,
                                  polmajor) )
     def execute(self, idata, odata):
         # TODO: Work out how to integrate CUDA stream
-        _check( _bf.bfCorrExecute(self.obj,
+        _check( _bf.bfxCorrExecute(self.obj,
                                     asarray(idata).as_BFarray(),
                                     asarray(odata).as_BFarray()) )
         return odata
