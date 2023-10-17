@@ -142,12 +142,29 @@ VGrid_kernel(      int   		       npol,
        	   // If grid-point changes for a given illumination pattern 
 
           if (!(myGridU == grid_point_u && myGridV == grid_point_v)) 
-	  { // Atomic add to grid is now removed from this kernel after careful examining and consideration for race-conditions
+	  { 
+               // Round Step for UV grid pos. to avoid int() rounding down always
+               grid_point_u = round(grid_point_u);
+               grid_point_v = round(grid_point_v);
+
+               // Loop to zero if above the grid size (maybe change to grid_point_X %= gridsize for speed/clarity?) [CT]
+               if( round(grid_point_u) >= gridsize )
+               {
+               grid_point_u = 0.0;
+               }
+
+               if( round(grid_point_v) >= gridsize )
+               {
+               grid_point_v = 0.0;
+               }
+
+
                if( grid_point_u >= 0 && grid_point_u < gridsize && \
                     grid_point_v >= 0 && grid_point_v < gridsize ) 
 	        {
-                       d_out[grid_s + pol*gridsize*gridsize + gridsize*int(grid_point_v) + int(grid_point_u)].x+= sum.x;
-                       d_out[grid_s + pol*gridsize*gridsize + gridsize*int(grid_point_v) + int(grid_point_u)].y+= sum.y;  
+                       // Atomic add to fix autocorrelation problems 
+                       atomicAdd(&d_out[grid_s + pol*gridsize*gridsize + gridsize*int(grid_point_v) + int(grid_point_u)].x, sum.x);
+                       atomicAdd(&d_out[grid_s + pol*gridsize*gridsize + gridsize*int(grid_point_v) + int(grid_point_u)].y, sum.y);
                 }
 	        // Switch to new point
                 sum = OutType(0.0, 0.0);
@@ -165,10 +182,26 @@ VGrid_kernel(      int   		       npol,
             if( grid_point_u >= 0 && grid_point_u < gridsize && \
                 grid_point_v >= 0 && grid_point_v < gridsize ) 
 	    {
-          
-                d_out[grid_s + pol*gridsize*gridsize + gridsize*int(grid_point_v) + int(grid_point_u)].x+= sum.x;
-                d_out[grid_s + pol*gridsize*gridsize + gridsize*int(grid_point_v) + int(grid_point_u)].y+= sum.y;
-          }
+                // Round Step for UV grid pos. to avoid int() rounding down always 
+                grid_point_u = round(grid_point_u);
+                grid_point_v = round(grid_point_v);
+
+                // Loop to zero if above the grid size (maybe change to grid_point_X %= gridsize for speed/clarity?) [CT]
+                if( round(grid_point_u) >= gridsize )
+                {
+                grid_point_u = 0.0;
+                }
+
+                if( round(grid_point_v) >= gridsize )
+                {
+                grid_point_v = 0.0;
+                }
+
+                // Atomic Add to fix autocorrelation problems 
+                atomicAdd(&d_out[grid_s + pol*gridsize*gridsize + gridsize*int(grid_point_v) + int(grid_point_u)].x, sum.x);
+                atomicAdd(&d_out[grid_s + pol*gridsize*gridsize + gridsize*int(grid_point_v) + int(grid_point_u)].y, sum.y);
+
+           }
        }/// End of polarization loop
     __syncthreads();
  }
